@@ -186,8 +186,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "audio: %s\n", err.c_str());
         return 1;
     }
-    std::printf("audio: %s | %u Hz | %u frame | %u periodi\n", io.device().c_str(),
-                io.rate(), io.period_frames(), io.periods());
+    std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi\n",
+                io.device().c_str(), io.rate(), io.period_frames(),
+                io.buffer_frames(), io.periods());
 
     namzero::Chain chain;
     chain.add(std::make_unique<namzero::GainSlot>(0.0f));
@@ -199,6 +200,13 @@ int main(int argc, char** argv) {
     std::vector<int32_t> in_i32(samples, 0);
     std::vector<int32_t> out_i32(samples, 0);
     std::vector<float> buf(samples, 0.0f);
+
+    // Buffer di playback pieno a due periodi prima di partire.
+    if (!io.prime_playback(2 * io.period_frames())) {
+        std::fprintf(stderr,
+                     "attenzione: priming del playback fallito, "
+                     "possibile underrun iniziale\n");
+    }
 
     if (opt.realtime) {
         if (!namzero::rt::install(err)) {

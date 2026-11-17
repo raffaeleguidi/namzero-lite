@@ -40,9 +40,14 @@ public:
     // Ritorna true se lo stream e' stato ripreso.
     bool recover(int err, bool capture_side);
 
+    // Riempie il buffer di playback con silenzio prima del loop: il device parte
+    // con il buffer pieno invece che a meta', evitando l'underrun iniziale.
+    bool prime_playback(std::size_t frames);
+
     unsigned rate() const { return rate_; }
     unsigned period_frames() const { return period_frames_; }
     unsigned periods() const { return periods_; }
+    unsigned buffer_frames() const { return buffer_frames_; }
     const std::string& device() const { return device_; }
 
 private:
@@ -51,6 +56,8 @@ private:
     bool apply_params(snd_pcm_t* pcm, const char* what, unsigned& rate,
                       unsigned& period_frames, unsigned& periods,
                       std::string& err);
+    bool configure_sw(snd_pcm_t* pcm, const char* what, bool capture_side,
+                      unsigned period_frames, std::string& err);
     void close_one(snd_pcm_t** pcm);
 
     snd_pcm_t* capture_ = nullptr;
@@ -59,6 +66,7 @@ private:
     unsigned rate_ = 0;
     unsigned period_frames_ = 0;
     unsigned periods_ = 0;
+    unsigned buffer_frames_ = 0;
 };
 
 }  // namespace namzero

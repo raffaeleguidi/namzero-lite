@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstring>
 #include <utility>
+#include <vector>
 
 namespace namzero {
 namespace {
@@ -115,6 +116,44 @@ bool AlsaDuplex::apply_params(snd_pcm_t* pcm, const char* what, unsigned& rate,
     return true;
 }
 
+bool AlsaDuplex::configure_sw(snd_pcm_t* pcm, const char* what,
+                              bool capture_side, unsigned period_frames,
+                              std::string& err) {
+    snd_pcm_sw_params_t* sw;
+    snd_pcm_sw_params_alloca(&sw);
+
+    int rc = snd_pcm_sw_params_current(pcm, sw);
+    if (rc < 0) {
+        err = describe(what, rc);
+        return false;
+    }
+
+    snd_pcm_sw_params_set_avail_min(pcm, sw, period_frames);
+
+    if (capture_side) {
+        // La capture parte al primo periodo disponibile.
+        snd_pcm_sw_params_set_start_threshold(pcm, sw, 1);
+    } else {
+        // Il playback parte solo con due periodi gia' in buffer: partire "a
+        // meta'" e' la causa classica dell'underrun immediato.
+        snd_pcm_sw_params_set_start_threshold(pcm, sw, 2u * period_frames);
+    }
+
+    rc = snd_pcm_sw_params(pcm, sw);
+    if (rc < 0) {
+        err = describe(what, rc);
+        return false;
+    }
+    return true;
+}
+
+bool AlsaDuplex::prime_playback(std::size_t frames) {
+    if (playback_ == nullptr || frames == 0) return false;
+    std::vector<int32_t> silence(frames * kChannels, 0);
+    const long n = write_i32(silence.data(), frames);
+    return n == static_cast<long>(frames);
+}
+
 bool AlsaDuplex::open(const AudioConfig& cfg, std::string& err) {
     close();
     device_ = cfg.device;
@@ -164,9 +203,39 @@ bool AlsaDuplex::open(const AudioConfig& cfg, std::string& err) {
         return false;
     }
 
+    // Parametri REALMENTE negoziati: chiedere 256 non garantisce 256.
+    snd_pcm_uframes_t cap_buf = 0, cap_per = 0, pb_buf = 0, pb_per = 0;
+    rc = snd_pcm_get_params(capture_, &cap_buf, &cap_per);
+    if (rc < 0) {
+        err = describe("get_params capture", rc);
+        close();
+        return false;
+    }
+    rc = snd_pcm_get_params(playback_, &pb_buf, &pb_per);
+    if (rc < 0) {
+        err = describe("get_params playback", rc);
+        close();
+        return false;
+    }
+    if (cap_per != pb_per || cap_buf != pb_buf) {
+        err = "capture e playback hanno buffer/periodo diversi";
+        close();
+        return false;
+    }
+
+    period_frames_ = static_cast<unsigned>(cap_per);
+    buffer_frames_ = static_cast<unsigned>(cap_buf);
+    periods_ = (period_frames_ != 0) ? (buffer_frames_ / period_frames_) : 0;
     rate_ = cap_rate;
-    period_frames_ = cap_frames;
-    periods_ = cap_periods;
+
+    if (!configure_sw(capture_, "sw capture", true, period_frames_, err)) {
+        close();
+        return false;
+    }
+    if (!configure_sw(playback_, "sw playback", false, period_frames_, err)) {
+        close();
+        return false;
+    }
     return true;
 }
 
