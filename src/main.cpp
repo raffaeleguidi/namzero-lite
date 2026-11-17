@@ -17,7 +17,10 @@
 #include "audio/alsa_io.h"
 #include "audio/rt.h"
 #include "dsp/chain.h"
+#include "dsp/comp_slot.h"
+#include "dsp/drive_slot.h"
 #include "dsp/gain_slot.h"
+#include "dsp/gate_slot.h"
 #include "dsp/ir_slot.h"
 
 namespace {
@@ -34,6 +37,9 @@ struct Options {
     float gain_db = 0.0f;
     std::string ir_path;
     unsigned ir_taps = 2048;
+    bool gate = false;
+    bool comp = false;
+    bool drive = false;
     bool realtime = true;
     bool help = false;
 };
@@ -56,6 +62,9 @@ void usage() {
         "  --gain <db>         gain master (default 0)\n"
         "  --ir <file.wav>     carica una IR (48 kHz, mono o stereo)\n"
         "  --taps <n>          limite di tap della IR (default 2048)\n"
+        "  --gate              attiva il noise gate\n"
+        "  --comp              attiva il compressore\n"
+        "  --drive             attiva il boost/overdrive\n"
         "  --no-rt             senza priorita' realtime\n"
         "  -h, --help          questo messaggio\n");
 }
@@ -130,6 +139,12 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
                 err = "valore non valido per --taps";
                 return false;
             }
+        } else if (a == "--gate") {
+            opt.gate = true;
+        } else if (a == "--comp") {
+            opt.comp = true;
+        } else if (a == "--drive") {
+            opt.drive = true;
         } else if (a == "--no-rt") {
             opt.realtime = false;
         } else {
@@ -205,7 +220,12 @@ int main(int argc, char** argv) {
                 io.device().c_str(), io.rate(), io.period_frames(),
                 io.buffer_frames(), io.periods());
 
+    // Ordine della catena: gate -> comp -> drive -> amp -> ir -> delay -> reverb.
+    // Lo slot "amp" e' ancora un semplice gain, in attesa del motore NAM.
     namzero::Chain chain;
+    chain.add(std::make_unique<namzero::GateSlot>());
+    chain.add(std::make_unique<namzero::CompSlot>());
+    chain.add(std::make_unique<namzero::DriveSlot>());
     chain.add(std::make_unique<namzero::GainSlot>(0.0f));
 
     if (!opt.ir_path.empty()) {
@@ -220,6 +240,16 @@ int main(int argc, char** argv) {
     }
 
     chain.prepare(io.rate(), io.period_frames());
+
+    // Tutto spento per default: si accende solo quello richiesto da CLI.
+    chain.set_enabled(0, opt.gate);
+    chain.set_enabled(1, opt.comp);
+    chain.set_enabled(2, opt.drive);
+    chain.reset();
+
+    std::printf("slot: gate %s | comp %s | drive %s | ir %s\n",
+                opt.gate ? "on" : "off", opt.comp ? "on" : "off",
+                opt.drive ? "on" : "off", opt.ir_path.empty() ? "off" : "on");
 
     const std::size_t frames = io.period_frames();
     const std::size_t samples = frames * 2;
