@@ -387,7 +387,25 @@ namzero-lite/
 
 ---
 
-## 14. Prossimo passo concreto
+## 14. Misure sul campo (Raspberry Pi Zero 2W, XTONE, 48 kHz)
+
+Tutte a 64 frame (budget 1,33 ms), senza sudo grazie alle capability
+`cap_sys_nice,cap_ipc_lock`:
+
+| Configurazione | max blocco | quota budget |
+|---|---|---|
+| passthrough | 0,02 ms | 1,5 % |
+| gate + comp + drive | 0,05 ms | 3,8 % |
+| IR 1024 tap (partizionata FFT) | 0,30 ms | 22 % |
+| catena completa | 0,33 ms | 25 % |
+| IR 1024 tap (forma diretta, abbandonata) | 1,15 ms | 86 % |
+
+- Stabilita': 449.969 blocchi in 10 minuti con 2 xrun, entrambi all'avvio.
+- La convoluzione partizionata e' 22x piu' veloce della forma diretta sul Mac e
+  ~3,5x sul Pi (l'FFT non ha ancora tabelle di twiddle precalcolate).
+- Margine residuo per il motore NAM: **~0,9 ms per blocco**.
+
+## 15. Prossimo passo concreto
 
 **M0**: accendere il Pi, installare l'OS 64-bit, collegare l'XTONE e raccogliere l'output dei comandi di verifica della sezione 9. Senza quel report non si può né dimensionare la catena né scrivere il codice MIDI.
 
