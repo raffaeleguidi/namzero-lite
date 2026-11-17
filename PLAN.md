@@ -44,12 +44,18 @@ Riprodurre l'esperienza d'uso del coyopedal — modello NAM, catena di effetti a
 ### XSONIC XTONE
 - Interfaccia audio USB, alimentazione esterna (non grava sul Pi).
 - 3 footswitch fisici, expression pedal, 3 configurazioni/banchi (blu, verde, rossa).
-- **Da verificare in M0**: classe di conformità USB (audio + MIDI), canali, sample rate nativi, se l'expression arriva come CC, se i LED sono pilotabili dal host.
+- **Verificato in M0**: USB high speed, full-duplex su `card 1, device 0`.
+  Playback S32_LE (24 bit) o S16_LE, 2 canali, 44,1–192 kHz, endpoint asincrono.
+  Capture S32_LE (24 bit), 2 canali, stesse frequenze. Guitar in e mic sono i due canali.
+  MIDI: port `hw:1,0,0` (`XTONE MIDI 1`), CC su canale 1 — mappa completa nella sezione 6.
+  **Ancora ignoto**: se i LED siano pilotabili dal host.
 
 ### Budget di latenza
 - 48 kHz, periodi da 64 frame → 1,33 ms per blocco.
 - Round-trip atteso con XTONE: **8–12 ms**, accettabile per chitarra.
 - Obiettivo: nessun xrun in 10 minuti continui a 64 frame.
+- Formato: S32_LE con 24 bit utili. I campioni arrivano allineati a sinistra, quindi
+  `float = int32 / 2^31` è la conversione corretta in entrambe le direzioni.
 
 ---
 
@@ -306,7 +312,7 @@ lsusb -v 2>/dev/null | grep -A2 XSONIC
 
 | # | Milestone | Deliverable | Criterio di accettazione |
 |---|-----------|-------------|--------------------------|
-| M0 | Setup Pi + XTONE | report con formati, canali, CC reali, LED | XTONE enumera come audio; MIDI visibile |
+| M0 | Setup Pi + XTONE | report formati, canali, CC reali | **fatto** — audio, MIDI e mappa CC verificati |
 | M1 | Benchmark NAM C++ | numeri RTF a 64/128, 48k/44.1k | gate go/no-go superato |
 | M2 | Scheletro RT | processo con passthrough full-duplex + IR, contatori xrun | 10 min, 0 xrun a 64 |
 | M3 | Slot statici | gate, comp, drive + bypass con rampa | nessun click udibile in bypass |
