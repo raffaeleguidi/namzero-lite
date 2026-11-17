@@ -12,3 +12,9 @@ irs/*.wav
 *.dSYM/
 .DS_Store
 compile_commands.json
+
+# immagini disco
+*.img
+*.img.xz
+*.img.gz
+*.iso
