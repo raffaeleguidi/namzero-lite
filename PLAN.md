@@ -341,7 +341,10 @@ Misure dello slot amp in isolamento (`test/bench_nam_slot.cpp`):
 | full, con fast path | 1,270 ms | 0,95 |
 
 Catena completa (NAM lite + IR 2048 + gate + comp + drive): **0,71 ms per blocco = 53%**
-del budget a 64 frame, 2 xrun di avvio e nessuno successivo.
+del budget a 64 frame.
+
+**Stabilita' verificata**: 449.894 blocchi in 10 minuti con la catena completa, 2 xrun,
+entrambi all'avvio. Stesso criterio di accettazione di M2, ma con tutto acceso.
 
 **Integrazione NAM**: il core non espone una libreria, quindi i suoi sorgenti si compilano
 dentro il progetto come target `nam_core` (statica), attivato da `-DNAM_DIR=<checkout>`.
