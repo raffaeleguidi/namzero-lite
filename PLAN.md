@@ -168,13 +168,27 @@ Due assi indipendenti di configurazione, entrambi sul canale MIDI 1 (stato `B0`)
 
 CC osservati nel gruppo B (default): fs1 = 10, fs2 = 20, fs3 = 11.
 
-**Scelta per il progetto**: modalità **3** (toggle). Mappa 1:1 sul bypass di uno slot senza
-dover tracciare il rilascio; gli altri switch sono esclusivi tra loro e il LED dello slot
-riflette lo stato senza logica aggiuntiva.
+Attivazione verificata: **fs1+fs2 → verde (1)**, **fs2+fs3 → rossa (3)**, **fs1+fs3 → blu (2)**.
 
-3 gruppi × 3 switch = **9 binding**, che tornano a coprire gli 8 slot + 1 riserva.
-Il cambio gruppo è un gesto fisico sul pedale: il software vede solo CC diversi, non deve
-conoscere il concetto di gruppo.
+**Scelta per il progetto**: modalità **1 (verde)**, quella usata di norma. Semantica lato host:
+
+- **toggle su valore ≥ 64, ignora valori < 64**, con debounce di ~40 ms sullo stesso CC.
+- In verde: una pressione = un messaggio 7F = un toggle. È il caso pulito.
+- In blu: 7F alla pressione, 00 al rilascio → la regola ignora il rilascio, funziona uguale.
+- In rossa: il pedale alterna già 7F/00; la regola togglerebbe una volta ogni due pressioni.
+  **Modalità rossa non compatibile** con questa semantica: da evitare.
+
+Conseguenza: il pedale non ha stato, quindi la verità sullo stato di bypass è solo lato
+software. All'avvio tutti gli slot partono dallo stato del preset caricato e il primo 7F
+inverte quello stato: nessuna desincronizzazione possibile.
+
+3 gruppi × 3 switch = **9 binding**, che coprirebbero gli 8 slot + 1 riserva. Il cambio
+gruppo sarebbe un gesto fisico sul pedale (pressione lunga) e il software vedrebbe solo CC
+diversi, senza conoscere il concetto di gruppo.
+
+**Da verificare**: sui gruppi non abbiamo ancora dati. Se la pressione lunga non funziona
+su questo esemplare restano 3 switch per 8 slot, e serve uno schema a cursore:
+fs1 = slot successivo, fs2 = bypass dello slot selezionato, fs3 = tap tempo.
 
 **Espressione**: non ancora verificata (nessun messaggio catturato in M0). Attenzione al
 possibile conflitto: il CC 11 è quello standard dell'expression, ma nel gruppo B è anche
