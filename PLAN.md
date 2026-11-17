@@ -322,6 +322,15 @@ Misure della convoluzione:
 | 1024 | 21,3 ms | 0,33 ms |
 | 2048 | 42,7 ms | 0,51 ms |
 
+**IR scelta**: `G12-EVH LL 5150III 4x12 SM57 1.00in 0.0in CL7603.wav` — micro più vicino
+(più carattere del cono, meno stanza) e preamp a stadio singolo, il più neutro delle tre
+varianti. Sul Pi è `irs/celestion.wav`.
+
+**Integrazione NAM**: il core non espone una libreria, quindi i suoi sorgenti si compilano
+dentro il progetto come target `nam_core` (statica), attivato da `-DNAM_DIR=<checkout>`.
+Lo slot amp resta C++17: gli header NAM vivono in `nam_slot.cpp` dietro un Pimpl, e solo
+quel file viene compilato come C++20.
+
 **Budget con NAM lite + IR 2048 tap**: ~0,71 ms su 1,33 → 53%. Il progetto sta in piedi
 con il core ufficiale, senza motore di inferenza dedicato.
 
