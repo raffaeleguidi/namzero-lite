@@ -21,8 +21,8 @@ add_executable(namzero-lite
   src/dsp/chain.cpp
 )
 
-target_include_directories(namzero-lite PRIVATE src)
-target_link_libraries(namzero-lite PRIVATE ALSA::ALSA Threads::Threads)
+target_include_directories(namzero-lite PRIVATE src ${ALSA_INCLUDE_DIRS})
+target_link_libraries(namzero-lite PRIVATE ${ALSA_LIBRARIES} Threads::Threads)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(namzero-lite PRIVATE -O3)

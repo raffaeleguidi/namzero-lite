@@ -6,6 +6,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <memory>

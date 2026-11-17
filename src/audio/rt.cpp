@@ -33,13 +33,16 @@ bool install(std::string& err) {
 
     sched_param param{};
     param.sched_priority = 80;
-    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
-        int e = errno;
-        err = sys_error("pthread_setschedparam(SCHED_FIFO)", e);
+    // pthread_* restituiscono il codice d'errore: errno non e' affidabile qui.
+    int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+    if (rc != 0) {
+        err = sys_error("pthread_setschedparam(SCHED_FIFO)", rc);
         ok = false;
     }
 
-    if (!lock_memory(err) && ok) {
+    std::string lock_err;
+    if (!lock_memory(lock_err)) {
+        if (ok) err = lock_err;
         ok = false;
     }
     return ok;

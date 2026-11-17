@@ -86,18 +86,26 @@ bool AlsaDuplex::apply_params(snd_pcm_t* pcm, const char* what, unsigned& rate,
     }
 
     dir = 0;
-    rc = snd_pcm_hw_params_set_period_size_near(pcm, hw, &period_frames, &dir);
+    snd_pcm_uframes_t pf = static_cast<snd_pcm_uframes_t>(period_frames);
+    rc = snd_pcm_hw_params_set_period_size_near(pcm, hw, &pf, &dir);
     if (rc < 0) {
         err = describe(what, rc);
         return false;
     }
+    if (pf == 0) {
+        err = std::string(what) + ": il device ha negoziato un periodo nullo";
+        return false;
+    }
+    period_frames = static_cast<unsigned>(pf);
 
     dir = 0;
-    rc = snd_pcm_hw_params_set_periods_near(pcm, hw, &periods, &dir);
+    unsigned pds = periods;
+    rc = snd_pcm_hw_params_set_periods_near(pcm, hw, &pds, &dir);
     if (rc < 0) {
         err = describe(what, rc);
         return false;
     }
+    periods = pds;
 
     rc = snd_pcm_hw_params(pcm, hw);
     if (rc < 0) {
@@ -198,6 +206,7 @@ bool AlsaDuplex::recover(int err) {
         if (playback_ != nullptr) snd_pcm_prepare(playback_);
         return true;
     }
+#ifdef ESTRPIPE
     if (err == -ESTRPIPE) {
         // Device sospeso (tipico con USB autosuspend): attende e riprepara.
         for (int i = 0; i < 100; ++i) {
@@ -212,6 +221,7 @@ bool AlsaDuplex::recover(int err) {
         if (playback_ != nullptr) snd_pcm_prepare(playback_);
         return true;
     }
+#endif
     return false;
 }
 
