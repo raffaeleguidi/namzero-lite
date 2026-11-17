@@ -19,6 +19,8 @@ add_executable(namzero-lite
   src/audio/alsa_io.cpp
   src/audio/rt.cpp
   src/dsp/chain.cpp
+  src/dsp/ir_slot.cpp
+  src/dsp/wav.cpp
 )
 
 target_include_directories(namzero-lite PRIVATE src ${ALSA_INCLUDE_DIRS})

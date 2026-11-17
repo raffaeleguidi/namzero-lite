@@ -18,6 +18,7 @@
 #include "audio/rt.h"
 #include "dsp/chain.h"
 #include "dsp/gain_slot.h"
+#include "dsp/ir_slot.h"
 
 namespace {
 
@@ -31,6 +32,8 @@ struct Options {
     unsigned buffer = 64;
     unsigned periods = 3;
     float gain_db = 0.0f;
+    std::string ir_path;
+    unsigned ir_taps = 2048;
     bool realtime = true;
     bool help = false;
 };
@@ -51,6 +54,8 @@ void usage() {
         "  --buffer <frame>    frame per periodo (default 64)\n"
         "  --periods <n>       periodi nel buffer (default 3)\n"
         "  --gain <db>         gain master (default 0)\n"
+        "  --ir <file.wav>     carica una IR (48 kHz, mono o stereo)\n"
+        "  --taps <n>          limite di tap della IR (default 2048)\n"
         "  --no-rt             senza priorita' realtime\n"
         "  -h, --help          questo messaggio\n");
 }
@@ -113,6 +118,16 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
             const char* v = next("--gain");
             if (v == nullptr || !parse_float(v, opt.gain_db)) {
                 err = "valore non valido per --gain";
+                return false;
+            }
+        } else if (a == "--ir") {
+            const char* v = next("--ir");
+            if (v == nullptr) return false;
+            opt.ir_path = v;
+        } else if (a == "--taps") {
+            const char* v = next("--taps");
+            if (v == nullptr || !parse_uint(v, opt.ir_taps)) {
+                err = "valore non valido per --taps";
                 return false;
             }
         } else if (a == "--no-rt") {
@@ -192,6 +207,18 @@ int main(int argc, char** argv) {
 
     namzero::Chain chain;
     chain.add(std::make_unique<namzero::GainSlot>(0.0f));
+
+    if (!opt.ir_path.empty()) {
+        auto ir = std::make_unique<namzero::IrSlot>();
+        if (!ir->load(opt.ir_path, opt.ir_taps, err)) {
+            std::fprintf(stderr, "IR: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("IR: %s | %zu tap (%.1f ms @ 48 kHz)\n", opt.ir_path.c_str(),
+                    ir->taps(), static_cast<double>(ir->taps()) * 1000.0 / 48000.0);
+        chain.add(std::move(ir));
+    }
+
     chain.prepare(io.rate(), io.period_frames());
 
     const std::size_t frames = io.period_frames();
