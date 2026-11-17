@@ -100,7 +100,7 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 | 3. drive | boost / overdrive | tipo, drive, tone, level | oversampling 2× opzionale |
 | 4. mod | modulazione | tipo: tremolo / wah / phaser / chorus / auto-wah | wah = port di GxWah (Guitarix, GPL) |
 | 5. amp | NAM lite | file modello, input gain, output gain | swap al confine di blocco |
-| 6. ir | cabinet IR | file IR, mix | convoluzione partizionata 1024 tap, primi 64 tap FIR diretti |
+| 6. ir | cabinet IR | file IR | partizionata FFT (blocco 64), **zero latenza**, ~4% CPU per 1024 tap |
 | 7. delay | delay | tempo (ms o tap), feedback, mix, tone nel loop | buffer circolare |
 | 8. reverb | riverbero | algoritmo, size, damp, mix | FDN o Freeverb |
 | — | out | master gain, soft clip | protezione finale |
@@ -253,7 +253,7 @@ variazioni di range, la curva eventualmente no. Da affrontare quando il wah esis
 | phaser | 4–6 stadi all-pass + LFO | basso |
 | chorus | linea ritardata modulata 5–30 ms + mix | basso |
 | auto-wah | envelope follower → frequenza filtro | basso |
-| IR | convoluzione partizionata 1024 tap, primi 64 diretti, FFT uniforme | ~1–2 % CPU |
+| IR | partizionata FFT uniforme, blocco 64, nessuna latenza aggiunta | ~4 % CPU ogni 1024 tap |
 | delay | buffer circolare, interpolazione lineare, feedback filtrato | basso |
 | reverb | FDN 4–8 linee o Freeverb | basso-medio |
 
