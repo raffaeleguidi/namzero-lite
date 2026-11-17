@@ -200,25 +200,24 @@ long AlsaDuplex::write_i32(const int32_t* src, std::size_t frames) {
     return static_cast<long>(frames);
 }
 
-bool AlsaDuplex::recover(int err) {
+bool AlsaDuplex::recover(int err, bool capture_side) {
     if (err == -EPIPE) {
-        if (capture_ != nullptr) snd_pcm_prepare(capture_);
-        if (playback_ != nullptr) snd_pcm_prepare(playback_);
+        snd_pcm_t* pcm = capture_side ? capture_ : playback_;
+        if (pcm != nullptr) snd_pcm_prepare(pcm);
         return true;
     }
 #ifdef ESTRPIPE
     if (err == -ESTRPIPE) {
         // Device sospeso (tipico con USB autosuspend): attende e riprepara.
+        snd_pcm_t* pcm = capture_side ? capture_ : playback_;
+        if (pcm == nullptr) return false;
         for (int i = 0; i < 100; ++i) {
-            if (capture_ != nullptr) {
-                int rc = snd_pcm_resume(capture_);
-                if (rc == 0) break;
-                if (rc != -EAGAIN) break;
-            }
+            int rc = snd_pcm_resume(pcm);
+            if (rc == 0) break;
+            if (rc != -EAGAIN) break;
             usleep(10000);
         }
-        if (capture_ != nullptr) snd_pcm_prepare(capture_);
-        if (playback_ != nullptr) snd_pcm_prepare(playback_);
+        snd_pcm_prepare(pcm);
         return true;
     }
 #endif

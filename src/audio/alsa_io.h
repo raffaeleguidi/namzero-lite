@@ -35,8 +35,10 @@ public:
     long write_i32(const int32_t* src, std::size_t frames);
 
     // Recupera dopo un errore di stream (xrun, sospensione USB).
+    // Ri-prepara SOLO lo stream che ha fallito: preparare anche l'altro
+    // innesca una cascata di xrun incrociati.
     // Ritorna true se lo stream e' stato ripreso.
-    bool recover(int err);
+    bool recover(int err, bool capture_side);
 
     unsigned rate() const { return rate_; }
     unsigned period_frames() const { return period_frames_; }

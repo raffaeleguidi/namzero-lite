@@ -237,7 +237,7 @@ int main(int argc, char** argv) {
     while (g_running.load()) {
         const long n = io.read_i32(in_i32.data(), frames);
         if (n < 0) {
-            if (io.recover(static_cast<int>(n))) {
+            if (io.recover(static_cast<int>(n), /*capture_side=*/true)) {
                 stats.xruns.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
@@ -262,7 +262,7 @@ int main(int argc, char** argv) {
 
         const long w = io.write_i32(out_i32.data(), frames);
         if (w < 0) {
-            if (io.recover(static_cast<int>(w))) {
+            if (io.recover(static_cast<int>(w), /*capture_side=*/false)) {
                 stats.xruns.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
