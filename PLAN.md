@@ -292,6 +292,39 @@ Tre famiglie, per canali e dilazioni:
 Modello scelto per il gate: `SLAMMIN_VOX_AC30_TB_V5_TC0_B10_T10_CRANKED_XS`, copiato
 sul Pi come `models/vox_ac30_xs.nam`.
 
+### Modello di riferimento (scelto dall'utente)
+
+`presets/nam/Marshall Plexi Super Lead 1959 EL34/MARSHALL Plexi Super Lead 1959 EL34 CH II High.nam`
+— NAM **0.7.0**, architettura `SlimmableContainer` con due sottomodelli:
+
+| | canali | layer | dilazioni | pesi |
+|---|---|---|---|---|
+| lite (`max_value` 0,5) | 3 | 23 | 1,3,7,17,41… | 1.871 |
+| full (`max_value` 1,0) | 8 | 23 | idem | 12.146 |
+
+**Trappola**: la selezione usa `val < max_value`, quindi `--slim 0.5` attiva il modello
+**full**. Il lite richiede un valore **< 0,5**.
+
+Misure con il core ufficiale (2 s di audio, blocco 64):
+
+| configurazione | tempo | RTF | costo per blocco |
+|---|---|---|---|
+| lite (3 canali) | 299 ms | **0,15** | ~0,20 ms |
+| full (8 canali) | 1892 ms | 0,95 | ~1,26 ms |
+
+L'IR scelta — `presets/ir/Celestion G12-EVH - EVH 5150III 4x12`, mono 48 kHz 24 bit — è
+lunga **0,5 s = 24.001 tap**: usarla intera costerebbe ~7 ms per blocco. Va troncata.
+Misure della convoluzione:
+
+| tap | durata | costo blocco |
+|---|---|---|
+| 512 | 10,7 ms | 0,23 ms |
+| 1024 | 21,3 ms | 0,33 ms |
+| 2048 | 42,7 ms | 0,51 ms |
+
+**Budget con NAM lite + IR 2048 tap**: ~0,71 ms su 1,33 → 53%. Il progetto sta in piedi
+con il core ufficiale, senza motore di inferenza dedicato.
+
 ### Protocollo
 1. Build del core C++ sul Pi (o cross-compile).
 2. Caricare il modello lite di riferimento.
