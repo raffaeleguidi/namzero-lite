@@ -279,6 +279,19 @@ variazioni di range, la curva eventualmente no. Da affrontare quando il wah esis
 
 **Decisione architetturale**: il benchmark va fatto sul **core C++ (NeuralAmpModelerCore / Eigen)**, non su PyTorch. È il codice che girerà in produzione e sui 512 MB evita l'inferno di installazione (torch richiede swap ≥ 2 GB e diverse ore). Lo script Python resta solo come sanity check rapido.
 
+### Inventario modelli disponibili
+
+Tre famiglie, per canali e dilazioni:
+
+| sigla | canali | kernel | dilazioni | peso | giudizio |
+|---|---|---|---|---|---|
+| XS | 8 | 6 | 7 (1→729) | 250 KB | il target "lite" |
+| S | 16 | 3 | 10 | 275–400 KB | standard leggero, da misurare |
+| C | 32 | 3 | 20 | 2,2 MB | fuori scala per il Zero |
+
+Modello scelto per il gate: `SLAMMIN_VOX_AC30_TB_V5_TC0_B10_T10_CRANKED_XS`, copiato
+sul Pi come `models/vox_ac30_xs.nam`.
+
 ### Protocollo
 1. Build del core C++ sul Pi (o cross-compile).
 2. Caricare il modello lite di riferimento.
