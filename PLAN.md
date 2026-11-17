@@ -314,7 +314,7 @@ lsusb -v 2>/dev/null | grep -A2 XSONIC
 |---|-----------|-------------|--------------------------|
 | M0 | Setup Pi + XTONE | report formati, canali, CC reali | **fatto** — audio, MIDI e mappa CC verificati |
 | M1 | Benchmark NAM C++ | numeri RTF a 64/128, 48k/44.1k | gate go/no-go superato |
-| M2 | Scheletro RT | processo con passthrough full-duplex + IR, contatori xrun | 10 min, 0 xrun a 64 |
+| M2 | Scheletro RT | passthrough full-duplex, contatori xrun | **fatto** — 449.969 blocchi, 2 xrun di avvio, max blocco 0,02 ms |
 | M3 | Slot statici | gate, comp, drive + bypass con rampa | nessun click udibile in bypass |
 | M4 | Mod + wah | tremolo/phaser/chorus, port GxWah, expression, auto-engage | wah segue la pedaliera senza sfarfallio |
 | M5 | Delay + reverb | i due slot, persistenza parametri | nessun artefatto a buffer 64 |
