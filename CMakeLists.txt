@@ -24,25 +24,44 @@ add_executable(namzero-lite
   src/dsp/ir_slot.cpp
   src/dsp/partitioned_convolver.cpp
   src/dsp/wav.cpp
+  src/dsp/nam_slot.cpp
 )
 
 target_include_directories(namzero-lite PRIVATE src ${ALSA_INCLUDE_DIRS})
 target_link_libraries(namzero-lite PRIVATE ${ALSA_LIBRARIES} Threads::Threads)
 
 if(NAM_DIR)
-  file(GLOB NAM_CORE_SOURCES "${NAM_DIR}/NAM/*.cpp")
+  file(GLOB NAM_CORE_SOURCES "${NAM_DIR}/NAM/*.cpp" "${NAM_DIR}/NAM/*/*.cpp")
   add_library(nam_core STATIC ${NAM_CORE_SOURCES})
   target_include_directories(nam_core PUBLIC
     "${NAM_DIR}"
     "${NAM_DIR}/Dependencies/eigen"
     "${NAM_DIR}/Dependencies/nlohmann")
   target_compile_features(nam_core PUBLIC cxx_std_20)
-  target_compile_options(nam_core PRIVATE -O3)
-  target_link_libraries(namzero-lite PRIVATE nam_core)
+  # Stessi flag del build ufficiale: con Eigen e le espressioni template,
+  # -Ofast e LTO valgono molto piu' dei punti percentuali.
+  # Percorso veloce dedicato ai modelli A2 (a2_fast.cpp): senza questa define
+  # i modelli A2 passano dal WaveNet generico e costano ~6x di piu'.
+  target_compile_definitions(nam_core PRIVATE NAM_ENABLE_A2_FAST)
+  target_compile_options(nam_core PRIVATE -Ofast -flto=auto)
+  target_link_options(nam_core PRIVATE -flto=auto)
+  # I parser del core si registrano con inizializzatori statici: in una libreria
+  # statica gli oggetti non referenziati non vengono estratti e il registro
+  # resterebbe vuoto ("No config parser registered"). Serve il whole-archive.
+  target_link_libraries(namzero-lite PRIVATE
+    -Wl,--whole-archive nam_core -Wl,--no-whole-archive)
+  target_link_options(namzero-lite PRIVATE -flto=auto)
   target_compile_definitions(namzero-lite PRIVATE NAMZERO_HAVE_NAM=1)
   target_include_directories(namzero-lite PRIVATE "${NAM_DIR}")
   # Solo lo slot amp parla C++20 (Eigen + core NAM).
   set_source_files_properties(src/dsp/nam_slot.cpp PROPERTIES CXX_STANDARD 20)
+  add_executable(bench_nam_slot test/bench_nam_slot.cpp src/dsp/nam_slot.cpp)
+  target_include_directories(bench_nam_slot PRIVATE src "${NAM_DIR}")
+  target_link_libraries(bench_nam_slot PRIVATE
+    -Wl,--whole-archive nam_core -Wl,--no-whole-archive Threads::Threads)
+  target_link_options(bench_nam_slot PRIVATE -flto=auto)
+  target_compile_definitions(bench_nam_slot PRIVATE NAMZERO_HAVE_NAM=1)
+  target_compile_features(bench_nam_slot PRIVATE cxx_std_20)
   message(STATUS "NAM abilitato da ${NAM_DIR}")
 endif()
 

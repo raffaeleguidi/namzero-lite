@@ -326,6 +326,23 @@ Misure della convoluzione:
 (più carattere del cono, meno stanza) e preamp a stadio singolo, il più neutro delle tre
 varianti. Sul Pi è `irs/celestion.wav`.
 
+**Percorso veloce A2** — la scoperta che ha cambiato i numeri: il core contiene
+`NAM/wavenet/a2_fast.cpp`, una implementazione hand-optimized per i modelli con la firma
+A2 (23 layer, kernel `6×14,15,15,6×7`, dilazioni `1,3,7,17,41,101,239` ripetute, LeakyReLU
+0,01, head kernel 16). Si attiva con `-DNAM_ENABLE_A2_FAST`, che nel build ufficiale e' ON
+di default e nel nostro mancava. Senza: RTF 0,86 sul lite. Con: **RTF 0,15**.
+
+Misure dello slot amp in isolamento (`test/bench_nam_slot.cpp`):
+
+| configurazione | per blocco | RTF |
+|---|---|---|
+| lite, senza fast path | 1,149 ms | 0,86 |
+| lite, con fast path | **0,203 ms** | **0,15** |
+| full, con fast path | 1,270 ms | 0,95 |
+
+Catena completa (NAM lite + IR 2048 + gate + comp + drive): **0,71 ms per blocco = 53%**
+del budget a 64 frame, 2 xrun di avvio e nessuno successivo.
+
 **Integrazione NAM**: il core non espone una libreria, quindi i suoi sorgenti si compilano
 dentro il progetto come target `nam_core` (statica), attivato da `-DNAM_DIR=<checkout>`.
 Lo slot amp resta C++17: gli header NAM vivono in `nam_slot.cpp` dietro un Pimpl, e solo
