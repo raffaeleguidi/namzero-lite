@@ -25,7 +25,7 @@ std::atomic<bool> g_running{true};
 void on_signal(int /*sig*/) { g_running.store(false); }
 
 struct Options {
-    std::string device = "hw:1,0";
+    std::string device = "hw:XTONE";
     unsigned rate = 48000;
     unsigned buffer = 64;
     unsigned periods = 3;
@@ -45,7 +45,7 @@ void usage() {
         "namzero-lite — motore audio realtime per chitarra\n"
         "\n"
         "Uso: namzero-lite [opzioni]\n"
-        "  --device <hw:x,y>   PCM ALSA (default hw:1,0)\n"
+        "  --device <hw:ID>    PCM ALSA (default hw:XTONE)\n"
         "  --rate <hz>         sample rate (default 48000)\n"
         "  --buffer <frame>    frame per periodo (default 64)\n"
         "  --periods <n>       periodi nel buffer (default 3)\n"

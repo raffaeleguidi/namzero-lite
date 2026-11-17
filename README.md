@@ -36,10 +36,10 @@ cmake --build build -j2
 aplay -l; arecord -l
 
 # passthrough con periodo 64 frame sull'XTONE
-sudo taskset -c 3 ./build/namzero-lite --device hw:1,0 --buffer 64 --rate 48000
+sudo taskset -c 3 ./build/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
 
 # senza privilegi realtime (solo per test a buffer grandi)
-./build/namzero-lite --device hw:1,0 --buffer 256 --no-rt
+./build/namzero-lite --device hw:XTONE --buffer 256 --no-rt
 ```
 
 Statistiche ogni 5 secondi: blocchi elaborati, xrun, tempo massimo di

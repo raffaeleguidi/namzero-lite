@@ -10,7 +10,7 @@ User=pi
 Group=audio
 WorkingDirectory=/home/pi/namzero-lite
 
-ExecStart=/usr/local/bin/namzero-lite --device hw:1,0 --buffer 64 --rate 48000
+ExecStart=/usr/local/bin/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
 
 # Thread audio: priorita' FIFO e core dedicato (deve combaciare con isolcpus).
 CPUSchedulingPolicy=fifo

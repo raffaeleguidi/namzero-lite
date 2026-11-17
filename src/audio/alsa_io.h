@@ -9,7 +9,7 @@
 namespace namzero {
 
 struct AudioConfig {
-    std::string device = "hw:1,0";
+    std::string device = "hw:XTONE";
     unsigned rate = 48000;
     unsigned period_frames = 64;
     unsigned periods = 3;
