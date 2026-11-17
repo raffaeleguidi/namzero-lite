@@ -214,6 +214,12 @@ Regole:
 - Smoothing 10 ms nel thread di controllo.
 - Nessun conflitto con i footswitch: i loro CC sono 10/20/11, 22/24/25, 30/43/42.
 
+**Hardware del pedale**: M-Audio M-Gear EXP. Ha una rotella e uno switch che ne cambiano il
+comportamento (range, curva, eventuale inversione). Non è un oggetto a comportamento fisso:
+la mappa 68–127 rilevata vale per la configurazione attuale. La calibrazione fine (min/max,
+curva lineare o logaritmica, inversione) è **rimandata**: l'autocalibrazione copre le
+variazioni di range, la curva eventualmente no. Da affrontare quando il wah esiste.
+
 ### MIDI learn
 1. Si entra in learn da UI (M9) o da combo fisica all'avvio (es. switch 1+2 premuti).
 2. Si seleziona l'azione target (bypass di uno slot, tap tempo, ecc.).
@@ -370,6 +376,8 @@ namzero-lite/
 5. **Famiglia modello lite**: WaveNet lite vs LSTM — da confrontare su qualità e RTF.
 6. **Banchi**: le tre configurazioni blu/verde/rossa sono banchi indipendenti di CC o solo estetica? Verifica in M0.
 7. **Percorso SSH al Pi** per il benchmark: host/utente o tunnel.
+8. **Curva dell'espressione**: il M-Gear EXP ha rotella e switch che ne cambiano il
+   comportamento; la curva definitiva si sceglie a wah funzionante.
 
 ---
 
