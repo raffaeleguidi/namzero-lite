@@ -26,6 +26,7 @@
 #include "dsp/gain_slot.h"
 #include "dsp/gate_slot.h"
 #include "dsp/ir_slot.h"
+#include "dsp/nam_slot.h"
 
 namespace {
 
@@ -41,6 +42,8 @@ struct Options {
     float gain_db = 0.0f;
     std::string ir_path;
     unsigned ir_taps = 2048;
+    std::string nam_path;
+    double nam_slim = 0.49;
     bool gate = false;
     bool comp = false;
     bool drive = false;
@@ -66,6 +69,8 @@ void usage() {
         "  --gain <db>         gain master (default 0)\n"
         "  --ir <file.wav>     carica una IR (48 kHz, mono o stereo)\n"
         "  --taps <n>          limite di tap della IR (default 2048)\n"
+        "  --nam <file.nam>    carica un modello NAM nello slot amp\n"
+        "  --nam-slim <0..1>   sottomodello (default 0.49 = lite)\n"
         "  --gate              attiva il noise gate\n"
         "  --comp              attiva il compressore\n"
         "  --drive             attiva il boost/overdrive\n"
@@ -143,6 +148,22 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
                 err = "valore non valido per --taps";
                 return false;
             }
+        } else if (a == "--nam") {
+            const char* v = next("--nam");
+            if (v == nullptr) return false;
+            opt.nam_path = v;
+        } else if (a == "--nam-slim") {
+            const char* v = next("--nam-slim");
+            if (v == nullptr) {
+                err = "manca il valore per --nam-slim";
+                return false;
+            }
+            float tmp = 0.0f;
+            if (!parse_float(v, tmp)) {
+                err = "valore non valido per --nam-slim";
+                return false;
+            }
+            opt.nam_slim = tmp;
         } else if (a == "--gate") {
             opt.gate = true;
         } else if (a == "--comp") {
@@ -240,7 +261,21 @@ int main(int argc, char** argv) {
     chain.add(std::make_unique<namzero::GateSlot>());
     chain.add(std::make_unique<namzero::CompSlot>());
     chain.add(std::make_unique<namzero::DriveSlot>());
-    chain.add(std::make_unique<namzero::GainSlot>(0.0f));
+
+    if (!opt.nam_path.empty()) {
+        auto amp = std::make_unique<namzero::NamSlot>();
+        if (!amp->load(opt.nam_path, opt.nam_slim, err)) {
+            std::fprintf(stderr, "amp: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("amp: %s | slim %.2f%s | modello a %.0f Hz\n",
+                    opt.nam_path.c_str(), opt.nam_slim,
+                    amp->slimmable() ? "" : " (non slimmable)",
+                    amp->expected_sample_rate());
+        chain.add(std::move(amp));
+    } else {
+        chain.add(std::make_unique<namzero::GainSlot>(0.0f));
+    }
 
     if (!opt.ir_path.empty()) {
         auto ir = std::make_unique<namzero::IrSlot>();
@@ -256,6 +291,7 @@ int main(int argc, char** argv) {
     chain.prepare(io.rate(), io.period_frames());
 
     // Tutto spento per default: si accende solo quello richiesto da CLI.
+    chain.set_enabled(3, !opt.nam_path.empty());
     chain.set_enabled(0, opt.gate);
     chain.set_enabled(1, opt.comp);
     chain.set_enabled(2, opt.drive);
