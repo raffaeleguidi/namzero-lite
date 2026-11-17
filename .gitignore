@@ -1,0 +1,14 @@
+build/
+build-*/
+cmake-build-*/
+
+# modelli e IR: pesanti, non vanno in repo
+models/*.nam
+irs/*.wav
+
+*.o
+*.a
+*.so
+*.dSYM/
+.DS_Store
+compile_commands.json

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "audio": {
+    "device": "hw:1,0",
+    "rate": 48000,
+    "period_frames": 64,
+    "periods": 3
+  },
+  "master": {
+    "gain_db": 0.0
+  },
+  "midi": {
+    "banks": { "blue": 0, "green": 1, "red": 2 },
+    "expression": { "cc": 11, "smoothing_ms": 10 },
+    "wah_autoengage": {
+      "enabled": true,
+      "engage_at": 0.15,
+      "release_at": 0.03,
+      "timeout_s": 0
+    }
+  },
+  "bindings": [
+    { "cc": 20, "action": "slot.drive.bypass", "bank": "blue" },
+    { "cc": 21, "action": "slot.mod.bypass", "bank": "blue" },
+    { "cc": 22, "action": "slot.delay.bypass", "bank": "blue" },
+    { "cc": 23, "action": "slot.drive.bypass", "bank": "green" },
+    { "cc": 24, "action": "slot.mod.bypass", "bank": "green" },
+    { "cc": 25, "action": "slot.reverb.bypass", "bank": "green" },
+    { "cc": 26, "action": "slot.drive.bypass", "bank": "red" },
+    { "cc": 27, "action": "slot.delay.bypass", "bank": "red" },
+    { "cc": 28, "action": "tap_tempo", "bank": "red" }
+  ]
+}
