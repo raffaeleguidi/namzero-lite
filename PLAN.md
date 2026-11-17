@@ -178,7 +178,7 @@ conoscere il concetto di gruppo.
 
 **Espressione**: non ancora verificata (nessun messaggio catturato in M0). Attenzione al
 possibile conflitto: il CC 11 è quello standard dell'expression, ma nel gruppo B è anche
-assegnato a fs3. Da testare.**
+assegnato a fs3. Da testare.
 
 ### MIDI learn
 1. Si entra in learn da UI (M9) o da combo fisica all'avvio (es. switch 1+2 premuti).
