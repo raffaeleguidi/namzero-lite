@@ -166,9 +166,8 @@ Due assi indipendenti di configurazione, entrambi sul canale MIDI 1 (stato `B0`)
 | 2 (blu) | 7F seguito da 00 |
 | 3 (rossa) | toggle: 7F alla prima pressione, 00 alla successiva |
 
-CC osservati nel gruppo B (default): fs1 = 10, fs2 = 20, fs3 = 11.
-
-Attivazione verificata: **fs1+fs2 → verde (1)**, **fs2+fs3 → rossa (3)**, **fs1+fs3 → blu (2)**.
+Le modalità si attivano con le combinazioni (**fs1+fs2** → verde 1, **fs2+fs3** → rossa 3,
+**fs1+fs3** → blu 2) e **non cambiano i numeri di CC**, solo i valori emessi.
 
 **Verificato (M0)**: la pressione lunga su fs1/fs2/fs3 seleziona il gruppo. Nove CC distinti:
 
