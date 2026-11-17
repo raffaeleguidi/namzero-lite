@@ -170,17 +170,28 @@ CC osservati nel gruppo B (default): fs1 = 10, fs2 = 20, fs3 = 11.
 
 Attivazione verificata: **fs1+fs2 → verde (1)**, **fs2+fs3 → rossa (3)**, **fs1+fs3 → blu (2)**.
 
-**Scelta per il progetto**: modalità **1 (verde)**, quella usata di norma. Semantica lato host:
+I numeri di CC cambiano con gruppo **e** modalità: nelle prove sono comparsi i set
+`10/20/11`, `22/24/25`, `30/43/42`, con valori `7F`, `00` o entrambi. Conclusione: **non
+ha senso codificare a mano i CC**.
 
-- **toggle su valore ≥ 64, ignora valori < 64**, con debounce di ~40 ms sullo stesso CC.
-- In verde: una pressione = un messaggio 7F = un toggle. È il caso pulito.
-- In blu: 7F alla pressione, 00 al rilascio → la regola ignora il rilascio, funziona uguale.
-- In rossa: il pedale alterna già 7F/00; la regola togglerebbe una volta ogni due pressioni.
-  **Modalità rossa non compatibile** con questa semantica: da evitare.
+**Scelta per il progetto**: binding via **MIDI learn**, non a priori. Ogni azione (bypass di
+uno slot) si associa al primo CC che arriva durante la fase di apprendimento, e la mappa
+viene persistita. Così il firmware dell'XTONE può cambiare gruppo e modalità senza rompere
+nulla: quello che conta è che ogni switch mandi *un* CC.
 
-Conseguenza: il pedale non ha stato, quindi la verità sullo stato di bypass è solo lato
-software. All'avvio tutti gli slot partono dallo stato del preset caricato e il primo 7F
-inverte quello stato: nessuna desincronizzazione possibile.
+Politica di edge per binding, perché il valore emesso dipende dalla modalità:
+
+| `edge` | Quando scatta il toggle |
+|--------|--------------------------|
+| `high` (default) | valore ≥ 64 (verde, blu alla pressione) |
+| `low` | valore < 64 (modalità che emettono solo 00) |
+| `any` | qualunque messaggio, con debounce di 40 ms |
+
+Debounce di ~40 ms sullo stesso CC per evitare doppi toggle.
+
+Conseguenza: il pedale non ha stato, quindi la verità sul bypass è solo lato software.
+All'avvio gli slot partono dallo stato del preset caricato e il primo messaggio lo inverte:
+nessuna desincronizzazione possibile.
 
 3 gruppi × 3 switch = **9 binding**, che coprirebbero gli 8 slot + 1 riserva. Il cambio
 gruppo sarebbe un gesto fisico sul pedale (pressione lunga) e il software vedrebbe solo CC

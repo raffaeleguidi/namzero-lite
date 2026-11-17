@@ -13,17 +13,17 @@
     "channel": 1,
     "toggle_threshold": 64,
     "debounce_ms": 40,
-    "expression": { "cc": 11, "smoothing_ms": 10 },
+    "expression": {
+      "cc": 11,
+      "smoothing_ms": 10
+    },
     "wah_autoengage": {
       "enabled": true,
       "engage_at": 0.15,
       "release_at": 0.03,
       "timeout_s": 0
-    }
+    },
+    "edge": "high"
   },
-  "bindings": [
-    { "cc": 10, "action": "slot.drive.bypass" },
-    { "cc": 20, "action": "slot.mod.bypass" },
-    { "cc": 11, "action": "slot.delay.bypass" }
-  ]
+  "bindings": []
 }
