@@ -47,6 +47,16 @@ void Chain::reset() {
     }
 }
 
+std::size_t Chain::latency_frames() const {
+    std::size_t total = 0;
+    for (const auto& entry : entries_) {
+        if (entry->enabled.load(std::memory_order_relaxed)) {
+            total += entry->slot->latency_frames();
+        }
+    }
+    return total;
+}
+
 void Chain::process(float* interleaved, std::size_t frames) {
     const std::size_t samples = frames * kChannels;
 

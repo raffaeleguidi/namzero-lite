@@ -14,6 +14,10 @@ public:
     virtual void process(float* interleaved, std::size_t frames) = 0;
     virtual void reset() = 0;
     virtual const char* name() const = 0;
+
+    // Latenza introdotta dallo slot, in campioni. La somma sulla catena va
+    // dichiarata all'utente: e' quella che si somma al round-trip.
+    virtual std::size_t latency_frames() const { return 0; }
 };
 
 }  // namespace namzero

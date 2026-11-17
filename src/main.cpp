@@ -247,9 +247,12 @@ int main(int argc, char** argv) {
     chain.set_enabled(2, opt.drive);
     chain.reset();
 
+    const std::size_t latency = chain.latency_frames();
     std::printf("slot: gate %s | comp %s | drive %s | ir %s\n",
                 opt.gate ? "on" : "off", opt.comp ? "on" : "off",
                 opt.drive ? "on" : "off", opt.ir_path.empty() ? "off" : "on");
+    std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
+                static_cast<double>(latency) * 1000.0 / 48000.0);
 
     const std::size_t frames = io.period_frames();
     const std::size_t samples = frames * 2;

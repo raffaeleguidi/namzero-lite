@@ -4,15 +4,15 @@
 #include <string>
 #include <vector>
 
+#include "dsp/partitioned_convolver.h"
 #include "dsp/slot.h"
 
 namespace namzero {
 
-// Slot IR: convoluzione diretta a lunghezza finita.
-// Storicamente i cabinet IR sono lunghi (spesso > 2048 tap), quindi questa e'
-// la versione semplice: costo lineare nei tap. Se il budget CPU con il NAM
-// diventa stretto, si sostituisce con una partizionata FFT senza toccare
-// l'interfaccia Slot.
+// Slot IR: convoluzione partizionata FFT.
+// Costa circa un ventesimo della forma diretta a parita' di lunghezza e non
+// aggiunge latenza: quando il periodo e' gia' bufferizzato, la convoluzione
+// produce l'uscita allo stesso confine di blocco.
 class IrSlot final : public Slot {
 public:
     // Carica un WAV e ne tronca la lunghezza a max_taps.
@@ -23,15 +23,22 @@ public:
     void reset() override;
     const char* name() const override { return "ir"; }
 
-    std::size_t taps() const { return taps_.size(); }
+    std::size_t taps() const { return taps_; }
 
 private:
-    float convolve(const float* hist, std::size_t pos) const;
+    static constexpr std::size_t kBlock = 64;
 
-    std::vector<float> taps_;
-    std::vector<float> hist_l_;
-    std::vector<float> hist_r_;
-    std::size_t pos_ = 0;
+    std::size_t taps_ = 0;
+    std::size_t block_ = 0;
+    std::size_t capacity_ = 0;
+
+    PartitionedConvolver left_;
+    PartitionedConvolver right_;
+
+    std::vector<float> in_l_;
+    std::vector<float> in_r_;
+    std::vector<float> out_l_;
+    std::vector<float> out_r_;
 };
 
 }  // namespace namzero

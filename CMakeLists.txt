@@ -20,6 +20,7 @@ add_executable(namzero-lite
   src/audio/rt.cpp
   src/dsp/chain.cpp
   src/dsp/ir_slot.cpp
+  src/dsp/partitioned_convolver.cpp
   src/dsp/wav.cpp
 )
 

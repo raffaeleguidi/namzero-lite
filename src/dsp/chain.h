@@ -26,6 +26,9 @@ public:
     const char* name(std::size_t index) const { return entries_[index]->slot->name(); }
 
     void process(float* interleaved, std::size_t frames);
+
+    // Latenza totale della catena, in campioni.
+    std::size_t latency_frames() const;
     void reset();
 
 private:
