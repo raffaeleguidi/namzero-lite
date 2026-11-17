@@ -11,8 +11,8 @@
   },
   "midi": {
     "channel": 1,
-    "toggle_threshold": 64,
-    "debounce_ms": 40,
+    "edge": "any",
+    "cooldown_ms": 250,
     "expression": {
       "cc": 11,
       "smoothing_ms": 10
@@ -22,8 +22,53 @@
       "engage_at": 0.15,
       "release_at": 0.03,
       "timeout_s": 0
-    },
-    "edge": "high"
+    }
   },
-  "bindings": []
+  "bindings": [
+    {
+      "cc": 10,
+      "action": "slot.drive.bypass",
+      "group": "A"
+    },
+    {
+      "cc": 20,
+      "action": "slot.mod.bypass",
+      "group": "A"
+    },
+    {
+      "cc": 11,
+      "action": "slot.delay.bypass",
+      "group": "A"
+    },
+    {
+      "cc": 22,
+      "action": "slot.comp.bypass",
+      "group": "B"
+    },
+    {
+      "cc": 24,
+      "action": "slot.reverb.bypass",
+      "group": "B"
+    },
+    {
+      "cc": 25,
+      "action": "slot.gate.bypass",
+      "group": "B"
+    },
+    {
+      "cc": 30,
+      "action": "slot.ir.bypass",
+      "group": "C"
+    },
+    {
+      "cc": 43,
+      "action": "tap_tempo",
+      "group": "C"
+    },
+    {
+      "cc": 42,
+      "action": "none",
+      "group": "C"
+    }
+  ]
 }

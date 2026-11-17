@@ -170,36 +170,36 @@ CC osservati nel gruppo B (default): fs1 = 10, fs2 = 20, fs3 = 11.
 
 Attivazione verificata: **fs1+fs2 → verde (1)**, **fs2+fs3 → rossa (3)**, **fs1+fs3 → blu (2)**.
 
-I numeri di CC cambiano con gruppo **e** modalità: nelle prove sono comparsi i set
-`10/20/11`, `22/24/25`, `30/43/42`, con valori `7F`, `00` o entrambi. Conclusione: **non
-ha senso codificare a mano i CC**.
+**Verificato (M0)**: la pressione lunga su fs1/fs2/fs3 seleziona il gruppo. Nove CC distinti:
 
-**Scelta per il progetto**: binding via **MIDI learn**, non a priori. Ogni azione (bypass di
-uno slot) si associa al primo CC che arriva durante la fase di apprendimento, e la mappa
-viene persistita. Così il firmware dell'XTONE può cambiare gruppo e modalità senza rompere
-nulla: quello che conta è che ogni switch mandi *un* CC.
+| Gruppo | LED | fs1 | fs2 | fs3 |
+|--------|-----|-----|-----|-----|
+| A | verde (pressione lunga fs1) | CC 10 | CC 20 | CC 11 |
+| B | blu (pressione lunga fs2) | CC 22 | CC 24 | CC 25 |
+| C | rossa (pressione lunga fs3) | CC 30 | CC 43 | CC 42 |
 
-Politica di edge per binding, perché il valore emesso dipende dalla modalità:
+Tutti su canale 1, stato `B0`.
 
-| `edge` | Quando scatta il toggle |
-|--------|--------------------------|
-| `high` (default) | valore ≥ 64 (verde, blu alla pressione) |
-| `low` | valore < 64 (modalità che emettono solo 00) |
-| `any` | qualunque messaggio, con debounce di 40 ms |
+**Scelta per il progetto**: binding via **MIDI learn**, non codificati a priori: la tabella qui
+sopra è il default proposto, ma l'apprendimento ha sempre la precedenza. Così un cambio di
+firmware o di gruppo non rompe nulla.
 
-Debounce di ~40 ms sullo stesso CC per evitare doppi toggle.
+**Politica di edge**: il valore emesso alterna `7F` e `00` a seconda dello stato interno dello
+switch (comportamento toggle). Regola: **toggle su qualunque messaggio ricevuto**, con
+cooldown di **250 ms** per CC. Il cooldown assorbe sia le modalità che mandano solo `7F` sia
+quelle che mandano `7F` alla pressione e `00` al rilascio, senza doppi toggle.
 
-Conseguenza: il pedale non ha stato, quindi la verità sul bypass è solo lato software.
-All'avvio gli slot partono dallo stato del preset caricato e il primo messaggio lo inverte:
-nessuna desincronizzazione possibile.
+Conseguenza: il pedale non ha stato, la verità sul bypass è solo lato software. All'avvio gli
+slot partono dallo stato del preset caricato e il primo messaggio lo inverte: nessuna
+desincronizzazione possibile.
 
-3 gruppi × 3 switch = **9 binding**, che coprirebbero gli 8 slot + 1 riserva. Il cambio
-gruppo sarebbe un gesto fisico sul pedale (pressione lunga) e il software vedrebbe solo CC
-diversi, senza conoscere il concetto di gruppo.
+**Default proposto** (8 slot + 1 riserva):
 
-**Da verificare**: sui gruppi non abbiamo ancora dati. Se la pressione lunga non funziona
-su questo esemplare restano 3 switch per 8 slot, e serve uno schema a cursore:
-fs1 = slot successivo, fs2 = bypass dello slot selezionato, fs3 = tap tempo.
+| Gruppo | fs1 | fs2 | fs3 |
+|--------|-----|-----|-----|
+| A | drive bypass | mod bypass | delay bypass |
+| B | comp bypass | reverb bypass | gate bypass |
+| C | ir bypass | tap tempo | (riserva) |
 
 **Espressione**: non ancora verificata (nessun messaggio catturato in M0). Attenzione al
 possibile conflitto: il CC 11 è quello standard dell'expression, ma nel gruppo B è anche
