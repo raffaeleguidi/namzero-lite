@@ -14,7 +14,14 @@
     "edge": "any",
     "cooldown_ms": 250,
     "expression": {
-      "cc": 11,
+      "cc": [
+        1,
+        4,
+        7
+      ],
+      "min_raw": 68,
+      "max_raw": 127,
+      "autocalibrate": true,
       "smoothing_ms": 10
     },
     "wah_autoengage": {

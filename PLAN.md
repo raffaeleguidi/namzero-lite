@@ -200,9 +200,19 @@ desincronizzazione possibile.
 | B | comp bypass | reverb bypass | gate bypass |
 | C | ir bypass | tap tempo | (riserva) |
 
-**Espressione**: non ancora verificata (nessun messaggio catturato in M0). Attenzione al
-possibile conflitto: il CC 11 è quello standard dell'expression, ma nel gruppo B è anche
-assegnato a fs3. Da testare.
+**Espressione (verificata)**: CC dipendente dal gruppo — **7** (verde), **4** (blu), **1** (rosso).
+La corsa utile è **68–127**, non 0–127: il pedale copre solo la metà alta del range MIDI.
+Serve normalizzazione, altrimenti un parametro mappato sul valore grezzo partirebbe a metà corsa.
+
+Regole:
+
+- Il config elenca i tre CC candidati `[1, 4, 7]`; qualunque CC della lista è considerato
+  espressione, quindi il cambio gruppo non rompe la mappatura.
+- Normalizzazione `(v - min) / (max - min)` con **auto-calibrazione**: alla prima escursione
+  completa si memorizzano min e max osservati e si persistono nel config.
+- Default di calibrazione: `min 68`, `max 127`.
+- Smoothing 10 ms nel thread di controllo.
+- Nessun conflitto con i footswitch: i loro CC sono 10/20/11, 22/24/25, 30/43/42.
 
 ### MIDI learn
 1. Si entra in learn da UI (M9) o da combo fisica all'avvio (es. switch 1+2 premuti).
