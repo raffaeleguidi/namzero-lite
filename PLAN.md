@@ -151,9 +151,34 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 
 ## 6. Controllo MIDI
 
-### Banchi e binding
-- 3 switch × 3 banchi = **9 binding**: coprono gli 8 slot + 1 riserva (es. tap tempo o cambia banco).
-- Il banco attivo è uno stato globale; il passaggio di banco può essere assegnato a un CC dedicato.
+### Modello reale dell'XTONE (verificato in M0)
+
+Due assi indipendenti di configurazione, entrambi sul canale MIDI 1 (stato `B0`):
+
+- **Gruppi** (A verde, B blu, C rosso): si cambiano con **pressione lunga** di fs1/fs2/fs3.
+  Cambiano solo i **numeri di CC**, non il comportamento.
+- **Modalità** (1 verde, 2 blu, 3 rossa): si cambiano con combinazioni A+B, A+C, B+C e
+  lampeggio del LED. Cambiano il **comportamento**:
+
+| Modalità | Comportamento switch |
+|----------|----------------------|
+| 1 (verde) | 7F a ogni pressione |
+| 2 (blu) | 7F seguito da 00 |
+| 3 (rossa) | toggle: 7F alla prima pressione, 00 alla successiva |
+
+CC osservati nel gruppo B (default): fs1 = 10, fs2 = 20, fs3 = 11.
+
+**Scelta per il progetto**: modalità **3** (toggle). Mappa 1:1 sul bypass di uno slot senza
+dover tracciare il rilascio; gli altri switch sono esclusivi tra loro e il LED dello slot
+riflette lo stato senza logica aggiuntiva.
+
+3 gruppi × 3 switch = **9 binding**, che tornano a coprire gli 8 slot + 1 riserva.
+Il cambio gruppo è un gesto fisico sul pedale: il software vede solo CC diversi, non deve
+conoscere il concetto di gruppo.
+
+**Espressione**: non ancora verificata (nessun messaggio catturato in M0). Attenzione al
+possibile conflitto: il CC 11 è quello standard dell'expression, ma nel gruppo B è anche
+assegnato a fs3. Da testare.**
 
 ### MIDI learn
 1. Si entra in learn da UI (M9) o da combo fisica all'avvio (es. switch 1+2 premuti).
