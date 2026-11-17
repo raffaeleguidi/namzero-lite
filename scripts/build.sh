@@ -11,11 +11,18 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j2
 
 BIN="build/namzero-lite"
-if ! getcap "$BIN" 2>/dev/null | grep -q cap_sys_nice; then
-    echo "applico le capability a $BIN (serve sudo, una volta per build)"
-    sudo /usr/sbin/setcap cap_sys_nice,cap_ipc_lock+ep "$BIN"
-fi
 
-echo
-getcap "$BIN"
+# setcap e' idempotente: si riapplica dopo ogni build, perche' un eseguibile
+# ricompilato perde le capability.
+echo "applico le capability a $BIN"
+sudo /usr/sbin/setcap cap_sys_nice,cap_ipc_lock+ep "$BIN"
+
+# getcap sta in libcap2-bin, che non e' sempre installato: verifica via xattr.
+python3 - "$BIN" <<'PYEOF'
+import os, sys
+path = sys.argv[1]
+raw = os.getxattr(path, "security.capability")
+print("security.capability:", raw.hex())
+PYEOF
+
 echo "eseguibile pronto: ./$BIN"

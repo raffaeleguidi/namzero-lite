@@ -5,6 +5,10 @@
 #include <cmath>
 #include <csignal>
 #include <cstdio>
+
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -204,6 +208,16 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN);
+
+    // Istanza singola: il device audio e' esclusivo, e un residuo in background
+    // fa fallire l'avvio con un "device busy" che sembra un problema di config.
+    const int lock_fd = ::open("/tmp/namzero-lite.lock", O_CREAT | O_RDWR, 0666);
+    if (lock_fd >= 0 && ::flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        std::fprintf(stderr,
+                     "errore: un'altra istanza di namzero-lite e' gia' in "
+                     "esecuzione (lock /tmp/namzero-lite.lock)\n");
+        return 1;
+    }
 
     namzero::AudioConfig cfg;
     cfg.device = opt.device;
