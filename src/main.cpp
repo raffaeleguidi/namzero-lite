@@ -146,6 +146,9 @@ void usage() {
         "  --ir <file.wav>      cabinet IR\n"
         "  --taps <n>           limite di tap della IR (default 2048)\n"
         "  --gate               noise gate\n"
+        "  --gate-threshold <db> soglia (default -55)\n"
+        "  --gate-attack <ms>   attacco (default 2)\n"
+        "  --gate-release <ms>  rilascio: lungo = tiene le code (default 120)\n"
         "  --comp               compressore\n"
         "  --drive              boost/overdrive\n"
         "  --drive-type <t>     fuzz (default) | klon\n"
@@ -565,6 +568,24 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
             }
         } else if (a == "--gate") {
             cfg.gate_on = true;
+        } else if (a == "--gate-threshold") {
+            const char* v = next("--gate-threshold");
+            if (v == nullptr || !parse_float(v, cfg.gate_threshold_db)) {
+                err = "valore non valido per --gate-threshold";
+                return false;
+            }
+        } else if (a == "--gate-attack") {
+            const char* v = next("--gate-attack");
+            if (v == nullptr || !parse_float(v, cfg.gate_attack_ms)) {
+                err = "valore non valido per --gate-attack";
+                return false;
+            }
+        } else if (a == "--gate-release") {
+            const char* v = next("--gate-release");
+            if (v == nullptr || !parse_float(v, cfg.gate_release_ms)) {
+                err = "valore non valido per --gate-release";
+                return false;
+            }
         } else if (a == "--comp") {
             cfg.comp_on = true;
         } else if (a == "--drive") {
@@ -832,10 +853,26 @@ int main(int argc, char** argv) {
     // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
     namzero::Chain chain;
 
+    // I parametri vanno applicati allo slot: senza queste chiamate il gate (e
+    // il comp) restavano sui default compilati, qualunque cosa dicesse il preset.
     const std::size_t i_gate = chain.size();
-    chain.add(std::make_unique<namzero::GateSlot>());
+    {
+        auto gt = std::make_unique<namzero::GateSlot>();
+        gt->set_threshold_db(static_cast<float>(cfg.gate_threshold_db));
+        gt->set_attack_ms(static_cast<float>(cfg.gate_attack_ms));
+        gt->set_release_ms(static_cast<float>(cfg.gate_release_ms));
+        chain.add(std::move(gt));
+    }
     const std::size_t i_comp = chain.size();
-    chain.add(std::make_unique<namzero::CompSlot>());
+    {
+        auto cp = std::make_unique<namzero::CompSlot>();
+        cp->set_threshold_db(static_cast<float>(cfg.comp_threshold_db));
+        cp->set_ratio(static_cast<float>(cfg.comp_ratio));
+        cp->set_attack_ms(static_cast<float>(cfg.comp_attack_ms));
+        cp->set_release_ms(static_cast<float>(cfg.comp_release_ms));
+        cp->set_makeup_db(static_cast<float>(cfg.comp_makeup_db));
+        chain.add(std::move(cp));
+    }
     const std::size_t i_drive = chain.size();
     namzero::DriveSlot* drive_ptr = nullptr;
     {
@@ -949,6 +986,11 @@ int main(int argc, char** argv) {
     chain.set_enabled(i_reverb, cfg.reverb_on);
     chain.reset();
 
+    std::printf("gate: soglia %.1f dB | attack %.1f ms | release %.0f ms\n",
+                cfg.gate_threshold_db, cfg.gate_attack_ms, cfg.gate_release_ms);
+    std::printf("comp: soglia %.1f dB | ratio %.1f | attack %.1f ms | release %.0f ms | makeup %.1f dB\n",
+                cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms, cfg.comp_release_ms,
+                cfg.comp_makeup_db);
     std::printf("slot: gate %s | comp %s | drive %s (%s) | mod %s | amp %s | ir %s | delay %s | reverb %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
                 cfg.drive_on ? "on" : "off", cfg.drive_type.c_str(),
