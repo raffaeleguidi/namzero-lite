@@ -11,6 +11,7 @@
 #include <ctime>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <array>
@@ -71,9 +72,11 @@ struct Config {
     double comp_makeup_db = 3.0;
 
     bool drive_on = false;
+    std::string drive_type = "fuzz";  // fuzz | klon
     double drive_amount = 0.15;
     double drive_tone = 0.5;
     double drive_level_db = 0.0;
+    double drive_blend = 0.40;  // solo klon: quota di segnale saturato
 
     bool mod_on = false;
     std::string mod_type = "tremolo";  // tremolo | wah
@@ -117,9 +120,14 @@ struct Config {
     int cc_expression = 7;  // pedale, gruppo verde
     int expr_min_raw = 68;
     int expr_max_raw = 127;
+    // Il pedale M-Gear ha uno switch che ne inverte la corsa: se il valore cresce
+    // verso l'alto basta questa riga, senza ricalibrare.
+    bool expr_invert = false;
     double wah_engage_threshold = 0.10;
+    double wah_release_threshold = 0.05;
     int wah_engage_ms = 100;
     int wah_release_ms = 500;
+    bool midi_log = false;  // stampa ogni CC: serve a misurare il pedale
 
     bool stats = false;
     bool help = false;
@@ -151,8 +159,10 @@ void usage() {
         "  --gate               noise gate\n"
         "  --comp               compressore\n"
         "  --drive              boost/overdrive\n"
+        "  --drive-type <t>     fuzz (default) | klon\n"
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
         "  --drive-tone <0..1>  tono del drive (default 0.5)\n"
+        "  --drive-blend <0..1> solo klon: quota di segnale saturato (default 0.40)\n"
         "  --tremolo            tremolo nello slot mod\n"
         "  --wah                wah nello slot mod\n"
         "  --wah-position <0..1> posizione del pedale (default 0.5)\n"
@@ -171,11 +181,13 @@ void usage() {
         "  --reverb-size <0..1> stanza (default 0.55)\n"
         "  --midi-device <dev>  rawmidi (default hw:XTONE)\n"
         "  --no-midi            non aprire l'ingresso MIDI\n"
+        "  --expr-invert        pedale di espressione con corsa invertita\n"
+        "  --midi-log           stampa ogni CC ricevuto (per misurare il pedale)\n"
         "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
         "  -h, --help           questo messaggio\n"
         "\n"
         "Tasti durante l'esecuzione:\n"
-        "  g gate | c comp | o overdrive | m mod | w tipo mod | , . wah\n"
+        "  g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
         "  d delay | t tap tempo | i ir | r reverb\n"
         "  s salva lo stato nel preset | q esce\n");
 }
@@ -276,9 +288,11 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
     auto d = slot_or_empty(j, "drive");
     if (!d.empty()) {
         cfg.drive_on = get_bool(d, "on", cfg.drive_on);
+        get_str(d, "type", cfg.drive_type);
         cfg.drive_amount = get_num(d, "amount", cfg.drive_amount);
         cfg.drive_tone = get_num(d, "tone", cfg.drive_tone);
         cfg.drive_level_db = get_num(d, "level_db", cfg.drive_level_db);
+        cfg.drive_blend = get_num(d, "blend", cfg.drive_blend);
     }
 
     auto md = slot_or_empty(j, "mod");
@@ -354,11 +368,14 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         if (mi.contains("wah_autoengage") && mi["wah_autoengage"].is_object()) {
             const auto& ae = mi["wah_autoengage"];
             cfg.wah_engage_threshold = get_num(ae, "threshold", cfg.wah_engage_threshold);
+            cfg.wah_release_threshold = get_num(ae, "release_threshold", cfg.wah_release_threshold);
             if (ae.contains("engage_ms") && ae["engage_ms"].is_number_integer())
                 cfg.wah_engage_ms = ae["engage_ms"].get<int>();
             if (ae.contains("release_ms") && ae["release_ms"].is_number_integer())
                 cfg.wah_release_ms = ae["release_ms"].get<int>();
         }
+        if (mi.contains("expr_invert") && mi["expr_invert"].is_boolean())
+            cfg.expr_invert = mi["expr_invert"].get<bool>();
     }
 
     if (j.contains("stats") && j["stats"].is_boolean()) {
@@ -431,6 +448,11 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
         }
         if (a == "--stats") {
             cfg.stats = true;
+            continue;
+        }
+        // Diagnostica: non e' una configurazione, quindi convive con -p.
+        if (a == "--midi-log") {
+            cfg.midi_log = true;
             continue;
         }
 
@@ -530,6 +552,8 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
             }
         } else if (a == "--no-midi") {
             cfg.midi_enabled = false;
+        } else if (a == "--expr-invert") {
+            cfg.expr_invert = true;
         } else if (a == "--midi-device") {
             const char* v = next("--midi-device");
             if (v == nullptr) return false;
@@ -540,6 +564,16 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
             cfg.comp_on = true;
         } else if (a == "--drive") {
             cfg.drive_on = true;
+        } else if (a == "--drive-type") {
+            const char* v = next("--drive-type");
+            if (v == nullptr) return false;
+            cfg.drive_type = v;
+        } else if (a == "--drive-blend") {
+            const char* v = next("--drive-blend");
+            if (v == nullptr || !parse_float(v, cfg.drive_blend)) {
+                err = "valore non valido per --drive-blend";
+                return false;
+            }
         } else if (a == "--drive-amount") {
             const char* v = next("--drive-amount");
             if (v == nullptr || !parse_float(v, cfg.drive_amount)) {
@@ -659,8 +693,22 @@ int main(int argc, char** argv) {
             return 1;
         }
         from_file.stats = cfg.stats;
+        from_file.midi_log = cfg.midi_log;
         cfg = from_file;
         std::printf("preset: %s\n", preset_path.c_str());
+    }
+
+    // Un tipo scritto male non deve diventare un modello a caso: si torna al
+    // default e lo si dice, invece di far suonare qualcosa di inatteso.
+    if (cfg.drive_type != "fuzz" && cfg.drive_type != "klon") {
+        std::fprintf(stderr, "drive: tipo \"%s\" sconosciuto, uso fuzz\n",
+                     cfg.drive_type.c_str());
+        cfg.drive_type = "fuzz";
+    }
+    if (cfg.mod_type != "tremolo" && cfg.mod_type != "wah") {
+        std::fprintf(stderr, "mod: tipo \"%s\" sconosciuto, uso tremolo\n",
+                     cfg.mod_type.c_str());
+        cfg.mod_type = "tremolo";
     }
 
     std::signal(SIGINT, on_signal);
@@ -705,6 +753,21 @@ int main(int argc, char** argv) {
                 io.device().c_str(), io.rate(), io.period_frames(),
                 io.buffer_frames(), io.periods());
 
+    // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
+    // l'auto-engage prende il comando dello slot mod fin dall'avvio.
+    namzero::MidiInput midi;
+    if (cfg.midi_enabled) {
+        std::string merr;
+        if (midi.open(cfg.midi_device, merr)) {
+            std::printf("midi: %s | tremolo CC%d | drive CC%d | delay CC%d | wah CC%d\n",
+                        cfg.midi_device.c_str(), cfg.cc_tremolo, cfg.cc_drive,
+                        cfg.cc_delay, cfg.cc_expression);
+        } else {
+            std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
+        }
+    }
+    const bool wah_armed = midi.is_open();
+
     // Ordine della catena: gate -> comp -> drive -> amp -> ir -> reverb.
     // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
     namzero::Chain chain;
@@ -714,7 +777,18 @@ int main(int argc, char** argv) {
     const std::size_t i_comp = chain.size();
     chain.add(std::make_unique<namzero::CompSlot>());
     const std::size_t i_drive = chain.size();
-    chain.add(std::make_unique<namzero::DriveSlot>());
+    namzero::DriveSlot* drive_ptr = nullptr;
+    {
+        auto dr = std::make_unique<namzero::DriveSlot>();
+        drive_ptr = dr.get();
+        dr->set_type(cfg.drive_type == "klon" ? namzero::DriveSlot::Type::kKlon
+                                              : namzero::DriveSlot::Type::kFuzz);
+        dr->set_drive(static_cast<float>(cfg.drive_amount));
+        dr->set_tone(static_cast<float>(cfg.drive_tone));
+        dr->set_level_db(static_cast<float>(cfg.drive_level_db));
+        dr->set_blend(static_cast<float>(cfg.drive_blend));
+        chain.add(std::move(dr));
+    }
 
     const std::size_t i_mod = chain.size();
     auto mod_owner = std::make_unique<namzero::ModSlot>();
@@ -795,6 +869,14 @@ int main(int argc, char** argv) {
 
     chain.prepare(io.rate(), io.period_frames());
 
+    // Regola: il wah non parte mai acceso, lo accende solo il pedale. Se il
+    // MIDI non c'e' (o e' disattivato) resta il controllo manuale, altrimenti
+    // un preset col wah dentro non avrebbe modo di suonare.
+    if (wah_armed && cfg.mod_type == "wah" && cfg.mod_on) {
+        cfg.mod_on = false;
+        std::printf("mod: wah spento all'avvio (si accende col pedale)\n");
+    }
+
     chain.set_enabled(i_gate, cfg.gate_on);
     chain.set_enabled(i_comp, cfg.comp_on);
     chain.set_enabled(i_drive, cfg.drive_on);
@@ -805,15 +887,16 @@ int main(int argc, char** argv) {
     chain.set_enabled(i_reverb, cfg.reverb_on);
     chain.reset();
 
-    std::printf("slot: gate %s | comp %s | drive %s | mod %s | amp %s | ir %s | delay %s | reverb %s\n",
+    std::printf("slot: gate %s | comp %s | drive %s (%s) | mod %s | amp %s | ir %s | delay %s | reverb %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
-                cfg.drive_on ? "on" : "off", cfg.mod_on ? "on" : "off",
+                cfg.drive_on ? "on" : "off", cfg.drive_type.c_str(),
+                cfg.mod_on ? "on" : "off",
                 has_amp ? "on" : "off", has_ir ? "on" : "off",
                 cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off");
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
-    std::printf("tasti: g gate | c comp | o overdrive | m mod | w tipo mod | , . wah\n"
+    std::printf("tasti: g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
                 "        d delay | t tap tempo | i ir | r reverb | s salva | q esci\n");
     std::fflush(stdout);
 
@@ -885,7 +968,13 @@ int main(int argc, char** argv) {
 
     // Tastiera: toggle degli slot mentre suona, senza toccare i file.
     // stdin e' in modalita' raw, quindi i tasti arrivano senza Invio.
-    std::thread kb_thread([&chain, &cfg, &preset_path, i_gate, i_comp, i_drive, i_mod,
+    // Il mutex serializza tastiera e MIDI: scrivono entrambi lo stesso stato.
+    std::mutex ctrl_mtx;
+    // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
+    // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
+    std::atomic<bool> wah_engaged{false};
+    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, wah_armed,
+                           drive_ptr, i_gate, i_comp, i_drive, i_mod,
                            i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
         const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
@@ -929,7 +1018,22 @@ int main(int argc, char** argv) {
             switch (ch) {
                 case 'g': toggle("gate", i_gate, cfg.gate_on); break;
                 case 'c': toggle("comp", i_comp, cfg.comp_on); break;
-                case 'o': toggle("overdrive", i_drive, cfg.drive_on); break;
+                case 'o': {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    toggle("overdrive", i_drive, cfg.drive_on);
+                    break;
+                }
+                case 'k': {
+                    if (drive_ptr == nullptr) break;
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    const bool to_klon = (cfg.drive_type != "klon");
+                    cfg.drive_type = to_klon ? "klon" : "fuzz";
+                    drive_ptr->set_type(to_klon ? namzero::DriveSlot::Type::kKlon
+                                                : namzero::DriveSlot::Type::kFuzz);
+                    std::printf("  drive: %s\n", cfg.drive_type.c_str());
+                    std::fflush(stdout);
+                    break;
+                }
                 case 'd': toggle("delay", i_delay, cfg.delay_on); break;
                 case 't': {
                     if (delay_slot == nullptr) break;
@@ -952,14 +1056,39 @@ int main(int argc, char** argv) {
                     last_tap = now;
                     break;
                 }
-                case 'm': toggle("mod", i_mod, cfg.mod_on); break;
+                case 'm': {
+                    if (wah_engaged.load()) {
+                        std::printf("  (il wah e' in mano al pedale)\n");
+                        std::fflush(stdout);
+                        break;
+                    }
+                    if (wah_armed && cfg.mod_type == "wah") {
+                        std::printf("  (il wah si accende col pedale, non da qui)\n");
+                        std::fflush(stdout);
+                        break;
+                    }
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    toggle("mod", i_mod, cfg.mod_on);
+                    break;
+                }
                 case 'w': {
                     if (mod_ptr == nullptr) break;
+                    if (wah_engaged.load()) {
+                        std::printf("  (il wah e' in mano al pedale)\n");
+                        std::fflush(stdout);
+                        break;
+                    }
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
                     const bool to_wah = (cfg.mod_type != "wah");
                     cfg.mod_type = to_wah ? "wah" : "tremolo";
                     mod_ptr->set_type(to_wah ? namzero::ModSlot::Type::kWah
                                               : namzero::ModSlot::Type::kTremolo);
-                    std::printf("  mod: %s\n", cfg.mod_type.c_str());
+                    if (to_wah && wah_armed && cfg.mod_on) {
+                        cfg.mod_on = false;
+                        chain.set_enabled(i_mod, false);
+                    }
+                    std::printf("  mod: %s%s\n", cfg.mod_type.c_str(),
+                                (to_wah && wah_armed) ? " (spento: lo accende il pedale)" : "");
                     std::fflush(stdout);
                     break;
                 }
@@ -1003,18 +1132,6 @@ int main(int argc, char** argv) {
     });
 
     // MIDI: assegnazioni fisse, uguali in ogni preset.
-    namzero::MidiInput midi;
-    if (cfg.midi_enabled) {
-        std::string merr;
-        if (midi.open(cfg.midi_device, merr)) {
-            std::printf("midi: %s | tremolo CC%d | drive CC%d | delay CC%d | wah CC%d\n",
-                        cfg.midi_device.c_str(), cfg.cc_tremolo, cfg.cc_drive,
-                        cfg.cc_delay, cfg.cc_expression);
-        } else {
-            std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
-        }
-    }
-
     std::thread midi_thread([&]() {
         if (!midi.is_open()) return;
 
@@ -1025,33 +1142,59 @@ int main(int argc, char** argv) {
 
         namzero::WahAutoEngage ae;
         ae.configure(static_cast<float>(cfg.wah_engage_threshold), cfg.wah_engage_ms,
-                     cfg.wah_release_ms);
+                     cfg.wah_release_ms, static_cast<float>(cfg.wah_release_threshold));
         const auto t0 = std::chrono::steady_clock::now();
         ae.reset(0.0);
         float pos = 0.0f;
 
-        // Stato messo da parte quando il pedale accende il wah: al rilascio si
-        // torna esattamente a com'era, tremolo compreso.
-        bool saved_on = cfg.mod_on;
-        std::string saved_type = cfg.mod_type;
+        // Proprieta' dello slot mod: il wah accende solo dal pedale, e al
+        // rilascio si torna esattamente allo stato di prima (tremolo compreso).
+        namzero::ModArbiter arbiter;
+
+        // Applica uno stato allo slot: usata sia per accendere sia per
+        // ripristinare, cosi' le due strade non possono divergere.
+        auto apply_mod = [&](const namzero::ModArbiter::State& st) {
+            cfg.mod_on = st.on;
+            cfg.mod_type = st.wah ? "wah" : "tremolo";
+            if (mod_ptr != nullptr) {
+                mod_ptr->set_type(st.wah ? namzero::ModSlot::Type::kWah
+                                         : namzero::ModSlot::Type::kTremolo);
+            }
+            if (i_mod != kNoSlot) chain.set_enabled(i_mod, st.on);
+        };
 
         while (g_running.load()) {
             events.clear();
             midi.poll(2, events);
 
-            auto now = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
 
             for (const auto& e : events) {
-                if (e.cc == cfg.cc_expression) {
+                const bool is_expr = (e.cc == cfg.cc_expression);
+                if (is_expr) {
                     const float lo = static_cast<float>(cfg.expr_min_raw);
                     const float hi = static_cast<float>(cfg.expr_max_raw);
-                    float p = (static_cast<float>(e.value) - lo) / (hi - lo);
-                    pos = p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
+                    const float span = (hi > lo) ? (hi - lo) : 1.0f;
+                    float p = (static_cast<float>(e.value) - lo) / span;
+                    p = p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
+                    pos = cfg.expr_invert ? 1.0f - p : p;
                     if (mod_ptr != nullptr) mod_ptr->set_position(pos);
-                    continue;
                 }
 
-                if (e.cc >= 128) continue;
+                if (cfg.midi_log) {
+                    const double ms =
+                        std::chrono::duration<double, std::milli>(now - t0).count();
+                    if (is_expr) {
+                        std::printf("midi %7.1f ms  cc %3u  val %3u  pos %.2f%s\n", ms, e.cc,
+                                    e.value, pos, cfg.expr_invert ? " (invertito)" : "");
+                    } else {
+                        std::printf("midi %7.1f ms  cc %3u  val %3u\n", ms, e.cc, e.value);
+                    }
+                    std::fflush(stdout);
+                }
+
+                if (is_expr) continue;
+
                 // Cooldown: assorbe sia i pedali che mandano solo il valore alto
                 // sia quelli che mandano anche il rilascio.
                 if (last_seen[e.cc] != epoch &&
@@ -1063,16 +1206,18 @@ int main(int argc, char** argv) {
                 if (e.cc == cfg.cc_tremolo) {
                     // fs1 e' il tremolo, ma se il wah e' in mano al pedale non
                     // si tocca: comanda il pedale.
-                    if (!ae.engaged()) {
-                        cfg.mod_type = "tremolo";
-                        if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
-                        cfg.mod_on = !cfg.mod_on;
-                        if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
-                    }
+                    if (arbiter.engaged()) continue;
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    cfg.mod_type = "tremolo";
+                    if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
+                    cfg.mod_on = !cfg.mod_on;
+                    if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
                 } else if (e.cc == cfg.cc_drive) {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
                     cfg.drive_on = !cfg.drive_on;
                     if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
                 } else if (e.cc == cfg.cc_delay) {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
                     cfg.delay_on = !cfg.delay_on;
                     if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
                 }
@@ -1083,20 +1228,18 @@ int main(int argc, char** argv) {
             const int transition = ae.update(pos, now_ms);
 
             if (transition == 1) {
-                saved_on = cfg.mod_on;
-                saved_type = cfg.mod_type;
-                cfg.mod_type = "wah";
-                cfg.mod_on = true;
-                if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kWah);
-                if (i_mod != kNoSlot) chain.set_enabled(i_mod, true);
+                std::lock_guard<std::mutex> lk(ctrl_mtx);
+                arbiter.engage({cfg.mod_on, cfg.mod_type == "wah"});
+                apply_mod({true, true});
+                wah_engaged.store(true);
+                std::printf("  wah: acceso dal pedale\n");
+                std::fflush(stdout);
             } else if (transition == -1) {
-                cfg.mod_type = saved_type;
-                cfg.mod_on = saved_on;
-                if (mod_ptr != nullptr) {
-                    mod_ptr->set_type(saved_type == "wah" ? namzero::ModSlot::Type::kWah
-                                                          : namzero::ModSlot::Type::kTremolo);
-                }
-                if (i_mod != kNoSlot) chain.set_enabled(i_mod, saved_on);
+                std::lock_guard<std::mutex> lk(ctrl_mtx);
+                apply_mod(arbiter.release());
+                wah_engaged.store(false);
+                std::printf("  wah: spento dal pedale\n");
+                std::fflush(stdout);
             }
         }
     });

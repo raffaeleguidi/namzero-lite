@@ -6,20 +6,24 @@ MIDI da footswitch.
 
 Il piano di progetto completo è in [PLAN.md](PLAN.md).
 
-**Stato**: M0/M2 in corso. Lo scheletro compila ed è eseguibile ma è ancora
-privo di effetti, core NAM e MIDI.
+**Stato**: catena completa e suonabile sul Pi (M2). Gli effetti ci sono tutti; il MIDI è
+sulla mappa fissa dei CC, non sul learn.
 
 ## Cosa c'è già
 
 - I/O ALSA full-duplex, periodo configurabile (default 64 frame @ 48 kHz)
 - Thread realtime: `SCHED_FIFO`, `mlockall`, nessuna allocazione nel loop
 - Framework a slot con bypass e **crossfade di 5 ms** (anti-click)
-- Slot di gain di esempio + master gain con soft clip
+- Slot: gate, comp, drive, mod, amp NAM, IR, delay, riverbero
+- Drive con due modelli: `fuzz` (storico) e `klon` (trasparente, blend col pulito)
+- Mod: tremolo e wah; il wah è spento finché non lo accende il pedale (auto-engage)
+- Preset JSON (`-p`) e salvataggio dello stato con `s`
+- MIDI da XTONE: footswitch su CC fissi (10/20/11) ed espressione su CC 7
 - Contatore xrun con recupero automatico e statistiche periodiche
 
 ## Cosa manca (roadmap in PLAN.md)
 
-Slot IR, gate, comp, drive, mod, delay, reverb · core NAM · preset · MIDI learn.
+Scelta dei preset dal vivo, MIDI learn, UI. Vedi PLAN.md per il dettaglio.
 
 ## Connessione al Pi
 

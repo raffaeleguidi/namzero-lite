@@ -55,7 +55,7 @@
       "damp": 0.45
     },
     "mod": {
-      "on": true,
+      "on": false,
       "type": "wah",
       "position": 0.35,
       "q": 3.5,
@@ -76,6 +76,7 @@
     "expr_max": 127,
     "wah_autoengage": {
       "threshold": 0.1,
+      "release_threshold": 0.05,
       "engage_ms": 100,
       "release_ms": 500
     }

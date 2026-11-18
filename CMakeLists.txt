@@ -75,3 +75,7 @@ enable_testing()
 add_executable(wah_autoengage_test test/wah_autoengage_test.cpp)
 target_include_directories(wah_autoengage_test PRIVATE src)
 add_test(NAME wah_autoengage COMMAND wah_autoengage_test)
+
+add_executable(drive_klon_test test/drive_klon_test.cpp)
+target_include_directories(drive_klon_test PRIVATE src)
+add_test(NAME drive_klon COMMAND drive_klon_test)

@@ -97,7 +97,7 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 |------|--------------|----------------------|------|
 | 1. gate | noise gate | threshold, attack, release, isteresi | envelope follower, no lookahead |
 | 2. comp | compressore | threshold, ratio, attack, release, makeup | feed-forward |
-| 3. drive | boost / overdrive | tipo, drive, tone, level | oversampling 2× opzionale |
+| 3. drive | boost / overdrive / fuzz | tipo: `fuzz` (storico) o `klon`; drive, tone, level, blend | il Klon mescola il pulito: trasparente |
 | 4. mod | modulazione | tipo: tremolo / wah / phaser / chorus / auto-wah | wah = port di GxWah (Guitarix, GPL) |
 | 5. amp | NAM lite | file modello, input gain, output gain | swap al confine di blocco |
 | 6. ir | cabinet IR | file IR | partizionata FFT (blocco 64), **zero latenza**, ~4% CPU per 1024 tap |
@@ -123,7 +123,27 @@ Risposta verificata (RMS su tono puro, posizione 0.0 / 0.5 / 1.0): la banda si s
 da 350 a ~900 a 2200 Hz come previsto.
 
 Controllo: `w` cambia tipo, `,` e `.` muovono la posizione, oppure `position` nel preset.
-L'espressione pedal lo piloterà via MIDI (passo successivo).
+Con il MIDI attivo l'espressione lo pilota dal vivo (CC 7), con **auto-engage**: il wah
+è spento finché il pedale non sale sopra soglia, e si rispegne da solo al rilascio.
+
+**Proprietà dello slot mod**: il wah non è mai acceso "di suo". Quando l'auto-engage lo
+accende, lo stato precedente dello slot (acceso/spento e tipo, cioè tremolo o wah) viene
+messo da parte e ripristinato identico allo spegnimento. I tasti `m` e `w` non toccano lo
+slot mentre il pedale lo sta usando: altrimenti il ripristino riporterebbe uno stato che
+l'utente ha cambiato nel frattempo.
+
+### Drive (implementato)
+
+Due modelli nello stesso slot, scelti con `k`, con `"type"` nel preset o `--drive-type`:
+
+- `fuzz` — il boost storico: pre-guadagno 1×–31×, tanh, filtro di tono. Spinge presto.
+- `klon` — ispirato al Klon Centaur: guadagno più basso (1×–25×), pre-enfasi sulle alte,
+  clipping a diodi asimmetrico e **blend con il segnale pulito** (`blend`, default 0.40).
+  È il blend che lo rende trasparente: il clipping c'è, ma non mangia la chitarra.
+  Un DC blocker in uscita toglie la continua del clipping asimmetrico.
+
+Verificato con un test: a parità di drive il Klon ha distorsione armonica sensibilmente
+più bassa del fuzz, e a drive 0 è trasparente entro il 2%.
 
 ### Delay (implementato)
 
@@ -296,10 +316,12 @@ variazioni di range, la curva eventualmente no. Da affrontare quando il wah esis
 5. Il learn è sospeso durante il playing reale? No: è un'operazione esplicita, ma disattiva temporaneamente l'auto-engage del wah.
 
 ### Expression e auto-engage
-- CC expression → posizione 0–127, smoothing 10 ms nel thread controllo.
-- **Auto-engage**: engage se posizione > 15 %, release se < 3 %, con isteresi per evitare sfarfallio; opzionale timeout di inattività. Engage/disengage con rampa di 5–10 ms.
-- Mappatura espressione → frequenza del filtro wah (scala logaritmica, 300 Hz – 2,2 kHz).
+- CC expression (default 7) → posizione 0–1, normalizzata su `expr_min`/`expr_max` (default 68–127). `expr_invert` gira la corsa se il pedale è montato al contrario.
+- **Auto-engage**: accende se la posizione resta sopra **10%** per 100 ms, rispegne se resta sotto **5%** per 500 ms: due soglie (isteresi) e due tempi (accendere subito, spegnere senza tagliare una nota che sfuma; 100/500 ms sono i default, configurabili).
+- **Regola dello slot mod**: il wah è sempre spento all'avvio; lo accende solo l'auto-engage. Accendendosi salva lo stato dello slot (acceso/spento, tremolo/wah) e lo ripristina identico allo spegnimento.
+- Mappatura espressione → frequenza del filtro wah (scala logaritmica, 350 Hz – 2,2 kHz).
 - Tutto lo stato dell'auto-engage vive nel thread controllo; il thread audio riceve solo il valore di frequenza e il flag di bypass.
+- `--midi-log` stampa ogni CC con valore e posizione calcolata: serve a misurare un pedale sconosciuto senza indovinare.
 
 ---
 
