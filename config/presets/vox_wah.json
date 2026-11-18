@@ -25,6 +25,8 @@
     },
     "drive": {
       "on": false,
+      "type": "fuzz",
+      "blend": 0.40,
       "amount": 0.15,
       "tone": 0.5,
       "level_db": 0
@@ -74,6 +76,7 @@
     "cc_expression": 7,
     "expr_min": 68,
     "expr_max": 127,
+    "expr_invert": false,
     "wah_autoengage": {
       "threshold": 0.1,
       "release_threshold": 0.05,

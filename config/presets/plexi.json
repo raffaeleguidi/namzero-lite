@@ -25,6 +25,8 @@
     },
     "drive": {
       "on": false,
+      "type": "fuzz",
+      "blend": 0.40,
       "amount": 0.15,
       "tone": 0.5,
       "level_db": 0.0
