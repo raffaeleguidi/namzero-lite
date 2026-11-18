@@ -26,7 +26,7 @@
     "drive": {
       "on": false,
       "type": "fuzz",
-      "blend": 0.40,
+      "blend": 0.4,
       "amount": 0.15,
       "tone": 0.5,
       "level_db": 0
@@ -66,24 +66,5 @@
       "high_hz": 2200
     }
   },
-  "stats": false,
-  "midi": {
-    "enabled": true,
-    "device": "hw:XTONE",
-    "cc_tremolo": 10,
-    "cc_drive": 20,
-    "cc_delay": 11,
-    "cc_expression": 7,
-    "expr_min": 0,
-    "expr_max": 127,
-    "expr_invert": false,
-    "switches": "any",
-    "wah_autoengage": {
-      "threshold": 0.1,
-      "release_threshold": 0.05,
-      "invert": true,
-      "engage_ms": 100,
-      "release_ms": 500
-    }
-  }
+  "stats": false
 }

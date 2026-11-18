@@ -239,6 +239,36 @@ restano al default, quindi un preset puo' essere parziale.
 
 ## 6. Controllo MIDI
 
+### Configurazione: `config/midi.json`
+
+Tutta la mappa MIDI sta in un file unico, **non nei preset**: vale per qualunque preset
+e si cambia senza ricompilare. Prima di questa scelta i parametri dell'auto-engage
+stavano dentro `vox_wah.json`, quindi cambiare preset cambiava anche il comportamento
+del wah — esattamente ciò che non deve succedere.
+
+```json
+{
+  "enabled": true,
+  "device": "hw:XTONE",
+  "switches": "any",
+  "expression": { "cc": 7, "min_raw": 0, "max_raw": 127, "invert": false },
+  "wah_autoengage": { "threshold": 0.10, "release_threshold": 0.05,
+                      "engage_ms": 100, "release_ms": 500, "invert": true },
+  "cc": { "gate": 25, "comp": 22, "drive": 20, "mod": 10,
+          "amp": 23, "ir": 30, "delay": 11, "reverb": 24 }
+}
+```
+
+- Percorso: `config/midi.json` (o `midi.json` accanto all'eseguibile), sovrascrivibile
+  con `--midi-config <file>`. File assente = default compilati, nessun errore.
+- Precedenza: default compilati < `midi.json` < flag da riga di comando
+  (`--midi-device`, `--no-midi`, `--expr-invert`, `--wah-invert`).
+- Validazione: il file viene **rifiutato** con messaggio chiaro se un CC è fuori range,
+  se due azioni usano lo stesso CC o se un CC coincide con quello dell'espressione.
+  `-1` disattiva un binding.
+- Un preset che contiene ancora un blocco `"midi"` viene accettato ma il blocco è
+  ignorato, con avviso: la mappa è una sola.
+
 ### Modello reale dell'XTONE (verificato in M0)
 
 Due assi indipendenti di configurazione, entrambi sul canale MIDI 1 (stato `B0`):

@@ -26,6 +26,7 @@ add_executable(namzero-lite
   src/dsp/wav.cpp
   src/dsp/nam_slot.cpp
   src/control/midi.cpp
+  src/control/midi_config.cpp
 )
 
 target_include_directories(namzero-lite PRIVATE src third_party ${ALSA_INCLUDE_DIRS})
@@ -83,3 +84,7 @@ add_test(NAME drive_klon COMMAND drive_klon_test)
 add_executable(switch_debounce_test test/switch_debounce_test.cpp)
 target_include_directories(switch_debounce_test PRIVATE src)
 add_test(NAME switch_debounce COMMAND switch_debounce_test)
+
+add_executable(midi_config_test test/midi_config_test.cpp src/control/midi_config.cpp)
+target_include_directories(midi_config_test PRIVATE src third_party)
+add_test(NAME midi_config COMMAND midi_config_test)

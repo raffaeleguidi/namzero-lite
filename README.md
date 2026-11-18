@@ -18,7 +18,8 @@ sulla mappa fissa dei CC, non sul learn.
 - Drive con due modelli: `fuzz` (storico) e `klon` (trasparente, blend col pulito)
 - Mod: tremolo e wah; il wah è spento finché non lo accende il pedale (auto-engage)
 - Preset JSON (`-p`) e salvataggio dello stato con `s`
-- MIDI da XTONE: footswitch su CC fissi (10/20/11) ed espressione su CC 7
+- MIDI da XTONE: mappa in [config/midi.json](config/midi.json) — CC di ogni slot,
+  espressione e auto-engage — uguale per tutti i preset, modificabile senza ricompilare
 - Contatore xrun con recupero automatico e statistiche periodiche
 
 ## Cosa manca (roadmap in PLAN.md)

@@ -35,6 +35,7 @@
 #include "dsp/delay_slot.h"
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
+#include "control/midi_config.h"
 #include "control/switch_debounce.h"
 #include "control/wah_autoengage.h"
 #include "dsp/mod_slot.h"
@@ -111,30 +112,9 @@ struct Config {
     double reverb_damp = 0.45;
 
     // comportamento
-    // MIDI: assegnazioni FISSE, uguali in ogni preset. La stessa pedalata deve
-    // fare sempre la stessa cosa, quindi non c'e' apprendimento.
-    bool midi_enabled = true;
-    std::string midi_device = "hw:XTONE";  // per nome: l'indice cambia al boot
-    int cc_tremolo = 10;    // fs1 gruppo verde
-    int cc_drive = 20;      // fs2
-    int cc_delay = 11;      // fs3
-    int cc_expression = 7;  // pedale, gruppo verde
-    int expr_min_raw = 0;
-    int expr_max_raw = 127;
-    // Il pedale M-Gear ha uno switch che ne inverte la corsa: se il valore cresce
-    // verso l'alto basta questa riga, senza ricalibrare.
-    bool expr_invert = false;
-    double wah_engage_threshold = 0.10;
-    double wah_release_threshold = 0.05;
-    int wah_engage_ms = 100;
-    int wah_release_ms = 500;
-    // Polarita' del gate: false = acceso verso la punta, true = acceso verso il
-    // tacco (la punta diventa la zona di riposo, come su un pedale parcheggiato).
-    bool wah_gate_invert = false;
-    bool midi_log = false;  // stampa ogni CC: serve a misurare il pedale
-    // I footswitch sono "a stato" (un messaggio per pressione, valore che
-    // alterna) oppure "momentanei" (127 premuto, 0 rilasciato).
-    std::string switch_mode = "any";  // any | edge
+    // La mappa MIDI non sta qui ne' nei preset: vive in midi.json (vedi
+    // MidiConfig), cosi' si cambia senza ricompilare e vale per tutti i preset.
+    bool midi_log = false;  // stampa ogni messaggio: serve a misurare il pedale
 
     bool stats = false;
     bool help = false;
@@ -186,6 +166,7 @@ void usage() {
         "  --reverb             riverbero\n"
         "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
         "  --reverb-size <0..1> stanza (default 0.55)\n"
+        "  --midi-config <f>    file della mappa MIDI (default config/midi.json)\n"
         "  --midi-device <dev>  rawmidi (default hw:XTONE)\n"
         "  --no-midi            non aprire l'ingresso MIDI\n"
         "  --expr-invert        pedale di espressione con corsa invertita\n"
@@ -357,35 +338,11 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.reverb_damp = get_num(rv, "damp", cfg.reverb_damp);
     }
 
-    if (j.contains("midi") && j["midi"].is_object()) {
-        const auto& mi = j["midi"];
-        cfg.midi_enabled = get_bool(mi, "enabled", cfg.midi_enabled);
-        get_str(mi, "device", cfg.midi_device);
-        if (mi.contains("cc_tremolo") && mi["cc_tremolo"].is_number_integer())
-            cfg.cc_tremolo = mi["cc_tremolo"].get<int>();
-        if (mi.contains("cc_drive") && mi["cc_drive"].is_number_integer())
-            cfg.cc_drive = mi["cc_drive"].get<int>();
-        if (mi.contains("cc_delay") && mi["cc_delay"].is_number_integer())
-            cfg.cc_delay = mi["cc_delay"].get<int>();
-        if (mi.contains("cc_expression") && mi["cc_expression"].is_number_integer())
-            cfg.cc_expression = mi["cc_expression"].get<int>();
-        if (mi.contains("expr_min") && mi["expr_min"].is_number_integer())
-            cfg.expr_min_raw = mi["expr_min"].get<int>();
-        if (mi.contains("expr_max") && mi["expr_max"].is_number_integer())
-            cfg.expr_max_raw = mi["expr_max"].get<int>();
-        if (mi.contains("wah_autoengage") && mi["wah_autoengage"].is_object()) {
-            const auto& ae = mi["wah_autoengage"];
-            cfg.wah_engage_threshold = get_num(ae, "threshold", cfg.wah_engage_threshold);
-            cfg.wah_release_threshold = get_num(ae, "release_threshold", cfg.wah_release_threshold);
-            if (ae.contains("engage_ms") && ae["engage_ms"].is_number_integer())
-                cfg.wah_engage_ms = ae["engage_ms"].get<int>();
-            if (ae.contains("release_ms") && ae["release_ms"].is_number_integer())
-                cfg.wah_release_ms = ae["release_ms"].get<int>();
-            cfg.wah_gate_invert = get_bool(ae, "invert", cfg.wah_gate_invert);
-        }
-        if (mi.contains("expr_invert") && mi["expr_invert"].is_boolean())
-            cfg.expr_invert = mi["expr_invert"].get<bool>();
-        get_str(mi, "switches", cfg.switch_mode);
+    // La mappa MIDI non si legge dai preset: vive in midi.json. Se un preset
+    // vecchio la contiene lo diciamo, invece di ignorarla in silenzio.
+    if (j.contains("midi")) {
+        std::fprintf(stderr,
+                     "preset: blocco \"midi\" ignorato (la mappa sta in config/midi.json)\n");
     }
 
     if (j.contains("stats") && j["stats"].is_boolean()) {
@@ -433,7 +390,19 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
 
 // --- riga di comando ------------------------------------------------------
 
-bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
+// Override MIDI da riga di comando. Stanno a parte perche' midi.json si carica
+// dopo il parsing e i flag, se presenti, devono vincere sul file.
+struct MidiCli {
+    bool device_set = false;
+    std::string device;
+    bool no_midi = false;
+    bool expr_invert = false;
+    bool wah_invert = false;
+    bool config_set = false;
+    std::string config_path;
+};
+
+bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& preset_path,
                 bool& saw_flag, std::string& err) {
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -463,6 +432,34 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
         // Diagnostica: non e' una configurazione, quindi convive con -p.
         if (a == "--midi-log") {
             cfg.midi_log = true;
+            continue;
+        }
+        // La mappa MIDI vive in midi.json, non nei preset: questi flag non
+        // rendono ambiguo un -p, quindi possono convivere.
+        if (a == "--no-midi") {
+            mcli.no_midi = true;
+            continue;
+        }
+        if (a == "--expr-invert") {
+            mcli.expr_invert = true;
+            continue;
+        }
+        if (a == "--wah-invert") {
+            mcli.wah_invert = true;
+            continue;
+        }
+        if (a == "--midi-device") {
+            const char* v = next("--midi-device");
+            if (v == nullptr) return false;
+            mcli.device = v;
+            mcli.device_set = true;
+            continue;
+        }
+        if (a == "--midi-config") {
+            const char* v = next("--midi-config");
+            if (v == nullptr) return false;
+            mcli.config_path = v;
+            mcli.config_set = true;
             continue;
         }
 
@@ -560,16 +557,6 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
                 err = "valore non valido per --tremolo-depth";
                 return false;
             }
-        } else if (a == "--no-midi") {
-            cfg.midi_enabled = false;
-        } else if (a == "--expr-invert") {
-            cfg.expr_invert = true;
-        } else if (a == "--wah-invert") {
-            cfg.wah_gate_invert = true;
-        } else if (a == "--midi-device") {
-            const char* v = next("--midi-device");
-            if (v == nullptr) return false;
-            cfg.midi_device = v;
         } else if (a == "--gate") {
             cfg.gate_on = true;
         } else if (a == "--comp") {
@@ -678,11 +665,12 @@ void store_max(std::atomic<uint64_t>& target, uint64_t value) {
 
 int main(int argc, char** argv) {
     Config cfg;
+    MidiCli midi_cli;
     std::string preset_path;
     std::string err;
     bool saw_flag = false;
 
-    if (!parse_args(argc, argv, cfg, preset_path, saw_flag, err)) {
+    if (!parse_args(argc, argv, cfg, midi_cli, preset_path, saw_flag, err)) {
         std::fprintf(stderr, "errore: %s\n\n", err.c_str());
         usage();
         return 2;
@@ -722,6 +710,41 @@ int main(int argc, char** argv) {
                      cfg.mod_type.c_str());
         cfg.mod_type = "tremolo";
     }
+
+    // --- mappa MIDI: file globale, non preset ------------------------------
+    // Precedenza: default compilati < midi.json < flag da riga di comando.
+    namzero::MidiConfig midi_cfg;
+    {
+        std::string midi_path;
+        if (midi_cli.config_set) {
+            midi_path = midi_cli.config_path;
+        } else {
+            // Si prova prima la posizione naturale dalla radice del progetto,
+            // poi quella accanto all'eseguibile: nessuna magia oltre a questa.
+            std::ifstream a("config/midi.json");
+            std::ifstream b("midi.json");
+            if (a) midi_path = "config/midi.json";
+            else if (b) midi_path = "midi.json";
+        }
+
+        if (!midi_path.empty()) {
+            std::ifstream exists(midi_path);
+            if (exists) {
+                if (!namzero::load_midi_config(midi_path, midi_cfg, err)) {
+                    std::fprintf(stderr, "errore: %s\n", err.c_str());
+                    return 2;
+                }
+                std::printf("midi: config %s\n", midi_path.c_str());
+            } else if (midi_cli.config_set) {
+                std::fprintf(stderr, "errore: midi.json non leggibile: %s\n", midi_path.c_str());
+                return 2;
+            }
+        }
+    }
+    if (midi_cli.device_set) midi_cfg.device = midi_cli.device;
+    if (midi_cli.no_midi) midi_cfg.enabled = false;
+    if (midi_cli.expr_invert) midi_cfg.expression_invert = true;
+    if (midi_cli.wah_invert) midi_cfg.wah_invert = true;
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -768,12 +791,19 @@ int main(int argc, char** argv) {
     // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
     // l'auto-engage prende il comando dello slot mod fin dall'avvio.
     namzero::MidiInput midi;
-    if (cfg.midi_enabled) {
+    if (midi_cfg.enabled) {
         std::string merr;
-        if (midi.open(cfg.midi_device, merr)) {
-            std::printf("midi: %s | tremolo CC%d | drive CC%d | delay CC%d | wah CC%d\n",
-                        cfg.midi_device.c_str(), cfg.cc_tremolo, cfg.cc_drive,
-                        cfg.cc_delay, cfg.cc_expression);
+        if (midi.open(midi_cfg.device, merr)) {
+            std::printf("midi: %s | espressione CC%d | switch %s\n", midi_cfg.device.c_str(),
+                        midi_cfg.expression_cc, midi_cfg.switches.c_str());
+            for (std::size_t i = 0; i < namzero::kMidiActionCount; ++i) {
+                const int cc = midi_cfg.slot_cc[i];
+                if (cc >= 0) {
+                    std::printf("  %-6s CC%d\n",
+                                namzero::midi_action_name(static_cast<namzero::MidiAction>(i)),
+                                cc);
+                }
+            }
         } else {
             std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
         }
@@ -911,6 +941,20 @@ int main(int argc, char** argv) {
     std::printf("tasti: g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
                 "        d delay | t tap tempo | i ir | r reverb | s salva | q o Ctrl+C esci\n");
     std::fflush(stdout);
+
+    // CC -> azione, costruita una volta sola: il thread MIDI non deve fare una
+    // catena di confronti. midi.json ha gia' rifiutato i doppioni.
+    std::array<int8_t, 128> cc_action{};
+    cc_action.fill(-1);
+    for (std::size_t i = 0; i < namzero::kMidiActionCount; ++i) {
+        const int cc = midi_cfg.slot_cc[i];
+        if (cc >= 0) cc_action[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
+    }
+    const std::array<std::size_t, namzero::kMidiActionCount> slot_index = {
+        i_gate, i_comp, i_drive, i_mod, i_amp, i_ir, i_delay, i_reverb};
+    std::array<bool*, namzero::kMidiActionCount> slot_flag = {
+        &cfg.gate_on, &cfg.comp_on, &cfg.drive_on, &cfg.mod_on,
+        &cfg.amp_on,  &cfg.ir_on,  &cfg.delay_on, &cfg.reverb_on};
 
     const std::size_t frames = io.period_frames();
     const std::size_t samples = frames * 2;
@@ -1169,12 +1213,13 @@ int main(int argc, char** argv) {
         // I footswitch mandano 127 alla pressione e 0 al rilascio: conta il
         // fronte, non il singolo evento (vedi SwitchDebounce).
         namzero::SwitchDebounce switches;
-        switches.set_mode(cfg.switch_mode == "edge" ? namzero::SwitchDebounce::Mode::kEdge
-                                                    : namzero::SwitchDebounce::Mode::kAny);
+        switches.set_mode(midi_cfg.switches == "edge" ? namzero::SwitchDebounce::Mode::kEdge
+                                                        : namzero::SwitchDebounce::Mode::kAny);
 
         namzero::WahAutoEngage ae;
-        ae.configure(static_cast<float>(cfg.wah_engage_threshold), cfg.wah_engage_ms,
-                     cfg.wah_release_ms, static_cast<float>(cfg.wah_release_threshold));
+        ae.configure(static_cast<float>(midi_cfg.wah_threshold), midi_cfg.wah_engage_ms,
+                     midi_cfg.wah_release_ms,
+                     static_cast<float>(midi_cfg.wah_release_threshold));
         const auto t0 = std::chrono::steady_clock::now();
         ae.reset(0.0);
         float pos = 0.0f;
@@ -1209,14 +1254,14 @@ int main(int argc, char** argv) {
             for (const auto& e : events) {
                 const uint8_t type = e.status & 0xF0;
                 const bool is_cc = (type == 0xB0);
-                const bool is_expr = is_cc && (e.cc == cfg.cc_expression);
+                const bool is_expr = is_cc && (e.cc == midi_cfg.expression_cc);
                 if (is_expr) {
-                    const float lo = static_cast<float>(cfg.expr_min_raw);
-                    const float hi = static_cast<float>(cfg.expr_max_raw);
+                    const float lo = static_cast<float>(midi_cfg.expression_min_raw);
+                    const float hi = static_cast<float>(midi_cfg.expression_max_raw);
                     const float span = (hi > lo) ? (hi - lo) : 1.0f;
                     float p = (static_cast<float>(e.value) - lo) / span;
                     p = p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
-                    pos = cfg.expr_invert ? 1.0f - p : p;
+                    pos = midi_cfg.expression_invert ? 1.0f - p : p;
                     have_expr = true;
                     if (mod_ptr != nullptr) mod_ptr->set_position(pos);
                 }
@@ -1224,12 +1269,12 @@ int main(int argc, char** argv) {
                 if (cfg.midi_log) {
                     const unsigned ch = static_cast<unsigned>(e.status & 0x0F) + 1;
                     if (is_expr) {
-                        const float act = namzero::wah_activation(pos, cfg.wah_gate_invert);
+                        const float act = namzero::wah_activation(pos, midi_cfg.wah_invert);
                         std::printf(
                             "midi %7.1f ms  %-12s ch%u  %3u %3u  pos %.2f  gate %.2f%s%s\n",
                             now_ms, namzero::midi_kind_name(e.status), ch, e.cc, e.value, pos,
-                            act, cfg.expr_invert ? " (corsa invertita)" : "",
-                            cfg.wah_gate_invert ? " (punta = spento)" : "");
+                            act, midi_cfg.expression_invert ? " (corsa invertita)" : "",
+                            midi_cfg.wah_invert ? " (punta = spento)" : "");
                     } else {
                         std::printf("midi %7.1f ms  %-12s ch%u  %3u %3u\n", now_ms,
                                     namzero::midi_kind_name(e.status), ch, e.cc, e.value);
@@ -1243,35 +1288,56 @@ int main(int argc, char** argv) {
                 // deve contare, altrimenti tenere premuto spegne subito il blocco.
                 if (!switches.pressed(e.cc, e.value, now_ms)) continue;
 
-                if (e.cc == cfg.cc_tremolo) {
-                    // fs1 e' il tremolo, ma se il wah e' in mano al pedale non
-                    // si tocca: comanda il pedale.
+                const int action = cc_action[e.cc];
+                if (action < 0) continue;  // CC non mappato in midi.json
+
+                const auto act = static_cast<namzero::MidiAction>(action);
+                const char* name = namzero::midi_action_name(act);
+
+                if (act == namzero::MidiAction::kMod) {
+                    // Il mod condivide lo slot col wah: se il pedale lo tiene,
+                    // non si tocca (comanda il pedale).
                     if (arbiter.engaged()) continue;
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     cfg.mod_type = "tremolo";
                     if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
                     cfg.mod_on = !cfg.mod_on;
                     if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
-                    std::printf("  mod: %s (fs1)\n", cfg.mod_on ? "on" : "off");
+                    std::printf("  mod: %s (CC%d)\n", cfg.mod_on ? "on" : "off", e.cc);
                     std::fflush(stdout);
-                } else if (e.cc == cfg.cc_drive) {
-                    std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    cfg.drive_on = !cfg.drive_on;
-                    if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
-                    std::printf("  drive: %s (fs2, %s)\n", cfg.drive_on ? "on" : "off",
-                                cfg.drive_type.c_str());
+                    continue;
+                }
+
+                // amp e ir possono non esistere nel preset corrente.
+                if (act == namzero::MidiAction::kAmp && !has_amp) {
+                    std::printf("  amp: non presente in questo preset (CC%d)\n", e.cc);
                     std::fflush(stdout);
-                } else if (e.cc == cfg.cc_delay) {
+                    continue;
+                }
+                const std::size_t idx = slot_index[action];
+                if (idx == kNoSlot) {
+                    std::printf("  %s: non presente in questo preset (CC%d)\n", name, e.cc);
+                    std::fflush(stdout);
+                    continue;
+                }
+
+                {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    cfg.delay_on = !cfg.delay_on;
-                    if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
-                    std::printf("  delay: %s (fs3)\n", cfg.delay_on ? "on" : "off");
+                    bool& flag = *slot_flag[action];
+                    flag = !flag;
+                    chain.set_enabled(idx, flag);
+                    if (act == namzero::MidiAction::kDrive) {
+                        std::printf("  drive: %s (CC%d, %s)\n", flag ? "on" : "off", e.cc,
+                                    cfg.drive_type.c_str());
+                    } else {
+                        std::printf("  %s: %s (CC%d)\n", name, flag ? "on" : "off", e.cc);
+                    }
                     std::fflush(stdout);
                 }
             }
 
             const float activation =
-                have_expr ? namzero::wah_activation(pos, cfg.wah_gate_invert) : 0.0f;
+                have_expr ? namzero::wah_activation(pos, midi_cfg.wah_invert) : 0.0f;
             const int transition = ae.update(activation, now_ms);
 
             if (transition == 1) {

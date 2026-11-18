@@ -8,7 +8,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j2
+# Un job solo: su Zero 2W (415 MB) due traduzioni pesanti in parallelo, con
+# json.hpp di mezzo, fanno terminare cc1plus dal kernel per memoria esaurita.
+# Con JOBS=2 si puo' forzare, se la macchina e' libera.
+cmake --build build -j"${JOBS:-1}"
 
 BIN="build/namzero-lite"
 

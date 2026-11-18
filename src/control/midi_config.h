@@ -1,0 +1,73 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <string>
+
+#include "json.hpp"
+
+namespace namzero {
+
+// Azioni comandabili da un CC. L'ordine e' quello degli slot nella catena:
+// serve a indicizzare gli array di stato e i flag di bypass.
+enum class MidiAction {
+    kGate = 0,
+    kComp,
+    kDrive,
+    kMod,
+    kAmp,
+    kIr,
+    kDelay,
+    kReverb,
+    kCount,
+};
+
+constexpr std::size_t kMidiActionCount = static_cast<std::size_t>(MidiAction::kCount);
+
+inline const char* midi_action_name(MidiAction a) {
+    switch (a) {
+        case MidiAction::kGate: return "gate";
+        case MidiAction::kComp: return "comp";
+        case MidiAction::kDrive: return "drive";
+        case MidiAction::kMod: return "mod";
+        case MidiAction::kAmp: return "amp";
+        case MidiAction::kIr: return "ir";
+        case MidiAction::kDelay: return "delay";
+        case MidiAction::kReverb: return "reverb";
+        default: return "?";
+    }
+}
+
+// Tutta la configurazione MIDI, uguale per ogni preset: sta in un file a parte
+// (midi.json) proprio perche' cambiarla non deve richiedere ne' un preset nuovo
+// ne' una ricompilazione.
+struct MidiConfig {
+    bool enabled = true;
+    std::string device = "hw:XTONE";
+    // I footswitch dell'XTONE sono "a stato" (un messaggio per pressione, valore
+    // che alterna 127/0). "edge" serve ai controller momentanei.
+    std::string switches = "any";
+
+    int expression_cc = 7;
+    int expression_min_raw = 0;
+    int expression_max_raw = 127;
+    bool expression_invert = false;
+
+    double wah_threshold = 0.10;
+    double wah_release_threshold = 0.05;
+    int wah_engage_ms = 100;
+    int wah_release_ms = 500;
+    // true = la punta e' la zona spenta (wah acceso verso il tacco).
+    bool wah_invert = false;
+
+    // Un CC per azione; -1 = nessun binding. Di default restano legati solo i
+    // tre storici, cosi' senza file il comportamento non cambia.
+    std::array<int, kMidiActionCount> slot_cc = {-1, -1, 20, 10, -1, -1, 11, -1};
+};
+
+// false = il file esiste ma non e' valido; err dice cosa. Un file assente non
+// e' un errore: si chiama il loader solo se il file c'e'.
+bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& err);
+bool load_midi_config(const std::string& path, MidiConfig& cfg, std::string& err);
+
+}  // namespace namzero

@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "device": "hw:XTONE",
+  "switches": "any",
+  "expression": {
+    "cc": 7,
+    "min_raw": 0,
+    "max_raw": 127,
+    "invert": false
+  },
+  "wah_autoengage": {
+    "threshold": 0.10,
+    "release_threshold": 0.05,
+    "engage_ms": 100,
+    "release_ms": 500,
+    "invert": true
+  },
+  "cc": {
+    "gate": 25,
+    "comp": 22,
+    "drive": 20,
+    "mod": 10,
+    "amp": 23,
+    "ir": 30,
+    "delay": 11,
+    "reverb": 24
+  }
+}
