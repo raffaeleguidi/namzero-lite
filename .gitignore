@@ -18,3 +18,7 @@ compile_commands.json
 *.img.xz
 *.img.gz
 *.iso
+
+# archivi di IR
+irs/*.zip
+*.zip
