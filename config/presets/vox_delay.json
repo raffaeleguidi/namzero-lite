@@ -1,16 +1,64 @@
 {
   "version": 1,
   "name": "VOX AC30 + tremolo + delay",
-  "audio": { "device": "hw:XTONE", "rate": 48000, "period_frames": 64, "periods": 3, "gain_db": 0.0 },
+  "audio": {
+    "device": "hw:XTONE",
+    "rate": 48000,
+    "period_frames": 64,
+    "periods": 3,
+    "gain_db": 0.0
+  },
   "slots": {
-    "gate":   { "on": true,  "threshold_db": -55, "attack_ms": 2, "release_ms": 120 },
-    "comp":   { "on": false, "threshold_db": -18, "ratio": 3, "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
-    "drive":  { "on": false, "amount": 0.15, "tone": 0.5, "level_db": 0 },
-    "mod":    { "on": true,  "rate_hz": 4.5, "depth": 0.5 },
-    "amp":    { "on": true,  "file": "models/vox_ac30_a2.nam", "slim": 0.49, "trim_db": -6 },
-    "ir":     { "on": false, "file": "", "taps": 2048 },
-    "delay":  { "on": true,  "time_ms": 380, "feedback": 0.32, "mix": 0.22, "tone": 0.45 },
-    "reverb": { "on": true,  "mix": 0.2, "size": 0.5, "damp": 0.45 }
+    "gate": {
+      "on": true,
+      "threshold_db": -55,
+      "attack_ms": 2,
+      "release_ms": 120
+    },
+    "comp": {
+      "on": false,
+      "threshold_db": -18,
+      "ratio": 3,
+      "attack_ms": 10,
+      "release_ms": 150,
+      "makeup_db": 3
+    },
+    "drive": {
+      "on": false,
+      "amount": 0.15,
+      "tone": 0.5,
+      "level_db": 0
+    },
+    "mod": {
+      "on": true,
+      "rate_hz": 4.5,
+      "depth": 0.5
+    },
+    "amp": {
+      "on": true,
+      "file": "models/vox_ac30_a2.nam",
+      "slim": 0.49,
+      "trim_db": -6
+    },
+    "ir": {
+      "on": false,
+      "file": "",
+      "taps": 2048
+    },
+    "delay": {
+      "on": true,
+      "time_ms": 380,
+      "feedback": 0.32,
+      "mix": 0.22,
+      "tone": 0.45,
+      "mode": "stereo"
+    },
+    "reverb": {
+      "on": true,
+      "mix": 0.2,
+      "size": 0.5,
+      "damp": 0.45
+    }
   },
   "stats": false
 }

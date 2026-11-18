@@ -90,7 +90,7 @@ struct Config {
     double delay_feedback = 0.35;
     double delay_mix = 0.25;
     double delay_tone = 0.5;
-    bool delay_ping_pong = false;
+    std::string delay_mode = "stereo";  // stereo | ping_pong | ping_pong_stereo
 
     bool reverb_on = false;
     double reverb_mix = 0.25;
@@ -137,7 +137,8 @@ void usage() {
         "  --delay-time <ms>    tempo (default 350)\n"
         "  --delay-feedback <0..0.95> retroazione (default 0.35)\n"
         "  --delay-mix <0..1>   quantita' (default 0.25)\n"
-        "  --delay-ping-pong    eco alternato tra i canali\n"
+        "  --delay-ping-pong        eco alternato (ingresso mono)\n"
+        "  --delay-ping-pong-stereo eco alternato, ingresso stereo preservato\n"
         "  --reverb             riverbero\n"
         "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
         "  --reverb-size <0..1> stanza (default 0.55)\n"
@@ -281,7 +282,11 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.delay_feedback = get_num(dl, "feedback", cfg.delay_feedback);
         cfg.delay_mix = get_num(dl, "mix", cfg.delay_mix);
         cfg.delay_tone = get_num(dl, "tone", cfg.delay_tone);
-        cfg.delay_ping_pong = get_bool(dl, "ping_pong", cfg.delay_ping_pong);
+        if (dl.contains("mode") && dl["mode"].is_string()) {
+            cfg.delay_mode = dl["mode"].get<std::string>();
+        } else if (get_bool(dl, "ping_pong", false)) {
+            cfg.delay_mode = "ping_pong";  // compatibilita' con la prima versione
+        }
     }
 
     auto rv = slot_or_empty(j, "reverb");
@@ -476,7 +481,9 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
                 return false;
             }
         } else if (a == "--delay-ping-pong") {
-            cfg.delay_ping_pong = true;
+            cfg.delay_mode = "ping_pong";
+        } else if (a == "--delay-ping-pong-stereo") {
+            cfg.delay_mode = "ping_pong_stereo";
         } else if (a == "--reverb") {
             cfg.reverb_on = true;
         } else if (a == "--reverb-mix") {
@@ -664,7 +671,13 @@ int main(int argc, char** argv) {
         dl->set_feedback(static_cast<float>(cfg.delay_feedback));
         dl->set_mix(static_cast<float>(cfg.delay_mix));
         dl->set_tone(static_cast<float>(cfg.delay_tone));
-        dl->set_ping_pong(cfg.delay_ping_pong);
+        if (cfg.delay_mode == "ping_pong") {
+            dl->set_mode(namzero::DelaySlot::Mode::kPingPong);
+        } else if (cfg.delay_mode == "ping_pong_stereo") {
+            dl->set_mode(namzero::DelaySlot::Mode::kPingPongStereo);
+        } else {
+            dl->set_mode(namzero::DelaySlot::Mode::kStereo);
+        }
         chain.add(std::move(dl));
     }
 
