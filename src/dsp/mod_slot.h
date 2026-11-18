@@ -81,10 +81,16 @@ private:
         // Scala logaritmica: la corsa del pedale deve corrispondere alla
         // percezione dell'orecchio, non alla frequenza lineare.
         const float fc = lo * std::pow(hi / lo, pos);
-        const float q = q_.load(std::memory_order_relaxed);
+
+        // Il Q scende verso la punta. A Q pieno la risonanza sulle alte, dove
+        // il filtro si apre, diventa "acida": il picco stretto a 2 kHz suona
+        // come un fischio, non come un wah. Al tacco il filtro resta selettivo.
+        const float q_raw = q_.load(std::memory_order_relaxed);
+        q_eff_ = q_raw * (1.0f - 0.45f * pos);
+        if (q_eff_ < 0.6f) q_eff_ = 0.6f;
 
         const float g = std::tan(3.14159265f * fc / fs_);
-        const float k = 1.0f / q;
+        const float k = 1.0f / q_eff_;
         a1_ = 1.0f / (1.0f + g * (g + k));
         a2_ = g * a1_;
         a3_ = g * a2_;
@@ -95,8 +101,10 @@ private:
         update_wah_coeffs();
         const float mix = mix_.load(std::memory_order_relaxed);
         const float dry = 1.0f - mix;
-        // Compensa il guadagno del bandpass, che altrimenti suona fiacco.
-        const float boost = 1.0f + 0.5f * mix * q_.load(std::memory_order_relaxed) / 3.0f;
+        // Compensa il guadagno del bandpass, che altrimenti suona fiacco. Usa
+        // il Q effettivo: a Q pieno la compensazione amplificherebbe proprio il
+        // picco che vogliamo addolcire.
+        const float boost = 1.0f + 0.5f * mix * q_eff_ / 3.0f;
 
         for (std::size_t i = 0; i < frames; ++i) {
             const float in_l = interleaved[i * 2 + 0];
@@ -134,6 +142,7 @@ private:
     float fs_ = 48000.0f;
     float phase_ = 0.0f;
 
+    float q_eff_ = 3.0f;
     float a1_ = 0.0f, a2_ = 0.0f, a3_ = 0.0f;
     float ic1_l_ = 0.0f, ic2_l_ = 0.0f;
     float ic1_r_ = 0.0f, ic2_r_ = 0.0f;

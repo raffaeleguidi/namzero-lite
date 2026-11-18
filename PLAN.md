@@ -119,8 +119,11 @@ Slot `mod` con due tipi: `tremolo` e `wah`. Il wah è un filtro a stato variabil
 (Cytomic) in bandpass, frequenza su scala logaritmica dalla posizione del pedale
 (350–2200 Hz di default, Q 3). Sta **prima** dell'amplificatore, come un pedale vero.
 
-Risposta verificata (RMS su tono puro, posizione 0.0 / 0.5 / 1.0): la banda si sposta
-da 350 a ~900 a 2200 Hz come previsto.
+**Q che scende verso la punta**: a Q pieno la risonanza sulle alte, proprio dove il
+filtro si apre, diventa un fischio "acido" invece del carattere del wah. Il Q effettivo
+è `q × (1 − 0.45·posizione)` (minimo 0.6), e la compensazione di guadagno usa il Q
+effettivo. Misurato sulla frequenza centrale: guadagno 5.5× al tacco, 2.5× alla punta
+(prima era ~5.5× anche alla punta).
 
 Controllo: `w` cambia tipo, `,` e `.` muovono la posizione, oppure `position` nel preset.
 Con il MIDI attivo l'espressione lo pilota dal vivo (CC 7), con **auto-engage**: il wah
@@ -137,13 +140,19 @@ l'utente ha cambiato nel frattempo.
 Due modelli nello stesso slot, scelti con `k`, con `"type"` nel preset o `--drive-type`:
 
 - `fuzz` — il boost storico: pre-guadagno 1×–31×, tanh, filtro di tono. Spinge presto.
-- `klon` — ispirato al Klon Centaur: guadagno più basso (1×–25×), pre-enfasi sulle alte,
+  Ha un **low-shelf a 110 Hz** (`low_db`, default +5 dB) in uscita: senza basse il
+  clipping suona sottile, più "zanzara" che fuzz.
+- `klon` — ispirato al Klon Centaur: guadagno più basso (1×–13×), pre-enfasi sulle alte,
   clipping a diodi asimmetrico e **blend con il segnale pulito** (`blend`, default 0.40).
   È il blend che lo rende trasparente: il clipping c'è, ma non mangia la chitarra.
-  Un DC blocker in uscita toglie la continua del clipping asimmetrico.
+  In più ha la **gobba sulle medie** a 800 Hz (`mid_db`, default +4 dB) e un makeup di
+  **+3 dB** in uscita: senza, il pedale risultava piatto e sembrava abbassare il volume
+  dell'ampli. Un DC blocker in uscita toglie la continua del clipping asimmetrico.
 
-Verificato con un test: a parità di drive il Klon ha distorsione armonica sensibilmente
-più bassa del fuzz, e a drive 0 è trasparente entro il 2%.
+Verificato con un test: a parità di drive il Klon ha distorsione armonica più bassa del
+fuzz (0.15 contro 0.25), a drive 0 non distorce (THD < 2%) e a drive 0.4 il livello sale
+di ~2.5×; la gobba dà +58% a 800 Hz e lascia 4 kHz quasi fermo; il low-shelf del fuzz dà
++53% a 80 Hz.
 
 ### Delay (implementato)
 

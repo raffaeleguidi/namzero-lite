@@ -79,6 +79,8 @@ struct Config {
     double drive_tone = 0.5;
     double drive_level_db = 0.0;
     double drive_blend = 0.40;  // solo klon: quota di segnale saturato
+    double drive_mid_db = 4.0;  // solo klon: gobba sulle medie
+    double drive_low_db = 5.0;  // solo fuzz: peso delle basse
 
     bool mod_on = false;
     std::string mod_type = "tremolo";  // tremolo | wah
@@ -150,6 +152,8 @@ void usage() {
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
         "  --drive-tone <0..1>  tono del drive (default 0.5)\n"
         "  --drive-blend <0..1> solo klon: quota di segnale saturato (default 0.40)\n"
+        "  --drive-mid <db>     solo klon: gobba sulle medie (default +4)\n"
+        "  --drive-low <db>     solo fuzz: peso delle basse (default +5)\n"
         "  --tremolo            tremolo nello slot mod\n"
         "  --wah                wah nello slot mod\n"
         "  --wah-position <0..1> posizione del pedale (default 0.5)\n"
@@ -282,6 +286,8 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.drive_tone = get_num(d, "tone", cfg.drive_tone);
         cfg.drive_level_db = get_num(d, "level_db", cfg.drive_level_db);
         cfg.drive_blend = get_num(d, "blend", cfg.drive_blend);
+        cfg.drive_mid_db = get_num(d, "mid_db", cfg.drive_mid_db);
+        cfg.drive_low_db = get_num(d, "low_db", cfg.drive_low_db);
     }
 
     auto md = slot_or_empty(j, "mod");
@@ -567,6 +573,18 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
             const char* v = next("--drive-type");
             if (v == nullptr) return false;
             cfg.drive_type = v;
+        } else if (a == "--drive-mid") {
+            const char* v = next("--drive-mid");
+            if (v == nullptr || !parse_float(v, cfg.drive_mid_db)) {
+                err = "valore non valido per --drive-mid";
+                return false;
+            }
+        } else if (a == "--drive-low") {
+            const char* v = next("--drive-low");
+            if (v == nullptr || !parse_float(v, cfg.drive_low_db)) {
+                err = "valore non valido per --drive-low";
+                return false;
+            }
         } else if (a == "--drive-blend") {
             const char* v = next("--drive-blend");
             if (v == nullptr || !parse_float(v, cfg.drive_blend)) {
@@ -829,6 +847,8 @@ int main(int argc, char** argv) {
         dr->set_tone(static_cast<float>(cfg.drive_tone));
         dr->set_level_db(static_cast<float>(cfg.drive_level_db));
         dr->set_blend(static_cast<float>(cfg.drive_blend));
+        dr->set_mid_db(static_cast<float>(cfg.drive_mid_db));
+        dr->set_low_db(static_cast<float>(cfg.drive_low_db));
         chain.add(std::move(dr));
     }
 

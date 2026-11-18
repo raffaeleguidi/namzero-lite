@@ -63,7 +63,7 @@
       "q": 3.5,
       "mix": 1.0,
       "low_hz": 350,
-      "high_hz": 2200
+      "high_hz": 2000
     }
   },
   "stats": false

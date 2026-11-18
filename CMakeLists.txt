@@ -85,6 +85,10 @@ add_executable(switch_debounce_test test/switch_debounce_test.cpp)
 target_include_directories(switch_debounce_test PRIVATE src)
 add_test(NAME switch_debounce COMMAND switch_debounce_test)
 
+add_executable(wah_tone_test test/wah_tone_test.cpp)
+target_include_directories(wah_tone_test PRIVATE src)
+add_test(NAME wah_tone COMMAND wah_tone_test)
+
 add_executable(midi_config_test test/midi_config_test.cpp src/control/midi_config.cpp)
 target_include_directories(midi_config_test PRIVATE src third_party)
 add_test(NAME midi_config COMMAND midi_config_test)

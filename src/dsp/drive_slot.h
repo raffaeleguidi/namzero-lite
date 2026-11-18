@@ -12,12 +12,15 @@ namespace namzero {
 //
 //   fuzz  — il boost/overdrive storico: pre-guadagno alto, tanh, filtro di tono.
 //           Spinge presto e "sporca": su un ampli gia' carico suona da fuzz.
+//           Ha un low-shelf in uscita perche' senza basse il clipping suona
+//           sottile, piu' "zanzara" che fuzz.
 //
 //   klon  — ispirato al Klon Centaur: guadagno piu' basso, pre-enfasi sulle
 //           alte (il "treble bleed" del pedale) e clipping a diodi asimmetrico,
 //           ma soprattutto un blend con il segnale pulito. E' quel blend che
 //           rende il pedale trasparente: il clipping c'e', ma non mangia il
-//           carattere della chitarra.
+//           carattere della chitarra. In piu' ha la gobba sulle medie che e' il
+//           segno del Klon: senza, risulta piatto e "piu' piano" dell'ampli.
 //
 // Stanno nello stesso slot: si cambia modello senza toccare la catena.
 class DriveSlot final : public Slot {
@@ -33,6 +36,10 @@ public:
     // Solo klon: quota di segnale saturato nel mix (0 = solo pulito, 1 = solo
     // clipping). Il Klon vero sta verso il centro.
     void set_blend(float b) { blend_.store(clamp(b, 0.0f, 1.0f), std::memory_order_relaxed); }
+    // Gobba sulle medie del Klon (default +4 dB a 800 Hz).
+    void set_mid_db(float db) { mid_db_.store(clamp(db, -12.0f, 12.0f), std::memory_order_relaxed); }
+    // Basse del fuzz: low-shelf a 110 Hz (default +5 dB).
+    void set_low_db(float db) { low_db_.store(clamp(db, -12.0f, 12.0f), std::memory_order_relaxed); }
 
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
@@ -44,6 +51,10 @@ public:
         pre_lp_l_ = pre_lp_r_ = 0.0f;
         dc_x_l_ = dc_x_r_ = 0.0f;
         dc_y_l_ = dc_y_r_ = 0.0f;
+        mid_l_.reset();
+        mid_r_.reset();
+        low_l_.reset();
+        low_r_.reset();
         update_coeffs();
     }
 
@@ -65,14 +76,89 @@ private:
 
     static float db_to_lin(float db) { return std::pow(10.0f, db / 20.0f); }
 
+    // Biquad RBJ: serve solo per due filtri fissi (gobba del Klon, basse del
+    // fuzz), quindi niente libreria.
+    struct Biquad {
+        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
+        float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f;
+
+        void reset() { x1 = x2 = y1 = y2 = 0.0f; }
+
+        // Aggiorna i soli coefficienti: lo stato del filtro resta, altrimenti a
+        // ogni blocco si azzererebbe la coda e si sentirebbe un click.
+        void coefficients(const Biquad& o) {
+            b0 = o.b0;
+            b1 = o.b1;
+            b2 = o.b2;
+            a1 = o.a1;
+            a2 = o.a2;
+        }
+
+        void set(float nb0, float nb1, float nb2, float na1, float na2) {
+            b0 = nb0;
+            b1 = nb1;
+            b2 = nb2;
+            a1 = na1;
+            a2 = na2;
+        }
+
+        float process(float x) {
+            const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1;
+            x1 = x;
+            y2 = y1;
+            y1 = y;
+            return y;
+        }
+    };
+
+    // Coefficienti gia' normalizzati per a0.
+    static void peaking(Biquad& q, float fs, float fc, float qq, float db) {
+        const float a = std::pow(10.0f, db / 40.0f);
+        const float w0 = 2.0f * 3.14159265f * fc / fs;
+        const float c = std::cos(w0);
+        const float alpha = std::sin(w0) / (2.0f * qq);
+        const float a0 = 1.0f + alpha / a;
+        q.set((1.0f + alpha * a) / a0, (-2.0f * c) / a0, (1.0f - alpha * a) / a0,
+              (-2.0f * c) / a0, (1.0f - alpha / a) / a0);
+    }
+
+    static void low_shelf(Biquad& bq, float fs, float fc, float db) {
+        const float a = std::pow(10.0f, db / 40.0f);
+        const float w0 = 2.0f * 3.14159265f * fc / fs;
+        const float c = std::cos(w0);
+        const float s = std::sin(w0);
+        const float alpha = s * 0.70710678f;  // S = 1
+        const float beta = 2.0f * std::sqrt(a) * alpha;
+        const float a0 = (a + 1.0f) + (a - 1.0f) * c + beta;
+        bq.set((a * ((a + 1.0f) - (a - 1.0f) * c + beta)) / a0,
+               (2.0f * a * ((a - 1.0f) - (a + 1.0f) * c)) / a0,
+               (a * ((a + 1.0f) - (a - 1.0f) * c - beta)) / a0,
+               (-2.0f * ((a - 1.0f) + (a + 1.0f) * c)) / a0,
+               ((a + 1.0f) + (a - 1.0f) * c - beta) / a0);
+    }
+
     void update_coeffs() {
+        const bool klon = (type_.load(std::memory_order_relaxed) == Type::kKlon);
         const float t = tone_.load(std::memory_order_relaxed);
         // Il fuzz apre fino a 8 kHz, il Klon resta piu' chiuso: e' un pedale da
         // "piu' di tutto", non da bright.
-        const float cutoff = (type_.load(std::memory_order_relaxed) == Type::kKlon)
-                                 ? 1200.0f * std::pow(8.0f, t)
-                                 : 800.0f * std::pow(10.0f, t);
+        const float cutoff = klon ? 1200.0f * std::pow(8.0f, t) : 800.0f * std::pow(10.0f, t);
         tone_coef_ = 1.0f - std::exp(-2.0f * 3.14159265f * cutoff / fs_);
+
+        // I due filtri non si accendono insieme: si calcola solo quello del
+        // modello in uso (un sin/cos per blocco, non per campione).
+        if (klon) {
+            Biquad proto;
+            peaking(proto, fs_, 800.0f, 1.0f, mid_db_.load(std::memory_order_relaxed));
+            mid_l_.coefficients(proto);
+            mid_r_.coefficients(proto);
+        } else {
+            Biquad proto;
+            low_shelf(proto, fs_, 110.0f, low_db_.load(std::memory_order_relaxed));
+            low_l_.coefficients(proto);
+            low_r_.coefficients(proto);
+        }
     }
 
     void process_fuzz(float* interleaved, std::size_t frames) {
@@ -90,8 +176,10 @@ private:
             lp_l_ += (l - lp_l_) * tone_coef_;
             lp_r_ += (r - lp_r_) * tone_coef_;
 
-            interleaved[i * 2 + 0] = lp_l_;
-            interleaved[i * 2 + 1] = lp_r_;
+            // Low-shelf in uscita: ridona peso alle basse che il clipping
+            // sottrae, senza rimandarle dentro la saturazione (farebbe fango).
+            interleaved[i * 2 + 0] = low_l_.process(lp_l_);
+            interleaved[i * 2 + 1] = low_r_.process(lp_r_);
         }
     }
 
@@ -117,14 +205,16 @@ private:
         const float blend = blend_.load(std::memory_order_relaxed);
         const float clean = 1.0f - blend;
 
-        // Meno guadagno del fuzz: il Klon e' un boost/OD, non un distorsore.
+        // Guadagno invariato: il boost lo danno la gobba sulle medie e il
+        // makeup in uscita. Alzare il pre-guadagno renderebbe il pedale un
+        // fuzz, che non e' quello che deve fare.
         const float pre = 1.0f + drive * 12.0f;
         // Pre-enfasi: il pedale manda piu' alte nel clipping e le riprende dopo.
         const float emph = 1.2f * drive;
-        const float level = db_to_lin(level_db_.load(std::memory_order_relaxed));
-        // Nessuna compensazione automatica del guadagno: come sul fuzz il
-        // livello lo fa level_db. Compensare qui attenuerebbe anche il segnale
-        // pulito del blend, che deve restare intatto quando blend = 0.
+        // +3 dB fissi: il Klon vero ha un buffer di uscita che spinge, e senza
+        // questo il pedale sembrava abbassare il volume dell'ampli.
+        constexpr float kMakeup = 1.4125f;  // +3 dB
+        const float level = db_to_lin(level_db_.load(std::memory_order_relaxed)) * kMakeup;
 
         // Passa-alto della pre-enfasi (taglio a ~700 Hz) e DC blocker in uscita:
         // il clipping asimmetrico genera continua, che andrebbe ad abbassare il
@@ -155,8 +245,10 @@ private:
             lp_l_ += (d_l * level - lp_l_) * tone_coef_;
             lp_r_ += (d_r * level - lp_r_) * tone_coef_;
 
-            interleaved[i * 2 + 0] = lp_l_;
-            interleaved[i * 2 + 1] = lp_r_;
+            // Gobba sulle medie: e' il carattere del Klon, e senza il pedale
+            // risulta piatto e piu' debole dell'ampli.
+            interleaved[i * 2 + 0] = mid_l_.process(lp_l_);
+            interleaved[i * 2 + 1] = mid_r_.process(lp_r_);
         }
     }
 
@@ -165,6 +257,8 @@ private:
     std::atomic<float> tone_{0.5f};
     std::atomic<float> level_db_{0.0f};
     std::atomic<float> blend_{0.40f};
+    std::atomic<float> mid_db_{4.0f};
+    std::atomic<float> low_db_{5.0f};
 
     float fs_ = 48000.0f;
     float tone_coef_ = 0.2f;
@@ -176,6 +270,7 @@ private:
     float dc_x_r_ = 0.0f;
     float dc_y_l_ = 0.0f;
     float dc_y_r_ = 0.0f;
+    Biquad mid_l_, mid_r_, low_l_, low_r_;
 };
 
 }  // namespace namzero
