@@ -113,27 +113,37 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 
 ## 5. Modello dati
 
-### Preset (schema fisso, versionato)
+### Preset (implementato)
+
+Un unico oggetto JSON che specchia la struttura `Config` del motore. I campi assenti
+restano al default, quindi un preset puo' essere parziale.
 
 ```json
 {
-  "schema": 1,
-  "name": "Clean Brunito",
+  "version": 1,
+  "name": "Marshall Plexi -> Celestion",
+  "audio": { "device": "hw:XTONE", "rate": 48000, "period_frames": 64, "periods": 3,
+             "gain_db": 0.0 },
   "slots": {
-    "gate":  { "on": true,  "params": { "threshold_db": -55, "attack_ms": 2, "release_ms": 120 } },
-    "comp":  { "on": true,  "params": { "threshold_db": -18, "ratio": 3.0, "attack_ms": 10, "release_ms": 150, "makeup_db": 3 } },
-    "drive": { "on": false, "params": { "type": "overdrive", "drive": 0.35, "tone": 0.5, "level": 0.7 } },
-    "mod":   { "on": false, "params": { "type": "tremolo", "rate_hz": 4.5, "depth": 0.6 } },
-    "amp":   { "on": true,  "params": { "file": "models/tweed_lite.nam", "in_gain": 0.0, "out_gain": -2.0 } },
-    "ir":    { "on": true,  "params": { "file": "irs/4x12_sm57.wav", "mix": 1.0 } },
-    "delay": { "on": false, "params": { "time_ms": 380, "feedback": 0.35, "mix": 0.25, "tone": 0.5 } },
-    "reverb":{ "on": false, "params": { "size": 0.6, "damp": 0.4, "mix": 0.2 } }
-  }
+    "gate":   { "on": true,  "threshold_db": -55, "attack_ms": 2, "release_ms": 120 },
+    "comp":   { "on": true,  "threshold_db": -18, "ratio": 3, "attack_ms": 10,
+                "release_ms": 150, "makeup_db": 3 },
+    "drive":  { "on": false, "amount": 0.15, "tone": 0.5, "level_db": 0 },
+    "amp":    { "on": true,  "file": "models/plexi_a2.nam", "slim": 0.49,
+                "trim_db": -12 },
+    "ir":     { "on": true,  "file": "irs/ir_lr_vp28.wav", "taps": 2048 },
+    "reverb": { "on": true,  "mix": 0.25, "size": 0.55, "damp": 0.45 }
+  },
+  "stats": false
 }
 ```
 
-- Validazione completa all'ingresso; un preset invalido viene rifiutato con log, mai caricato parzialmente.
-- Procedura: parse → costruzione `Preset` preallocato → swap del puntatore atomico.
+- `-p <file>` / `--preset <file>`: **alternativo** ai flag. Combinarli e' un errore
+  esplicito: due percorsi di configurazione che convivono divergono in silenzio.
+- Il parser e' `nlohmann/json` vendorizzato in `third_party/`, cosi' i preset funzionano
+  anche in un build senza NAM.
+- `trim_db` dello slot amp non ha un default universale: dipende dal modello e da come e'
+  stato catturato. Va scelto all'ascolto, modello per modello.
 
 ### Config
 
