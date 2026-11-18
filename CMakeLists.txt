@@ -27,7 +27,7 @@ add_executable(namzero-lite
   src/dsp/nam_slot.cpp
 )
 
-target_include_directories(namzero-lite PRIVATE src ${ALSA_INCLUDE_DIRS})
+target_include_directories(namzero-lite PRIVATE src third_party ${ALSA_INCLUDE_DIRS})
 target_link_libraries(namzero-lite PRIVATE ${ALSA_LIBRARIES} Threads::Threads)
 
 if(NAM_DIR)

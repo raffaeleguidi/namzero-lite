@@ -5,18 +5,19 @@
 #include <cmath>
 #include <csignal>
 #include <cstdio>
-
-#include <fcntl.h>
-#include <sys/file.h>
-#include <unistd.h>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 #include "audio/alsa_io.h"
 #include "audio/rt.h"
@@ -28,6 +29,7 @@
 #include "dsp/ir_slot.h"
 #include "dsp/nam_slot.h"
 #include "dsp/reverb_slot.h"
+#include "json.hpp"
 
 namespace {
 
@@ -35,28 +37,50 @@ std::atomic<bool> g_running{true};
 
 void on_signal(int /*sig*/) { g_running.store(false); }
 
-struct Options {
+// Tutta la configurazione del motore in un posto solo: i flag da riga di
+// comando e il file preset sono due modi di riempire questa struttura.
+struct Config {
+    // audio
     std::string device = "hw:XTONE";
     unsigned rate = 48000;
-    unsigned buffer = 64;
+    unsigned period = 64;
     unsigned periods = 3;
-    float gain_db = 0.0f;
-    std::string ir_path;
+    double gain_db = 0.0;
+
+    // slot
+    bool gate_on = false;
+    double gate_threshold_db = -55.0;
+    double gate_attack_ms = 2.0;
+    double gate_release_ms = 120.0;
+
+    bool comp_on = false;
+    double comp_threshold_db = -18.0;
+    double comp_ratio = 3.0;
+    double comp_attack_ms = 10.0;
+    double comp_release_ms = 150.0;
+    double comp_makeup_db = 3.0;
+
+    bool drive_on = false;
+    double drive_amount = 0.15;
+    double drive_tone = 0.5;
+    double drive_level_db = 0.0;
+
+    bool amp_on = false;
+    std::string amp_file;
+    double amp_slim = 0.49;
+    double amp_trim_db = 0.0;
+
+    bool ir_on = false;
+    std::string ir_file;
     unsigned ir_taps = 2048;
-    std::string nam_path;
-    double nam_slim = 0.49;
-    float amp_gain_db = 0.0f;
-    float drive_amount = 0.15f;
-    float drive_tone = 0.5f;
-    float drive_level_db = 0.0f;
+
+    bool reverb_on = false;
+    double reverb_mix = 0.25;
+    double reverb_size = 0.55;
+    double reverb_damp = 0.45;
+
+    // comportamento
     bool stats = false;
-    bool reverb = false;
-    float reverb_mix = 0.25f;
-    float reverb_size = 0.55f;
-    bool gate = false;
-    bool comp = false;
-    bool drive = false;
-    bool realtime = true;
     bool help = false;
 };
 
@@ -70,28 +94,29 @@ void usage() {
     std::puts(
         "namzero-lite — motore audio realtime per chitarra\n"
         "\n"
-        "Uso: namzero-lite [opzioni]\n"
-        "  --device <hw:ID>    PCM ALSA (default hw:XTONE)\n"
-        "  --rate <hz>         sample rate (default 48000)\n"
-        "  --buffer <frame>    frame per periodo (default 64)\n"
-        "  --periods <n>       periodi nel buffer (default 3)\n"
-        "  --gain <db>         gain master (default 0)\n"
-        "  --ir <file.wav>     carica una IR (48 kHz, mono o stereo)\n"
-        "  --taps <n>          limite di tap della IR (default 2048)\n"
-        "  --nam <file.nam>    carica un modello NAM nello slot amp\n"
-        "  --nam-slim <0..1>   sottomodello (default 0.49 = lite)\n"
-        "  --amp-gain <db>     trim sullo slot amp (default 0)\n"
+        "Uso: namzero-lite [--preset file.json] | [opzioni]\n"
+        "\n"
+        "  -p, --preset <file>  carica un preset JSON (alternativo agli altri flag)\n"
+        "  --device <hw:ID>     PCM ALSA (default hw:XTONE)\n"
+        "  --rate <hz>          sample rate (default 48000)\n"
+        "  --buffer <frame>     frame per periodo (default 64)\n"
+        "  --periods <n>        periodi nel buffer (default 3)\n"
+        "  --gain <db>          gain master (default 0)\n"
+        "  --nam <file.nam>     modello NAM nello slot amp\n"
+        "  --nam-slim <0..1>    sottomodello (default 0.49 = lite)\n"
+        "  --amp-gain <db>      trim sullo slot amp (default 0)\n"
+        "  --ir <file.wav>      cabinet IR\n"
+        "  --taps <n>           limite di tap della IR (default 2048)\n"
+        "  --gate               noise gate\n"
+        "  --comp               compressore\n"
+        "  --drive              boost/overdrive\n"
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
-        "  --drive-tone <0..1>   tono del drive (default 0.5)\n"
-        "  --stats               statistiche ogni 5 s (default: solo problemi)\n"
-        "  --reverb              attiva il riverbero\n"
-        "  --reverb-mix <0..1>   quantita' di riverbero (default 0.25)\n"
-        "  --reverb-size <0..1>  dimensione della stanza (default 0.55)\n"
-        "  --gate              attiva il noise gate\n"
-        "  --comp              attiva il compressore\n"
-        "  --drive             attiva il boost/overdrive\n"
-        "  --no-rt             senza priorita' realtime\n"
-        "  -h, --help          questo messaggio\n");
+        "  --drive-tone <0..1>  tono del drive (default 0.5)\n"
+        "  --reverb             riverbero\n"
+        "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
+        "  --reverb-size <0..1> stanza (default 0.55)\n"
+        "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
+        "  -h, --help           questo messaggio\n");
 }
 
 bool parse_uint(const char* s, unsigned& out) {
@@ -103,16 +128,133 @@ bool parse_uint(const char* s, unsigned& out) {
     return true;
 }
 
-bool parse_float(const char* s, float& out) {
+bool parse_float(const char* s, double& out) {
     errno = 0;
     char* end = nullptr;
     double v = std::strtod(s, &end);
     if (errno != 0 || end == s || *end != '\0') return false;
-    out = static_cast<float>(v);
+    out = v;
     return true;
 }
 
-bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
+// --- preset ---------------------------------------------------------------
+
+double get_num(const nlohmann::json& j, const char* key, double fallback) {
+    return (j.contains(key) && j[key].is_number()) ? j[key].get<double>() : fallback;
+}
+
+bool get_str(const nlohmann::json& j, const char* key, std::string& out) {
+    if (!j.contains(key) || !j[key].is_string()) return false;
+    out = j[key].get<std::string>();
+    return true;
+}
+
+bool get_bool(const nlohmann::json& j, const char* key, bool fallback) {
+    return (j.contains(key) && j[key].is_boolean()) ? j[key].get<bool>() : fallback;
+}
+
+nlohmann::json slot_or_empty(const nlohmann::json& root, const char* name) {
+    if (root.contains("slots") && root["slots"].is_object() &&
+        root["slots"].contains(name) && root["slots"][name].is_object()) {
+        return root["slots"][name];
+    }
+    return nlohmann::json::object();
+}
+
+bool load_preset(const std::string& path, Config& cfg, std::string& err) {
+    nlohmann::json j;
+    try {
+        std::ifstream in(path);
+        if (!in) {
+            err = "impossibile aprire " + path;
+            return false;
+        }
+        in >> j;
+    } catch (const std::exception& e) {
+        err = std::string("JSON non valido: ") + e.what();
+        return false;
+    }
+    if (!j.is_object()) {
+        err = "il preset deve essere un oggetto JSON";
+        return false;
+    }
+
+    if (j.contains("audio") && j["audio"].is_object()) {
+        const auto& a = j["audio"];
+        get_str(a, "device", cfg.device);
+        if (a.contains("rate") && a["rate"].is_number_integer()) {
+            cfg.rate = a["rate"].get<unsigned>();
+        }
+        if (a.contains("period_frames") && a["period_frames"].is_number_integer()) {
+            cfg.period = a["period_frames"].get<unsigned>();
+        }
+        if (a.contains("periods") && a["periods"].is_number_integer()) {
+            cfg.periods = a["periods"].get<unsigned>();
+        }
+        cfg.gain_db = get_num(a, "gain_db", cfg.gain_db);
+    }
+
+    auto g = slot_or_empty(j, "gate");
+    if (!g.empty()) {
+        cfg.gate_on = get_bool(g, "on", cfg.gate_on);
+        cfg.gate_threshold_db = get_num(g, "threshold_db", cfg.gate_threshold_db);
+        cfg.gate_attack_ms = get_num(g, "attack_ms", cfg.gate_attack_ms);
+        cfg.gate_release_ms = get_num(g, "release_ms", cfg.gate_release_ms);
+    }
+
+    auto c = slot_or_empty(j, "comp");
+    if (!c.empty()) {
+        cfg.comp_on = get_bool(c, "on", cfg.comp_on);
+        cfg.comp_threshold_db = get_num(c, "threshold_db", cfg.comp_threshold_db);
+        cfg.comp_ratio = get_num(c, "ratio", cfg.comp_ratio);
+        cfg.comp_attack_ms = get_num(c, "attack_ms", cfg.comp_attack_ms);
+        cfg.comp_release_ms = get_num(c, "release_ms", cfg.comp_release_ms);
+        cfg.comp_makeup_db = get_num(c, "makeup_db", cfg.comp_makeup_db);
+    }
+
+    auto d = slot_or_empty(j, "drive");
+    if (!d.empty()) {
+        cfg.drive_on = get_bool(d, "on", cfg.drive_on);
+        cfg.drive_amount = get_num(d, "amount", cfg.drive_amount);
+        cfg.drive_tone = get_num(d, "tone", cfg.drive_tone);
+        cfg.drive_level_db = get_num(d, "level_db", cfg.drive_level_db);
+    }
+
+    auto amp = slot_or_empty(j, "amp");
+    if (!amp.empty()) {
+        cfg.amp_on = get_bool(amp, "on", cfg.amp_on);
+        if (get_str(amp, "file", cfg.amp_file)) cfg.amp_on = true;
+        cfg.amp_slim = get_num(amp, "slim", cfg.amp_slim);
+        cfg.amp_trim_db = get_num(amp, "trim_db", cfg.amp_trim_db);
+    }
+
+    auto ir = slot_or_empty(j, "ir");
+    if (!ir.empty()) {
+        cfg.ir_on = get_bool(ir, "on", cfg.ir_on);
+        if (get_str(ir, "file", cfg.ir_file)) cfg.ir_on = true;
+        if (ir.contains("taps") && ir["taps"].is_number_integer()) {
+            cfg.ir_taps = ir["taps"].get<unsigned>();
+        }
+    }
+
+    auto rv = slot_or_empty(j, "reverb");
+    if (!rv.empty()) {
+        cfg.reverb_on = get_bool(rv, "on", cfg.reverb_on);
+        cfg.reverb_mix = get_num(rv, "mix", cfg.reverb_mix);
+        cfg.reverb_size = get_num(rv, "size", cfg.reverb_size);
+        cfg.reverb_damp = get_num(rv, "damp", cfg.reverb_damp);
+    }
+
+    if (j.contains("stats") && j["stats"].is_boolean()) {
+        cfg.stats = j["stats"].get<bool>();
+    }
+    return true;
+}
+
+// --- riga di comando ------------------------------------------------------
+
+bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
+                bool& saw_flag, std::string& err) {
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
 
@@ -125,103 +267,110 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
         };
 
         if (a == "-h" || a == "--help") {
-            opt.help = true;
-        } else if (a == "--device") {
+            cfg.help = true;
+            continue;
+        }
+        if (a == "-p" || a == "--preset") {
+            const char* v = next("--preset");
+            if (v == nullptr) return false;
+            preset_path = v;
+            continue;
+        }
+        if (a == "--stats") {
+            cfg.stats = true;
+            continue;
+        }
+
+        saw_flag = true;
+
+        if (a == "--device") {
             const char* v = next("--device");
             if (v == nullptr) return false;
-            opt.device = v;
+            cfg.device = v;
         } else if (a == "--rate") {
             const char* v = next("--rate");
-            if (v == nullptr || !parse_uint(v, opt.rate)) {
+            if (v == nullptr || !parse_uint(v, cfg.rate)) {
                 err = "valore non valido per --rate";
                 return false;
             }
         } else if (a == "--buffer") {
             const char* v = next("--buffer");
-            if (v == nullptr || !parse_uint(v, opt.buffer)) {
+            if (v == nullptr || !parse_uint(v, cfg.period)) {
                 err = "valore non valido per --buffer";
                 return false;
             }
         } else if (a == "--periods") {
             const char* v = next("--periods");
-            if (v == nullptr || !parse_uint(v, opt.periods)) {
+            if (v == nullptr || !parse_uint(v, cfg.periods)) {
                 err = "valore non valido per --periods";
                 return false;
             }
         } else if (a == "--gain") {
             const char* v = next("--gain");
-            if (v == nullptr || !parse_float(v, opt.gain_db)) {
+            if (v == nullptr || !parse_float(v, cfg.gain_db)) {
                 err = "valore non valido per --gain";
-                return false;
-            }
-        } else if (a == "--ir") {
-            const char* v = next("--ir");
-            if (v == nullptr) return false;
-            opt.ir_path = v;
-        } else if (a == "--taps") {
-            const char* v = next("--taps");
-            if (v == nullptr || !parse_uint(v, opt.ir_taps)) {
-                err = "valore non valido per --taps";
                 return false;
             }
         } else if (a == "--nam") {
             const char* v = next("--nam");
             if (v == nullptr) return false;
-            opt.nam_path = v;
+            cfg.amp_file = v;
+            cfg.amp_on = true;
         } else if (a == "--nam-slim") {
             const char* v = next("--nam-slim");
-            if (v == nullptr) {
-                err = "manca il valore per --nam-slim";
-                return false;
-            }
-            float tmp = 0.0f;
-            if (!parse_float(v, tmp)) {
+            if (v == nullptr || !parse_float(v, cfg.amp_slim)) {
                 err = "valore non valido per --nam-slim";
                 return false;
             }
-            opt.nam_slim = tmp;
         } else if (a == "--amp-gain") {
             const char* v = next("--amp-gain");
-            if (v == nullptr || !parse_float(v, opt.amp_gain_db)) {
+            if (v == nullptr || !parse_float(v, cfg.amp_trim_db)) {
                 err = "valore non valido per --amp-gain";
                 return false;
             }
+        } else if (a == "--ir") {
+            const char* v = next("--ir");
+            if (v == nullptr) return false;
+            cfg.ir_file = v;
+            cfg.ir_on = true;
+        } else if (a == "--taps") {
+            const char* v = next("--taps");
+            if (v == nullptr || !parse_uint(v, cfg.ir_taps)) {
+                err = "valore non valido per --taps";
+                return false;
+            }
+        } else if (a == "--gate") {
+            cfg.gate_on = true;
+        } else if (a == "--comp") {
+            cfg.comp_on = true;
+        } else if (a == "--drive") {
+            cfg.drive_on = true;
         } else if (a == "--drive-amount") {
             const char* v = next("--drive-amount");
-            if (v == nullptr || !parse_float(v, opt.drive_amount)) {
+            if (v == nullptr || !parse_float(v, cfg.drive_amount)) {
                 err = "valore non valido per --drive-amount";
                 return false;
             }
         } else if (a == "--drive-tone") {
             const char* v = next("--drive-tone");
-            if (v == nullptr || !parse_float(v, opt.drive_tone)) {
+            if (v == nullptr || !parse_float(v, cfg.drive_tone)) {
                 err = "valore non valido per --drive-tone";
                 return false;
             }
-        } else if (a == "--stats") {
-            opt.stats = true;
         } else if (a == "--reverb") {
-            opt.reverb = true;
+            cfg.reverb_on = true;
         } else if (a == "--reverb-mix") {
             const char* v = next("--reverb-mix");
-            if (v == nullptr || !parse_float(v, opt.reverb_mix)) {
+            if (v == nullptr || !parse_float(v, cfg.reverb_mix)) {
                 err = "valore non valido per --reverb-mix";
                 return false;
             }
         } else if (a == "--reverb-size") {
             const char* v = next("--reverb-size");
-            if (v == nullptr || !parse_float(v, opt.reverb_size)) {
+            if (v == nullptr || !parse_float(v, cfg.reverb_size)) {
                 err = "valore non valido per --reverb-size";
                 return false;
             }
-        } else if (a == "--gate") {
-            opt.gate = true;
-        } else if (a == "--comp") {
-            opt.comp = true;
-        } else if (a == "--drive") {
-            opt.drive = true;
-        } else if (a == "--no-rt") {
-            opt.realtime = false;
         } else {
             err = "opzione sconosciuta: " + a;
             return false;
@@ -263,17 +412,36 @@ void store_max(std::atomic<uint64_t>& target, uint64_t value) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    Options opt;
+    Config cfg;
+    std::string preset_path;
     std::string err;
+    bool saw_flag = false;
 
-    if (!parse_args(argc, argv, opt, err)) {
+    if (!parse_args(argc, argv, cfg, preset_path, saw_flag, err)) {
         std::fprintf(stderr, "errore: %s\n\n", err.c_str());
         usage();
         return 2;
     }
-    if (opt.help) {
+    if (cfg.help) {
         usage();
         return 0;
+    }
+
+    if (!preset_path.empty()) {
+        // Preset e flag sono alternativi: mescolarli renderebbe ambiguo chi
+        // vince, e i due percorsi divergerebbero in silenzio.
+        if (saw_flag) {
+            std::fprintf(stderr, "errore: --preset non si combina con gli altri flag\n");
+            return 2;
+        }
+        Config from_file;
+        if (!load_preset(preset_path, from_file, err)) {
+            std::fprintf(stderr, "preset: %s\n", err.c_str());
+            return 1;
+        }
+        from_file.stats = cfg.stats;
+        cfg = from_file;
+        std::printf("preset: %s\n", preset_path.c_str());
     }
 
     std::signal(SIGINT, on_signal);
@@ -290,14 +458,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    namzero::AudioConfig cfg;
-    cfg.device = opt.device;
-    cfg.rate = opt.rate;
-    cfg.period_frames = opt.buffer;
-    cfg.periods = opt.periods;
+    namzero::AudioConfig acfg;
+    acfg.device = cfg.device;
+    acfg.rate = cfg.rate;
+    acfg.period_frames = cfg.period;
+    acfg.periods = cfg.periods;
 
     namzero::AlsaDuplex io;
-    if (!io.open(cfg, err)) {
+    if (!io.open(acfg, err)) {
         std::fprintf(stderr, "audio: %s\n", err.c_str());
         return 1;
     }
@@ -305,7 +473,7 @@ int main(int argc, char** argv) {
                 io.device().c_str(), io.rate(), io.period_frames(),
                 io.buffer_frames(), io.periods());
 
-    // Ordine della catena: gate -> comp -> drive -> amp -> ir -> delay -> reverb.
+    // Ordine della catena: gate -> comp -> drive -> amp -> ir -> reverb.
     // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
     namzero::Chain chain;
 
@@ -314,66 +482,64 @@ int main(int argc, char** argv) {
     const std::size_t i_comp = chain.size();
     chain.add(std::make_unique<namzero::CompSlot>());
     const std::size_t i_drive = chain.size();
-    auto drive_slot = std::make_unique<namzero::DriveSlot>();
-    drive_slot->set_drive(opt.drive_amount);
-    drive_slot->set_tone(opt.drive_tone);
-    drive_slot->set_level_db(opt.drive_level_db);
-    chain.add(std::move(drive_slot));
+    chain.add(std::make_unique<namzero::DriveSlot>());
 
     const std::size_t i_amp = chain.size();
-    if (!opt.nam_path.empty()) {
+    const bool has_amp = cfg.amp_on && !cfg.amp_file.empty();
+    if (has_amp) {
         auto amp = std::make_unique<namzero::NamSlot>();
-        if (!amp->load(opt.nam_path, opt.nam_slim, err)) {
+        if (!amp->load(cfg.amp_file, cfg.amp_slim, err)) {
             std::fprintf(stderr, "amp: %s\n", err.c_str());
             return 1;
         }
-        amp->set_trim_db(opt.amp_gain_db);
-        std::printf("amp: %s | slim %.2f%s | gain modello %.2f | %.0f Hz\n",
-                    opt.nam_path.c_str(), opt.nam_slim,
+        amp->set_trim_db(cfg.amp_trim_db);
+        std::printf("amp: %s | slim %.2f%s | gain modello %.2f | trim %+.1f dB\n",
+                    cfg.amp_file.c_str(), cfg.amp_slim,
                     amp->slimmable() ? "" : " (non slimmable)", amp->model_gain(),
-                    amp->expected_sample_rate());
+                    cfg.amp_trim_db);
         chain.add(std::move(amp));
     } else {
         chain.add(std::make_unique<namzero::GainSlot>(0.0f));
     }
 
     std::size_t i_ir = 0;
-    if (!opt.ir_path.empty()) {
+    const bool has_ir = cfg.ir_on && !cfg.ir_file.empty();
+    if (has_ir) {
         i_ir = chain.size();
         auto ir = std::make_unique<namzero::IrSlot>();
-        if (!ir->load(opt.ir_path, opt.ir_taps, err)) {
+        if (!ir->load(cfg.ir_file, cfg.ir_taps, err)) {
             std::fprintf(stderr, "IR: %s\n", err.c_str());
             return 1;
         }
-        std::printf("IR: %s | %zu tap (%.1f ms @ 48 kHz)\n", opt.ir_path.c_str(),
+        std::printf("IR: %s | %zu tap (%.1f ms @ 48 kHz)\n", cfg.ir_file.c_str(),
                     ir->taps(), static_cast<double>(ir->taps()) * 1000.0 / 48000.0);
         chain.add(std::move(ir));
     }
 
     std::size_t i_reverb = 0;
-    if (opt.reverb) {
+    if (cfg.reverb_on) {
         i_reverb = chain.size();
         auto rv = std::make_unique<namzero::ReverbSlot>();
-        rv->set_wet(opt.reverb_mix);
-        rv->set_room_size(opt.reverb_size);
+        rv->set_wet(static_cast<float>(cfg.reverb_mix));
+        rv->set_room_size(static_cast<float>(cfg.reverb_size));
+        rv->set_damp(static_cast<float>(cfg.reverb_damp));
         chain.add(std::move(rv));
     }
 
     chain.prepare(io.rate(), io.period_frames());
 
-    chain.set_enabled(i_gate, opt.gate);
-    chain.set_enabled(i_comp, opt.comp);
-    chain.set_enabled(i_drive, opt.drive);
-    chain.set_enabled(i_amp, !opt.nam_path.empty());
+    chain.set_enabled(i_gate, cfg.gate_on);
+    chain.set_enabled(i_comp, cfg.comp_on);
+    chain.set_enabled(i_drive, cfg.drive_on);
+    chain.set_enabled(i_amp, has_amp);
     if (i_ir != 0) chain.set_enabled(i_ir, true);
     if (i_reverb != 0) chain.set_enabled(i_reverb, true);
     chain.reset();
 
     std::printf("slot: gate %s | comp %s | drive %s | amp %s | ir %s | reverb %s\n",
-                opt.gate ? "on" : "off", opt.comp ? "on" : "off",
-                opt.drive ? "on" : "off", opt.nam_path.empty() ? "off" : "on",
-                opt.ir_path.empty() ? "off" : "on", opt.reverb ? "on" : "off");
-
+                cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
+                cfg.drive_on ? "on" : "off", has_amp ? "on" : "off",
+                has_ir ? "on" : "off", cfg.reverb_on ? "on" : "off");
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
@@ -385,32 +551,26 @@ int main(int argc, char** argv) {
     std::vector<int32_t> out_i32(samples, 0);
     std::vector<float> buf(samples, 0.0f);
 
-    // Buffer di playback pieno a due periodi prima di partire.
     if (!io.prime_playback(2 * io.period_frames())) {
         std::fprintf(stderr,
                      "attenzione: priming del playback fallito, "
                      "possibile underrun iniziale\n");
     }
 
-    if (opt.realtime) {
-        if (!namzero::rt::install(err)) {
-            std::fprintf(stderr,
-                         "realtime non disponibile: %s\n"
-                         "proseguo senza FIFO: usa sudo, oppure --no-rt\n",
-                         err.c_str());
-        }
+    if (!namzero::rt::install(err)) {
+        std::fprintf(stderr, "realtime non disponibile: %s\n", err.c_str());
     }
 
     Stats stats;
     std::atomic<bool> stats_stop{false};
 
     // In modalita' normale il thread tace: parla solo se qualcosa non va.
-    // Le righe periodiche sono utili in sviluppo e moleste quando suoni.
     const double period_us =
         static_cast<double>(io.period_frames()) * 1e6 / static_cast<double>(io.rate());
     const uint64_t warn_us = static_cast<uint64_t>(period_us * 0.85);
+    const bool verbose = cfg.stats;
 
-    std::thread stats_thread([&stats, &stats_stop, &opt, period_us, warn_us]() {
+    std::thread stats_thread([&stats, &stats_stop, verbose, period_us, warn_us]() {
         uint64_t prev_blocks = 0;
         uint64_t prev_xruns = 0;
         bool first = true;
@@ -424,7 +584,7 @@ int main(int argc, char** argv) {
             const uint64_t max_us = stats.max_us.exchange(0);
             const uint64_t new_xruns = xruns - prev_xruns;
 
-            if (opt.stats) {
+            if (verbose) {
                 std::printf("blocchi %" PRIu64 " (+%" PRIu64 ") | xrun %" PRIu64
                             " (+%" PRIu64 ") | max blocco %.2f ms\n",
                             blocks, blocks - prev_blocks, xruns, new_xruns,
@@ -450,7 +610,7 @@ int main(int argc, char** argv) {
         }
     });
 
-    const float master = std::pow(10.0f, opt.gain_db / 20.0f);
+    const float master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
 
     while (g_running.load()) {
         const long n = io.read_i32(in_i32.data(), frames);
