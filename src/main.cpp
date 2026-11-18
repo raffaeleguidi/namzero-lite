@@ -39,6 +39,9 @@ namespace {
 
 std::atomic<bool> g_running{true};
 
+// Indice che significa "slot assente": 0 non va bene, perche' il gate e' l'indice 0.
+constexpr std::size_t kNoSlot = static_cast<std::size_t>(-1);
+
 void on_signal(int /*sig*/) { g_running.store(false); }
 
 // Tutta la configurazione del motore in un posto solo: i flag da riga di
@@ -140,7 +143,7 @@ void usage() {
         "  -h, --help           questo messaggio\n"
         "\n"
         "Tasti durante l'esecuzione:\n"
-        "  g gate | c comp | d drive | m tremolo | l delay | i ir | r reverb\n"
+        "  g gate | c comp | o overdrive | m tremolo | d delay | i ir | r reverb\n"
         "  s salva lo stato nel preset | q esce\n");
 }
 
@@ -633,7 +636,7 @@ int main(int argc, char** argv) {
         chain.add(std::make_unique<namzero::GainSlot>(0.0f));
     }
 
-    std::size_t i_ir = 0;
+    std::size_t i_ir = kNoSlot;
     const bool has_ir = cfg.ir_on && !cfg.ir_file.empty();
     if (has_ir) {
         i_ir = chain.size();
@@ -647,9 +650,10 @@ int main(int argc, char** argv) {
         chain.add(std::move(ir));
     }
 
-    std::size_t i_delay = 0;
-    if (cfg.delay_on) {
-        i_delay = chain.size();
+    // Delay e riverbero esistono sempre, anche se spenti: cosi' il tasto di
+    // bypass funziona con qualunque preset, invece di non fare nulla in silenzio.
+    const std::size_t i_delay = chain.size();
+    {
         auto dl = std::make_unique<namzero::DelaySlot>();
         dl->set_time_ms(static_cast<float>(cfg.delay_time_ms));
         dl->set_feedback(static_cast<float>(cfg.delay_feedback));
@@ -658,9 +662,8 @@ int main(int argc, char** argv) {
         chain.add(std::move(dl));
     }
 
-    std::size_t i_reverb = 0;
-    if (cfg.reverb_on) {
-        i_reverb = chain.size();
+    const std::size_t i_reverb = chain.size();
+    {
         auto rv = std::make_unique<namzero::ReverbSlot>();
         rv->set_wet(static_cast<float>(cfg.reverb_mix));
         rv->set_room_size(static_cast<float>(cfg.reverb_size));
@@ -675,9 +678,9 @@ int main(int argc, char** argv) {
     chain.set_enabled(i_drive, cfg.drive_on);
     chain.set_enabled(i_mod, cfg.mod_on);
     chain.set_enabled(i_amp, has_amp);
-    if (i_ir != 0) chain.set_enabled(i_ir, true);
-    if (i_delay != 0) chain.set_enabled(i_delay, true);
-    if (i_reverb != 0) chain.set_enabled(i_reverb, true);
+    if (i_ir != kNoSlot) chain.set_enabled(i_ir, true);
+    chain.set_enabled(i_delay, cfg.delay_on);
+    chain.set_enabled(i_reverb, cfg.reverb_on);
     chain.reset();
 
     std::printf("slot: gate %s | comp %s | drive %s | mod %s | amp %s | ir %s | delay %s | reverb %s\n",
@@ -688,7 +691,7 @@ int main(int argc, char** argv) {
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
-    std::printf("tasti: g gate | c comp | d drive | m tremolo | l delay | i ir | r reverb | s salva | q esci\n");
+    std::printf("tasti: g gate | c comp | o overdrive | m tremolo | d delay | i ir | r reverb | s salva | q esci\n");
     std::fflush(stdout);
 
     const std::size_t frames = io.period_frames();
@@ -773,7 +776,11 @@ int main(int argc, char** argv) {
         }
 
         auto toggle = [&](const char* label, std::size_t idx, bool& flag) {
-            if (idx == 0 && !flag) return;  // slot assente
+            if (idx == kNoSlot) {
+                std::printf("  %s: non presente in questo preset\n", label);
+                std::fflush(stdout);
+                return;
+            }
             flag = !flag;
             chain.set_enabled(idx, flag);
             std::printf("  %s: %s%s\n", label, flag ? "on" : "off",
@@ -794,10 +801,10 @@ int main(int argc, char** argv) {
             switch (ch) {
                 case 'g': toggle("gate", i_gate, cfg.gate_on); break;
                 case 'c': toggle("comp", i_comp, cfg.comp_on); break;
-                case 'd': toggle("drive", i_drive, cfg.drive_on); break;
+                case 'o': toggle("overdrive", i_drive, cfg.drive_on); break;
+                case 'd': toggle("delay", i_delay, cfg.delay_on); break;
                 case 'm': toggle("mod", i_mod, cfg.mod_on); break;
                 case 'i': toggle("ir", i_ir, cfg.ir_on); break;
-                case 'l': toggle("delay", i_delay, cfg.delay_on); break;
                 case 'r': toggle("reverb", i_reverb, cfg.reverb_on); break;
                 case 's': {
                     if (preset_path.empty()) {
