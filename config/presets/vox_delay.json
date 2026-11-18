@@ -29,12 +29,6 @@
       "tone": 0.5,
       "level_db": 0
     },
-    "mod": {
-      "on": true,
-      "rate_hz": 4.5,
-      "depth": 0.5,
-      "type": "tremolo"
-    },
     "amp": {
       "on": true,
       "file": "models/vox_ac30_a2.nam",
@@ -59,6 +53,12 @@
       "mix": 0.2,
       "size": 0.5,
       "damp": 0.45
+    },
+    "mod": {
+      "on": true,
+      "type": "tremolo",
+      "rate_hz": 4.5,
+      "depth": 0.5
     }
   },
   "stats": false

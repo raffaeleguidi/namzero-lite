@@ -25,6 +25,7 @@ add_executable(namzero-lite
   src/dsp/partitioned_convolver.cpp
   src/dsp/wav.cpp
   src/dsp/nam_slot.cpp
+  src/control/midi.cpp
 )
 
 target_include_directories(namzero-lite PRIVATE src third_party ${ALSA_INCLUDE_DIRS})
@@ -68,3 +69,9 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(namzero-lite PRIVATE -O3)
 endif()
+
+# Test senza dipendenze audio: girano anche su un host senza ALSA.
+enable_testing()
+add_executable(wah_autoengage_test test/wah_autoengage_test.cpp)
+target_include_directories(wah_autoengage_test PRIVATE src)
+add_test(NAME wah_autoengage COMMAND wah_autoengage_test)

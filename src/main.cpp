@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <array>
 #include <vector>
 
 #include <fcntl.h>
@@ -32,6 +33,8 @@
 #include "dsp/nam_slot.h"
 #include "dsp/delay_slot.h"
 #include "dsp/reverb_slot.h"
+#include "control/midi.h"
+#include "control/wah_autoengage.h"
 #include "dsp/mod_slot.h"
 #include "json.hpp"
 
@@ -104,6 +107,20 @@ struct Config {
     double reverb_damp = 0.45;
 
     // comportamento
+    // MIDI: assegnazioni FISSE, uguali in ogni preset. La stessa pedalata deve
+    // fare sempre la stessa cosa, quindi non c'e' apprendimento.
+    bool midi_enabled = true;
+    std::string midi_device = "hw:XTONE";  // per nome: l'indice cambia al boot
+    int cc_tremolo = 10;    // fs1 gruppo verde
+    int cc_drive = 20;      // fs2
+    int cc_delay = 11;      // fs3
+    int cc_expression = 7;  // pedale, gruppo verde
+    int expr_min_raw = 68;
+    int expr_max_raw = 127;
+    double wah_engage_threshold = 0.10;
+    int wah_engage_ms = 100;
+    int wah_release_ms = 500;
+
     bool stats = false;
     bool help = false;
 };
@@ -152,6 +169,8 @@ void usage() {
         "  --reverb             riverbero\n"
         "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
         "  --reverb-size <0..1> stanza (default 0.55)\n"
+        "  --midi-device <dev>  rawmidi (default hw:XTONE)\n"
+        "  --no-midi            non aprire l'ingresso MIDI\n"
         "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
         "  -h, --help           questo messaggio\n"
         "\n"
@@ -314,6 +333,32 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.reverb_mix = get_num(rv, "mix", cfg.reverb_mix);
         cfg.reverb_size = get_num(rv, "size", cfg.reverb_size);
         cfg.reverb_damp = get_num(rv, "damp", cfg.reverb_damp);
+    }
+
+    if (j.contains("midi") && j["midi"].is_object()) {
+        const auto& mi = j["midi"];
+        cfg.midi_enabled = get_bool(mi, "enabled", cfg.midi_enabled);
+        get_str(mi, "device", cfg.midi_device);
+        if (mi.contains("cc_tremolo") && mi["cc_tremolo"].is_number_integer())
+            cfg.cc_tremolo = mi["cc_tremolo"].get<int>();
+        if (mi.contains("cc_drive") && mi["cc_drive"].is_number_integer())
+            cfg.cc_drive = mi["cc_drive"].get<int>();
+        if (mi.contains("cc_delay") && mi["cc_delay"].is_number_integer())
+            cfg.cc_delay = mi["cc_delay"].get<int>();
+        if (mi.contains("cc_expression") && mi["cc_expression"].is_number_integer())
+            cfg.cc_expression = mi["cc_expression"].get<int>();
+        if (mi.contains("expr_min") && mi["expr_min"].is_number_integer())
+            cfg.expr_min_raw = mi["expr_min"].get<int>();
+        if (mi.contains("expr_max") && mi["expr_max"].is_number_integer())
+            cfg.expr_max_raw = mi["expr_max"].get<int>();
+        if (mi.contains("wah_autoengage") && mi["wah_autoengage"].is_object()) {
+            const auto& ae = mi["wah_autoengage"];
+            cfg.wah_engage_threshold = get_num(ae, "threshold", cfg.wah_engage_threshold);
+            if (ae.contains("engage_ms") && ae["engage_ms"].is_number_integer())
+                cfg.wah_engage_ms = ae["engage_ms"].get<int>();
+            if (ae.contains("release_ms") && ae["release_ms"].is_number_integer())
+                cfg.wah_release_ms = ae["release_ms"].get<int>();
+        }
     }
 
     if (j.contains("stats") && j["stats"].is_boolean()) {
@@ -483,6 +528,12 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
                 err = "valore non valido per --tremolo-depth";
                 return false;
             }
+        } else if (a == "--no-midi") {
+            cfg.midi_enabled = false;
+        } else if (a == "--midi-device") {
+            const char* v = next("--midi-device");
+            if (v == nullptr) return false;
+            cfg.midi_device = v;
         } else if (a == "--gate") {
             cfg.gate_on = true;
         } else if (a == "--comp") {
@@ -951,6 +1002,105 @@ int main(int argc, char** argv) {
         if (is_tty) tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     });
 
+    // MIDI: assegnazioni fisse, uguali in ogni preset.
+    namzero::MidiInput midi;
+    if (cfg.midi_enabled) {
+        std::string merr;
+        if (midi.open(cfg.midi_device, merr)) {
+            std::printf("midi: %s | tremolo CC%d | drive CC%d | delay CC%d | wah CC%d\n",
+                        cfg.midi_device.c_str(), cfg.cc_tremolo, cfg.cc_drive,
+                        cfg.cc_delay, cfg.cc_expression);
+        } else {
+            std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
+        }
+    }
+
+    std::thread midi_thread([&]() {
+        if (!midi.is_open()) return;
+
+        std::vector<namzero::MidiEvent> events;
+        std::array<std::chrono::steady_clock::time_point, 128> last_seen{};
+        const auto epoch = std::chrono::steady_clock::time_point{};
+        for (auto& t : last_seen) t = epoch;
+
+        namzero::WahAutoEngage ae;
+        ae.configure(static_cast<float>(cfg.wah_engage_threshold), cfg.wah_engage_ms,
+                     cfg.wah_release_ms);
+        const auto t0 = std::chrono::steady_clock::now();
+        ae.reset(0.0);
+        float pos = 0.0f;
+
+        // Stato messo da parte quando il pedale accende il wah: al rilascio si
+        // torna esattamente a com'era, tremolo compreso.
+        bool saved_on = cfg.mod_on;
+        std::string saved_type = cfg.mod_type;
+
+        while (g_running.load()) {
+            events.clear();
+            midi.poll(2, events);
+
+            auto now = std::chrono::steady_clock::now();
+
+            for (const auto& e : events) {
+                if (e.cc == cfg.cc_expression) {
+                    const float lo = static_cast<float>(cfg.expr_min_raw);
+                    const float hi = static_cast<float>(cfg.expr_max_raw);
+                    float p = (static_cast<float>(e.value) - lo) / (hi - lo);
+                    pos = p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
+                    if (mod_ptr != nullptr) mod_ptr->set_position(pos);
+                    continue;
+                }
+
+                if (e.cc >= 128) continue;
+                // Cooldown: assorbe sia i pedali che mandano solo il valore alto
+                // sia quelli che mandano anche il rilascio.
+                if (last_seen[e.cc] != epoch &&
+                    now - last_seen[e.cc] < std::chrono::milliseconds(250)) {
+                    continue;
+                }
+                last_seen[e.cc] = now;
+
+                if (e.cc == cfg.cc_tremolo) {
+                    // fs1 e' il tremolo, ma se il wah e' in mano al pedale non
+                    // si tocca: comanda il pedale.
+                    if (!ae.engaged()) {
+                        cfg.mod_type = "tremolo";
+                        if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
+                        cfg.mod_on = !cfg.mod_on;
+                        if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                    }
+                } else if (e.cc == cfg.cc_drive) {
+                    cfg.drive_on = !cfg.drive_on;
+                    if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                } else if (e.cc == cfg.cc_delay) {
+                    cfg.delay_on = !cfg.delay_on;
+                    if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
+                }
+            }
+
+            const double now_ms =
+                std::chrono::duration<double, std::milli>(now - t0).count();
+            const int transition = ae.update(pos, now_ms);
+
+            if (transition == 1) {
+                saved_on = cfg.mod_on;
+                saved_type = cfg.mod_type;
+                cfg.mod_type = "wah";
+                cfg.mod_on = true;
+                if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kWah);
+                if (i_mod != kNoSlot) chain.set_enabled(i_mod, true);
+            } else if (transition == -1) {
+                cfg.mod_type = saved_type;
+                cfg.mod_on = saved_on;
+                if (mod_ptr != nullptr) {
+                    mod_ptr->set_type(saved_type == "wah" ? namzero::ModSlot::Type::kWah
+                                                          : namzero::ModSlot::Type::kTremolo);
+                }
+                if (i_mod != kNoSlot) chain.set_enabled(i_mod, saved_on);
+            }
+        }
+    });
+
     const float master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
 
     while (g_running.load()) {
@@ -996,6 +1146,8 @@ int main(int argc, char** argv) {
     stats_stop.store(true);
     if (stats_thread.joinable()) stats_thread.join();
     if (kb_thread.joinable()) kb_thread.join();
+    if (midi_thread.joinable()) midi_thread.join();
+    midi.close();
 
     io.close();
 
