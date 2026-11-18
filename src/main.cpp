@@ -193,7 +193,7 @@ void usage() {
         "Tasti durante l'esecuzione:\n"
         "  g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
         "  d delay | t tap tempo | i ir | r reverb\n"
-        "  s salva lo stato nel preset | q esce\n");
+        "  s salva lo stato nel preset | q o Ctrl+C esce\n");
 }
 
 bool parse_uint(const char* s, unsigned& out) {
@@ -904,7 +904,7 @@ int main(int argc, char** argv) {
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
     std::printf("tasti: g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
-                "        d delay | t tap tempo | i ir | r reverb | s salva | q esci\n");
+                "        d delay | t tap tempo | i ir | r reverb | s salva | q o Ctrl+C esci\n");
     std::fflush(stdout);
 
     const std::size_t frames = io.period_frames();
@@ -988,6 +988,13 @@ int main(int argc, char** argv) {
         if (is_tty) {
             termios raw = oldt;
             cfmakeraw(&raw);
+            // cfmakeraw spegne ISIG: senza, ^C non arriva come SIGINT ma come
+            // byte 0x03, che il ciclo dei tasti non riconosce. Il programma si
+            // fermava solo con 'q'.
+            raw.c_lflag |= ISIG;
+            // ^Z resta disattivato: sospendere un processo che tiene il device
+            // audio aperto lascia il terminale in raw mode e il device occupato.
+            raw.c_cc[VSUSP] = _POSIX_VDISABLE;
             // cfmakeraw toglie anche OPOST: senza di esso '\n' scende di una
             // riga senza tornare a capo, e le stampe si sfalsano a scaletta.
             raw.c_oflag |= (OPOST | ONLCR);
@@ -1131,7 +1138,10 @@ int main(int argc, char** argv) {
                     std::fflush(stdout);
                     break;
                 }
-                case 'q': g_running.store(false); break;
+                case 'q':
+                case '\x03':  // ^C arrivato come byte (stdin non TTY, o ISIG off)
+                    g_running.store(false);
+                    break;
                 default: break;
             }
         }
