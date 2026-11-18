@@ -113,13 +113,29 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 
 ## 5. Modello dati
 
+### Wah (implementato)
+
+Slot `mod` con due tipi: `tremolo` e `wah`. Il wah è un filtro a stato variabile TPT
+(Cytomic) in bandpass, frequenza su scala logaritmica dalla posizione del pedale
+(350–2200 Hz di default, Q 3). Sta **prima** dell'amplificatore, come un pedale vero.
+
+Risposta verificata (RMS su tono puro, posizione 0.0 / 0.5 / 1.0): la banda si sposta
+da 350 a ~900 a 2200 Hz come previsto.
+
+Controllo: `w` cambia tipo, `,` e `.` muovono la posizione, oppure `position` nel preset.
+L'espressione pedal lo piloterà via MIDI (passo successivo).
+
 ### Delay (implementato)
 
 Stereo, tempo 1 ms–2 s con lettura interpolata (cambiare tempo non fa scatti), feedback
 0–0,95, mix, e **passa-basso nell'anello** di retroazione: ogni ripetizione perde un po' di
 alte, come in un delay analogico. Slot `delay` tra IR e riverbero, tasto `l`.
 
-Costo: catena completa con delay e riverbero **0,65–0,80 ms**; su VOX senza IR 0,43 ms.
+Modalità stereo: `stereo`, `ping_pong` (ingresso mono, eco alternato) e
+`ping_pong_stereo` (ingresso stereo preservato, solo la retroazione si incrocia).
+Tap tempo con il tasto `t` (media pesata degli intervalli).
+
+Costo: catena completa con delay e riverbero **0,65–0,80 ms**; su VOX senza IR 0,42–0,43 ms.
 
 ### LV2 — da esplorare
 

@@ -32,7 +32,7 @@
 #include "dsp/nam_slot.h"
 #include "dsp/delay_slot.h"
 #include "dsp/reverb_slot.h"
-#include "dsp/tremolo_slot.h"
+#include "dsp/mod_slot.h"
 #include "json.hpp"
 
 namespace {
@@ -73,8 +73,14 @@ struct Config {
     double drive_level_db = 0.0;
 
     bool mod_on = false;
+    std::string mod_type = "tremolo";  // tremolo | wah
     double mod_rate_hz = 4.5;
     double mod_depth = 0.6;
+    double mod_position = 0.5;
+    double mod_q = 3.0;
+    double mod_mix = 1.0;
+    double mod_low_hz = 350.0;
+    double mod_high_hz = 2200.0;
 
     bool amp_on = false;
     std::string amp_file;
@@ -131,6 +137,10 @@ void usage() {
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
         "  --drive-tone <0..1>  tono del drive (default 0.5)\n"
         "  --tremolo            tremolo nello slot mod\n"
+        "  --wah                wah nello slot mod\n"
+        "  --wah-position <0..1> posizione del pedale (default 0.5)\n"
+        "  --wah-q <0.5..12>    risonanza (default 3)\n"
+        "  --wah-mix <0..1>     quantita' di wah (default 1)\n"
         "  --tremolo-rate <hz>  frequenza (default 4.5)\n"
         "  --tremolo-depth <0..1> profondita' (default 0.6)\n"
         "  --delay              delay\n"
@@ -146,7 +156,8 @@ void usage() {
         "  -h, --help           questo messaggio\n"
         "\n"
         "Tasti durante l'esecuzione:\n"
-        "  g gate | c comp | o overdrive | m tremolo | d delay | i ir | r reverb\n"
+        "  g gate | c comp | o overdrive | m mod | w tipo mod | , . wah\n"
+        "  d delay | t tap tempo | i ir | r reverb\n"
         "  s salva lo stato nel preset | q esce\n");
 }
 
@@ -254,8 +265,16 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
     auto md = slot_or_empty(j, "mod");
     if (!md.empty()) {
         cfg.mod_on = get_bool(md, "on", cfg.mod_on);
+        if (md.contains("type") && md["type"].is_string()) {
+            cfg.mod_type = md["type"].get<std::string>();
+        }
         cfg.mod_rate_hz = get_num(md, "rate_hz", cfg.mod_rate_hz);
         cfg.mod_depth = get_num(md, "depth", cfg.mod_depth);
+        cfg.mod_position = get_num(md, "position", cfg.mod_position);
+        cfg.mod_q = get_num(md, "q", cfg.mod_q);
+        cfg.mod_mix = get_num(md, "mix", cfg.mod_mix);
+        cfg.mod_low_hz = get_num(md, "low_hz", cfg.mod_low_hz);
+        cfg.mod_high_hz = get_num(md, "high_hz", cfg.mod_high_hz);
     }
 
     auto amp = slot_or_empty(j, "amp");
@@ -430,6 +449,28 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
             }
         } else if (a == "--tremolo") {
             cfg.mod_on = true;
+            cfg.mod_type = "tremolo";
+        } else if (a == "--wah") {
+            cfg.mod_on = true;
+            cfg.mod_type = "wah";
+        } else if (a == "--wah-position") {
+            const char* v = next("--wah-position");
+            if (v == nullptr || !parse_float(v, cfg.mod_position)) {
+                err = "valore non valido per --wah-position";
+                return false;
+            }
+        } else if (a == "--wah-q") {
+            const char* v = next("--wah-q");
+            if (v == nullptr || !parse_float(v, cfg.mod_q)) {
+                err = "valore non valido per --wah-q";
+                return false;
+            }
+        } else if (a == "--wah-mix") {
+            const char* v = next("--wah-mix");
+            if (v == nullptr || !parse_float(v, cfg.mod_mix)) {
+                err = "valore non valido per --wah-mix";
+                return false;
+            }
         } else if (a == "--tremolo-rate") {
             const char* v = next("--tremolo-rate");
             if (v == nullptr || !parse_float(v, cfg.mod_rate_hz)) {
@@ -625,9 +666,18 @@ int main(int argc, char** argv) {
     chain.add(std::make_unique<namzero::DriveSlot>());
 
     const std::size_t i_mod = chain.size();
-    auto mod_slot = std::make_unique<namzero::TremoloSlot>();
+    auto mod_owner = std::make_unique<namzero::ModSlot>();
+    namzero::ModSlot* mod_ptr = mod_owner.get();
+    auto mod_slot = std::move(mod_owner);
+    mod_ptr->set_type(cfg.mod_type == "wah" ? namzero::ModSlot::Type::kWah
+                                             : namzero::ModSlot::Type::kTremolo);
     mod_slot->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
     mod_slot->set_depth(static_cast<float>(cfg.mod_depth));
+    mod_ptr->set_position(static_cast<float>(cfg.mod_position));
+    mod_slot->set_wah_q(static_cast<float>(cfg.mod_q));
+    mod_slot->set_wah_mix(static_cast<float>(cfg.mod_mix));
+    mod_slot->set_wah_low_hz(static_cast<float>(cfg.mod_low_hz));
+    mod_slot->set_wah_high_hz(static_cast<float>(cfg.mod_high_hz));
     chain.add(std::move(mod_slot));
 
     const std::size_t i_amp = chain.size();
@@ -665,8 +715,10 @@ int main(int argc, char** argv) {
     // Delay e riverbero esistono sempre, anche se spenti: cosi' il tasto di
     // bypass funziona con qualunque preset, invece di non fare nulla in silenzio.
     const std::size_t i_delay = chain.size();
+    namzero::DelaySlot* delay_slot = nullptr;
     {
         auto dl = std::make_unique<namzero::DelaySlot>();
+        delay_slot = dl.get();
         dl->set_time_ms(static_cast<float>(cfg.delay_time_ms));
         dl->set_feedback(static_cast<float>(cfg.delay_feedback));
         dl->set_mix(static_cast<float>(cfg.delay_mix));
@@ -710,7 +762,8 @@ int main(int argc, char** argv) {
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
-    std::printf("tasti: g gate | c comp | o overdrive | m tremolo | d delay | i ir | r reverb | s salva | q esci\n");
+    std::printf("tasti: g gate | c comp | o overdrive | m mod | w tipo mod | , . wah\n"
+                "        d delay | t tap tempo | i ir | r reverb | s salva | q esci\n");
     std::fflush(stdout);
 
     const std::size_t frames = io.period_frames();
@@ -782,7 +835,7 @@ int main(int argc, char** argv) {
     // Tastiera: toggle degli slot mentre suona, senza toccare i file.
     // stdin e' in modalita' raw, quindi i tasti arrivano senza Invio.
     std::thread kb_thread([&chain, &cfg, &preset_path, i_gate, i_comp, i_drive, i_mod,
-                           i_delay, i_ir, i_reverb]() {
+                           i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
         const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
         if (is_tty) {
@@ -807,6 +860,11 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
         };
 
+        // Tap tempo: la media degli ultimi intervalli, non l'ultimo.
+        auto last_tap = std::chrono::steady_clock::now();
+        bool have_tap = false;
+        double tap_ms = 0.0;
+
         while (g_running.load()) {
             pollfd p{STDIN_FILENO, POLLIN, 0};
             const int r = poll(&p, 1, 100);
@@ -822,7 +880,54 @@ int main(int argc, char** argv) {
                 case 'c': toggle("comp", i_comp, cfg.comp_on); break;
                 case 'o': toggle("overdrive", i_drive, cfg.drive_on); break;
                 case 'd': toggle("delay", i_delay, cfg.delay_on); break;
+                case 't': {
+                    if (delay_slot == nullptr) break;
+                    const auto now = std::chrono::steady_clock::now();
+                    if (have_tap) {
+                        const double dt = std::chrono::duration<double, std::milli>(
+                                              now - last_tap).count();
+                        if (dt > 120.0 && dt < 2000.0) {
+                            // Media pesata: il primo intervallo vale 1, poi 0,3.
+                            tap_ms = (tap_ms > 0.0) ? (0.7 * tap_ms + 0.3 * dt) : dt;
+                            cfg.delay_time_ms = tap_ms;
+                            delay_slot->set_time_ms(static_cast<float>(tap_ms));
+                            std::printf("  delay: %.0f ms (tap)\n", tap_ms);
+                            std::fflush(stdout);
+                        } else {
+                            tap_ms = 0.0;  // pausa lunga: riparte
+                        }
+                    }
+                    have_tap = true;
+                    last_tap = now;
+                    break;
+                }
                 case 'm': toggle("mod", i_mod, cfg.mod_on); break;
+                case 'w': {
+                    if (mod_ptr == nullptr) break;
+                    const bool to_wah = (cfg.mod_type != "wah");
+                    cfg.mod_type = to_wah ? "wah" : "tremolo";
+                    mod_ptr->set_type(to_wah ? namzero::ModSlot::Type::kWah
+                                              : namzero::ModSlot::Type::kTremolo);
+                    std::printf("  mod: %s\n", cfg.mod_type.c_str());
+                    std::fflush(stdout);
+                    break;
+                }
+                case ',':
+                case '.': {
+                    if (mod_ptr == nullptr) break;
+                    if (cfg.mod_type != "wah") {
+                        std::printf("  (il wah e' spento: premi w per attivarlo)\n");
+                        std::fflush(stdout);
+                        break;
+                    }
+                    double p = cfg.mod_position + (ch == '.' ? 0.1 : -0.1);
+                    p = p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p);
+                    cfg.mod_position = p;
+                    mod_ptr->set_position(static_cast<float>(p));
+                    std::printf("  wah: %.1f\n", p);
+                    std::fflush(stdout);
+                    break;
+                }
                 case 'i': toggle("ir", i_ir, cfg.ir_on); break;
                 case 'r': toggle("reverb", i_reverb, cfg.reverb_on); break;
                 case 's': {

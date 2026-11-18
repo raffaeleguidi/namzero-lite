@@ -32,7 +32,8 @@
     "mod": {
       "on": true,
       "rate_hz": 4.5,
-      "depth": 0.5
+      "depth": 0.5,
+      "type": "tremolo"
     },
     "amp": {
       "on": true,

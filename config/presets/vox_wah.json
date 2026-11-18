@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "VOX AC30 + wah + delay",
+  "audio": { "device": "hw:XTONE", "rate": 48000, "period_frames": 64, "periods": 3, "gain_db": 0.0 },
+  "slots": {
+    "gate":   { "on": true,  "threshold_db": -55, "attack_ms": 2, "release_ms": 120 },
+    "comp":   { "on": false, "threshold_db": -18, "ratio": 3, "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
+    "drive":  { "on": false, "amount": 0.15, "tone": 0.5, "level_db": 0 },
+    "mod":    { "on": true, "type": "wah", "position": 0.35, "q": 3.5, "mix": 1.0,
+                "low_hz": 350, "high_hz": 2200 },
+    "amp":    { "on": true,  "file": "models/vox_ac30_a2.nam", "slim": 0.49, "trim_db": -6 },
+    "ir":     { "on": false, "file": "", "taps": 2048 },
+    "delay":  { "on": true,  "time_ms": 380, "feedback": 0.3, "mix": 0.2, "tone": 0.45, "mode": "ping_pong_stereo" },
+    "reverb": { "on": true,  "mix": 0.22, "size": 0.5, "damp": 0.45 }
+  },
+  "stats": false
+}
