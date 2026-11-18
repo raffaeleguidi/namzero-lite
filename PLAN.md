@@ -343,6 +343,15 @@ Misure dello slot amp in isolamento (`test/bench_nam_slot.cpp`):
 Catena completa (NAM lite + IR 2048 + gate + comp + drive): **0,71 ms per blocco = 53%**
 del budget a 64 frame.
 
+**Toward the pedal**: con `--ir irs/ir_lr_vp28.wav` (la piu' brillante delle 80),
+riverbero attivo e `--amp-gain -12` (valore scelto all'ascolto dall'utente), la catena
+gira a **0,72-0,93 ms** senza xrun dopo l'avvio.
+
+**Log**: le statistiche periodiche sono **spente di default** — il motore parla solo se
+compare un problema (xrun dopo l'avvio, o blocco oltre l'85% del periodo). `--stats`
+riattiva il report ogni 5 secondi. Le righe periodiche sono utili in sviluppo e moleste
+quando si suona.
+
 **Stabilita' verificata**: 449.894 blocchi in 10 minuti con la catena completa, 2 xrun,
 entrambi all'avvio. Stesso criterio di accettazione di M2, ma con tutto acceso.
 

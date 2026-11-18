@@ -49,6 +49,7 @@ struct Options {
     float drive_amount = 0.15f;
     float drive_tone = 0.5f;
     float drive_level_db = 0.0f;
+    bool stats = false;
     bool reverb = false;
     float reverb_mix = 0.25f;
     float reverb_size = 0.55f;
@@ -82,6 +83,7 @@ void usage() {
         "  --amp-gain <db>     trim sullo slot amp (default 0)\n"
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
         "  --drive-tone <0..1>   tono del drive (default 0.5)\n"
+        "  --stats               statistiche ogni 5 s (default: solo problemi)\n"
         "  --reverb              attiva il riverbero\n"
         "  --reverb-mix <0..1>   quantita' di riverbero (default 0.25)\n"
         "  --reverb-size <0..1>  dimensione della stanza (default 0.55)\n"
@@ -196,6 +198,8 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
                 err = "valore non valido per --drive-tone";
                 return false;
             }
+        } else if (a == "--stats") {
+            opt.stats = true;
         } else if (a == "--reverb") {
             opt.reverb = true;
         } else if (a == "--reverb-mix") {
@@ -400,9 +404,17 @@ int main(int argc, char** argv) {
     Stats stats;
     std::atomic<bool> stats_stop{false};
 
-    std::thread stats_thread([&stats, &stats_stop]() {
+    // In modalita' normale il thread tace: parla solo se qualcosa non va.
+    // Le righe periodiche sono utili in sviluppo e moleste quando suoni.
+    const double period_us =
+        static_cast<double>(io.period_frames()) * 1e6 / static_cast<double>(io.rate());
+    const uint64_t warn_us = static_cast<uint64_t>(period_us * 0.85);
+
+    std::thread stats_thread([&stats, &stats_stop, &opt, period_us, warn_us]() {
         uint64_t prev_blocks = 0;
         uint64_t prev_xruns = 0;
+        bool first = true;
+
         while (g_running.load() && !stats_stop.load()) {
             for (int i = 0; i < 50 && g_running.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -410,11 +422,29 @@ int main(int argc, char** argv) {
             const uint64_t blocks = stats.blocks.load();
             const uint64_t xruns = stats.xruns.load();
             const uint64_t max_us = stats.max_us.exchange(0);
-            std::printf("blocchi %" PRIu64 " (+%" PRIu64 ") | xrun %" PRIu64
-                        " (+%" PRIu64 ") | max blocco %.2f ms\n",
-                        blocks, blocks - prev_blocks, xruns, xruns - prev_xruns,
-                        static_cast<double>(max_us) / 1000.0);
-            std::fflush(stdout);
+            const uint64_t new_xruns = xruns - prev_xruns;
+
+            if (opt.stats) {
+                std::printf("blocchi %" PRIu64 " (+%" PRIu64 ") | xrun %" PRIu64
+                            " (+%" PRIu64 ") | max blocco %.2f ms\n",
+                            blocks, blocks - prev_blocks, xruns, new_xruns,
+                            static_cast<double>(max_us) / 1000.0);
+                std::fflush(stdout);
+            } else {
+                // Il primo intervallo contiene gli xrun di priming: non sono un
+                // problema e non meritano un avviso.
+                const bool real_xruns = new_xruns > 0 && !first;
+                const bool tight = max_us > warn_us;
+                if (real_xruns || tight) {
+                    std::fprintf(stderr,
+                                 "attenzione: +%" PRIu64 " xrun | max blocco %.2f ms "
+                                 "(%.0f%% del periodo)\n",
+                                 new_xruns, static_cast<double>(max_us) / 1000.0,
+                                 100.0 * static_cast<double>(max_us) / period_us);
+                    std::fflush(stderr);
+                }
+            }
+            first = false;
             prev_blocks = blocks;
             prev_xruns = xruns;
         }
