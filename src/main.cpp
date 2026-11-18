@@ -132,6 +132,9 @@ struct Config {
     // tacco (la punta diventa la zona di riposo, come su un pedale parcheggiato).
     bool wah_gate_invert = false;
     bool midi_log = false;  // stampa ogni CC: serve a misurare il pedale
+    // I footswitch sono "a stato" (un messaggio per pressione, valore che
+    // alterna) oppure "momentanei" (127 premuto, 0 rilasciato).
+    std::string switch_mode = "any";  // any | edge
 
     bool stats = false;
     bool help = false;
@@ -382,6 +385,7 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         }
         if (mi.contains("expr_invert") && mi["expr_invert"].is_boolean())
             cfg.expr_invert = mi["expr_invert"].get<bool>();
+        get_str(mi, "switches", cfg.switch_mode);
     }
 
     if (j.contains("stats") && j["stats"].is_boolean()) {
@@ -1157,6 +1161,8 @@ int main(int argc, char** argv) {
         // I footswitch mandano 127 alla pressione e 0 al rilascio: conta il
         // fronte, non il singolo evento (vedi SwitchDebounce).
         namzero::SwitchDebounce switches;
+        switches.set_mode(cfg.switch_mode == "edge" ? namzero::SwitchDebounce::Mode::kEdge
+                                                    : namzero::SwitchDebounce::Mode::kAny);
 
         namzero::WahAutoEngage ae;
         ae.configure(static_cast<float>(cfg.wah_engage_threshold), cfg.wah_engage_ms,
@@ -1238,14 +1244,21 @@ int main(int argc, char** argv) {
                     if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
                     cfg.mod_on = !cfg.mod_on;
                     if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                    std::printf("  mod: %s (fs1)\n", cfg.mod_on ? "on" : "off");
+                    std::fflush(stdout);
                 } else if (e.cc == cfg.cc_drive) {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     cfg.drive_on = !cfg.drive_on;
                     if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                    std::printf("  drive: %s (fs2, %s)\n", cfg.drive_on ? "on" : "off",
+                                cfg.drive_type.c_str());
+                    std::fflush(stdout);
                 } else if (e.cc == cfg.cc_delay) {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     cfg.delay_on = !cfg.delay_on;
                     if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
+                    std::printf("  delay: %s (fs3)\n", cfg.delay_on ? "on" : "off");
+                    std::fflush(stdout);
                 }
             }
 
