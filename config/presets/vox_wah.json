@@ -67,7 +67,7 @@
   "stats": false,
   "midi": {
     "enabled": true,
-    "device": "hw:1,0,0",
+    "device": "hw:XTONE",
     "cc_tremolo": 10,
     "cc_drive": 20,
     "cc_delay": 11,

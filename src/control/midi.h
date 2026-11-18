@@ -14,7 +14,8 @@ struct MidiEvent {
     uint8_t value = 0;
 };
 
-// Ingresso MIDI rawmidi (il device dell'XTONE: "hw:1,0,0").
+// Ingresso MIDI rawmidi (il device dell'XTONE: "hw:XTONE", per nome: l'indice
+// della scheda cambia al boot, e' gia' successo).
 // Non interpreta: consegna gli eventi. La politica sta in chi lo usa.
 class MidiInput {
 public:
