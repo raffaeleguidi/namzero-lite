@@ -82,6 +82,36 @@ static void test_hysteresis() {
     CHECK(!ae.engaged());
 }
 
+// Polarita' del gate: con invert la punta (pos 1) e' la zona spenta.
+static void test_inverted_polarity() {
+    CHECK(namzero::wah_activation(0.0f, false) == 0.0f);
+    CHECK(namzero::wah_activation(1.0f, false) == 1.0f);
+    CHECK(namzero::wah_activation(0.0f, true) == 1.0f);
+    CHECK(namzero::wah_activation(1.0f, true) == 0.0f);
+    CHECK(namzero::wah_activation(0.25f, true) == 0.75f);
+
+    namzero::WahAutoEngage ae;
+    ae.configure(0.10f, 100, 500, 0.05f);
+    ae.reset(0.0);
+
+    // Punta a fondo per un secondo: resta spento.
+    for (int t = 0; t <= 1000; t += 50) {
+        CHECK(ae.update(namzero::wah_activation(1.0f, true), t) == 0);
+    }
+    CHECK(!ae.engaged());
+
+    // Si lascia la punta (pos 0.80 -> attivazione 0.20): si accende dopo 100 ms.
+    CHECK(ae.update(namzero::wah_activation(0.80f, true), 1100.0) == 0);
+    CHECK(ae.update(namzero::wah_activation(0.80f, true), 1210.0) == 1);
+    CHECK(ae.engaged());
+
+    // Torna sulla punta: si spegne dopo 500 ms.
+    CHECK(ae.update(namzero::wah_activation(1.0f, true), 1300.0) == 0);
+    CHECK(ae.update(namzero::wah_activation(1.0f, true), 1799.0) == 0);
+    CHECK(ae.update(namzero::wah_activation(1.0f, true), 1801.0) == -1);
+    CHECK(!ae.engaged());
+}
+
 // Proprieta' dello slot mod: si salva com'era e si ripristina uguale.
 static void test_arbiter() {
     using namzero::ModArbiter;
@@ -124,6 +154,7 @@ static void test_arbiter() {
 int main() {
     test_gate();
     test_hysteresis();
+    test_inverted_polarity();
     test_arbiter();
     if (g_fail != 0) {
         std::fprintf(stderr, "wah_autoengage: %d controlli falliti\n", g_fail);

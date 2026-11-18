@@ -2,9 +2,20 @@
 
 namespace namzero {
 
+// Valore su cui lavora il gate. Di norma la posizione del pedale (tacco 0,
+// punta 1): si accende verso la punta. Con invert la polarita' si rovescia e
+// l'accesso sta verso il tacco, mentre la punta e' la zona di riposo/spento.
+//
+// Nota: e' diverso da expr_invert, che rovescia la mappatura della posizione
+// (e quindi anche la corsa del filtro). Qui il filtro continua a seguire il
+// pedale normalmente: cambia solo dove il gate considera "acceso".
+inline float wah_activation(float position, bool invert) {
+    return invert ? 1.0f - position : position;
+}
+
 // Macchina a stati per l'accensione automatica del wah comandata dal pedale.
 //
-// Specifica: si accende quando la posizione resta sopra soglia per engage_ms,
+// Specifica: si accende quando l'attivazione resta sopra soglia per engage_ms,
 // si spegne quando resta sotto per release_ms. I due tempi sono asimmetrici di
 // proposito: accendere deve essere immediato, spegnere non deve tagliare una
 // nota che sta sfumando.

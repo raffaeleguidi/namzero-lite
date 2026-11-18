@@ -118,7 +118,7 @@ struct Config {
     int cc_drive = 20;      // fs2
     int cc_delay = 11;      // fs3
     int cc_expression = 7;  // pedale, gruppo verde
-    int expr_min_raw = 68;
+    int expr_min_raw = 0;
     int expr_max_raw = 127;
     // Il pedale M-Gear ha uno switch che ne inverte la corsa: se il valore cresce
     // verso l'alto basta questa riga, senza ricalibrare.
@@ -127,6 +127,9 @@ struct Config {
     double wah_release_threshold = 0.05;
     int wah_engage_ms = 100;
     int wah_release_ms = 500;
+    // Polarita' del gate: false = acceso verso la punta, true = acceso verso il
+    // tacco (la punta diventa la zona di riposo, come su un pedale parcheggiato).
+    bool wah_gate_invert = false;
     bool midi_log = false;  // stampa ogni CC: serve a misurare il pedale
 
     bool stats = false;
@@ -182,6 +185,7 @@ void usage() {
         "  --midi-device <dev>  rawmidi (default hw:XTONE)\n"
         "  --no-midi            non aprire l'ingresso MIDI\n"
         "  --expr-invert        pedale di espressione con corsa invertita\n"
+        "  --wah-invert         wah acceso verso il tacco: spento con la punta a fondo\n"
         "  --midi-log           stampa ogni CC ricevuto (per misurare il pedale)\n"
         "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
         "  -h, --help           questo messaggio\n"
@@ -373,6 +377,7 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
                 cfg.wah_engage_ms = ae["engage_ms"].get<int>();
             if (ae.contains("release_ms") && ae["release_ms"].is_number_integer())
                 cfg.wah_release_ms = ae["release_ms"].get<int>();
+            cfg.wah_gate_invert = get_bool(ae, "invert", cfg.wah_gate_invert);
         }
         if (mi.contains("expr_invert") && mi["expr_invert"].is_boolean())
             cfg.expr_invert = mi["expr_invert"].get<bool>();
@@ -554,6 +559,8 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
             cfg.midi_enabled = false;
         } else if (a == "--expr-invert") {
             cfg.expr_invert = true;
+        } else if (a == "--wah-invert") {
+            cfg.wah_gate_invert = true;
         } else if (a == "--midi-device") {
             const char* v = next("--midi-device");
             if (v == nullptr) return false;
@@ -1146,6 +1153,9 @@ int main(int argc, char** argv) {
         const auto t0 = std::chrono::steady_clock::now();
         ae.reset(0.0);
         float pos = 0.0f;
+        // Finche' il pedale non ha parlato non si conosce la sua posizione:
+        // meglio restare spenti che accendersi su un valore inventato.
+        bool have_expr = false;
 
         // Proprieta' dello slot mod: il wah accende solo dal pedale, e al
         // rilascio si torna esattamente allo stato di prima (tremolo compreso).
@@ -1178,6 +1188,7 @@ int main(int argc, char** argv) {
                     float p = (static_cast<float>(e.value) - lo) / span;
                     p = p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
                     pos = cfg.expr_invert ? 1.0f - p : p;
+                    have_expr = true;
                     if (mod_ptr != nullptr) mod_ptr->set_position(pos);
                 }
 
@@ -1185,8 +1196,12 @@ int main(int argc, char** argv) {
                     const double ms =
                         std::chrono::duration<double, std::milli>(now - t0).count();
                     if (is_expr) {
-                        std::printf("midi %7.1f ms  cc %3u  val %3u  pos %.2f%s\n", ms, e.cc,
-                                    e.value, pos, cfg.expr_invert ? " (invertito)" : "");
+                        const float act = namzero::wah_activation(pos, cfg.wah_gate_invert);
+                        std::printf(
+                            "midi %7.1f ms  cc %3u  val %3u  pos %.2f  gate %.2f%s%s\n", ms,
+                            e.cc, e.value, pos, act,
+                            cfg.expr_invert ? " (corsa invertita)" : "",
+                            cfg.wah_gate_invert ? " (punta = spento)" : "");
                     } else {
                         std::printf("midi %7.1f ms  cc %3u  val %3u\n", ms, e.cc, e.value);
                     }
@@ -1225,7 +1240,9 @@ int main(int argc, char** argv) {
 
             const double now_ms =
                 std::chrono::duration<double, std::milli>(now - t0).count();
-            const int transition = ae.update(pos, now_ms);
+            const float activation =
+                have_expr ? namzero::wah_activation(pos, cfg.wah_gate_invert) : 0.0f;
+            const int transition = ae.update(activation, now_ms);
 
             if (transition == 1) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);

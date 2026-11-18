@@ -316,8 +316,10 @@ variazioni di range, la curva eventualmente no. Da affrontare quando il wah esis
 5. Il learn è sospeso durante il playing reale? No: è un'operazione esplicita, ma disattiva temporaneamente l'auto-engage del wah.
 
 ### Expression e auto-engage
-- CC expression (default 7) → posizione 0–1, normalizzata su `expr_min`/`expr_max` (default 68–127). `expr_invert` gira la corsa se il pedale è montato al contrario.
-- **Auto-engage**: accende se la posizione resta sopra **10%** per 100 ms, rispegne se resta sotto **5%** per 500 ms: due soglie (isteresi) e due tempi (accendere subito, spegnere senza tagliare una nota che sfuma; 100/500 ms sono i default, configurabili).
+- CC expression (default 7) → posizione 0–1, normalizzata su `expr_min`/`expr_max`. Sul M-Gear attuale la corsa misurata è **4–127** (log del 18/11), quindi `expr_min` sta a 0: con 68 metà pedalata non faceva nulla. `expr_invert` rovescia la mappatura posizione (e con essa la corsa del filtro).
+- **Auto-engage**: accende se l'attivazione resta sopra **10%** per 100 ms, rispegne se resta sotto **5%** per 500 ms: due soglie (isteresi) e due tempi (accendere subito, spegnere senza tagliare una nota che sfuma; 100/500 ms sono i default, configurabili).
+- **Polarità del gate** (`wah_autoengage.invert` / `--wah-invert`): di norma l'attivazione è la posizione (tacco 0 → punta 1) e il wah si accende verso la punta. Con `invert` l'attivazione è `1 − posizione`: la **punta è la zona spenta** e il wah si accende appena si lascia. Non è `expr_invert`: quello rovescia la mappatura del pedale (e il filtro), questo solo il punto di scatto del gate.
+- Il gate resta spento finché il pedale non manda la **prima posizione**: all'avvio non si conosce dove sta il pedale, e accendersi su un valore inventato sarebbe peggio che restare spenti.
 - **Regola dello slot mod**: il wah è sempre spento all'avvio; lo accende solo l'auto-engage. Accendendosi salva lo stato dello slot (acceso/spento, tremolo/wah) e lo ripristina identico allo spegnimento.
 - Mappatura espressione → frequenza del filtro wah (scala logaritmica, 350 Hz – 2,2 kHz).
 - Tutto lo stato dell'auto-engage vive nel thread controllo; il thread audio riceve solo il valore di frequenza e il flag di bypass.

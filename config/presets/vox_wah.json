@@ -74,12 +74,13 @@
     "cc_drive": 20,
     "cc_delay": 11,
     "cc_expression": 7,
-    "expr_min": 68,
+    "expr_min": 0,
     "expr_max": 127,
     "expr_invert": false,
     "wah_autoengage": {
       "threshold": 0.1,
       "release_threshold": 0.05,
+      "invert": true,
       "engage_ms": 100,
       "release_ms": 500
     }
