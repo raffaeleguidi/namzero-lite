@@ -90,6 +90,7 @@ struct Config {
     double delay_feedback = 0.35;
     double delay_mix = 0.25;
     double delay_tone = 0.5;
+    bool delay_ping_pong = false;
 
     bool reverb_on = false;
     double reverb_mix = 0.25;
@@ -136,6 +137,7 @@ void usage() {
         "  --delay-time <ms>    tempo (default 350)\n"
         "  --delay-feedback <0..0.95> retroazione (default 0.35)\n"
         "  --delay-mix <0..1>   quantita' (default 0.25)\n"
+        "  --delay-ping-pong    eco alternato tra i canali\n"
         "  --reverb             riverbero\n"
         "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
         "  --reverb-size <0..1> stanza (default 0.55)\n"
@@ -279,6 +281,7 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.delay_feedback = get_num(dl, "feedback", cfg.delay_feedback);
         cfg.delay_mix = get_num(dl, "mix", cfg.delay_mix);
         cfg.delay_tone = get_num(dl, "tone", cfg.delay_tone);
+        cfg.delay_ping_pong = get_bool(dl, "ping_pong", cfg.delay_ping_pong);
     }
 
     auto rv = slot_or_empty(j, "reverb");
@@ -472,6 +475,8 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
                 err = "valore non valido per --delay-mix";
                 return false;
             }
+        } else if (a == "--delay-ping-pong") {
+            cfg.delay_ping_pong = true;
         } else if (a == "--reverb") {
             cfg.reverb_on = true;
         } else if (a == "--reverb-mix") {
@@ -659,6 +664,7 @@ int main(int argc, char** argv) {
         dl->set_feedback(static_cast<float>(cfg.delay_feedback));
         dl->set_mix(static_cast<float>(cfg.delay_mix));
         dl->set_tone(static_cast<float>(cfg.delay_tone));
+        dl->set_ping_pong(cfg.delay_ping_pong);
         chain.add(std::move(dl));
     }
 

@@ -26,6 +26,9 @@ public:
     void set_feedback(float f) { fb_.store(std::clamp(f, 0.0f, 0.95f), std::memory_order_relaxed); }
     void set_mix(float m) { mix_.store(std::clamp(m, 0.0f, 1.0f), std::memory_order_relaxed); }
     void set_tone(float t) { tone_.store(std::clamp(t, 0.0f, 1.0f), std::memory_order_relaxed); }
+    // Ping-pong: le due linee si scambiano il segnale in retroazione, quindi
+    // l'eco rimbalza L -> R -> L invece di restare sul canale di partenza.
+    void set_ping_pong(bool on) { ping_pong_.store(on, std::memory_order_relaxed); }
 
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
@@ -52,6 +55,7 @@ public:
             time_ms_.load(std::memory_order_relaxed) * fs_ / 1000.0f;
         const float fb = fb_.load(std::memory_order_relaxed);
         const float mix = mix_.load(std::memory_order_relaxed);
+        const bool ping_pong = ping_pong_.load(std::memory_order_relaxed);
         const float dry = 1.0f - mix;
 
         // Tono 0 -> 800 Hz (scuro), 1 -> 12 kHz (aperto).
@@ -82,8 +86,16 @@ public:
             const float in_l = interleaved[i * 2 + 0];
             const float in_r = interleaved[i * 2 + 1];
 
-            buf_l_[read_pos] = in_l + lp_l_ * fb;
-            buf_r_[read_pos] = in_r + lp_r_ * fb;
+            if (ping_pong) {
+                // L'entrata mono va su una linea sola; poi ogni linea alimenta
+                // l'altra. Il primo eco e' a sinistra, il secondo a destra.
+                const float mono = 0.5f * (in_l + in_r);
+                buf_l_[read_pos] = mono + lp_r_ * fb;
+                buf_r_[read_pos] = lp_l_ * fb;
+            } else {
+                buf_l_[read_pos] = in_l + lp_l_ * fb;
+                buf_r_[read_pos] = in_r + lp_r_ * fb;
+            }
 
             interleaved[i * 2 + 0] = in_l * dry + dl * mix;
             interleaved[i * 2 + 1] = in_r * dry + dr * mix;
@@ -98,6 +110,7 @@ private:
     std::atomic<float> fb_{0.35f};
     std::atomic<float> mix_{0.25f};
     std::atomic<float> tone_{0.5f};
+    std::atomic<bool> ping_pong_{false};
 
     std::vector<float> buf_l_;
     std::vector<float> buf_r_;
