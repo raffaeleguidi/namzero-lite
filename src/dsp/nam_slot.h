@@ -30,11 +30,15 @@ public:
     void prepare(double sample_rate, std::size_t max_frames) override;
     void process(float* interleaved, std::size_t frames) override;
     void reset() override;
+
+    // Trim utente in dB, applicato sopra al gain dichiarato dal modello.
+    void set_trim_db(double db);
     const char* name() const override { return "amp"; }
 
     double expected_sample_rate() const;
     bool slimmable() const;
     bool loaded() const;
+    double model_gain() const;
 
 private:
     struct Impl;

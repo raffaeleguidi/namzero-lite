@@ -27,6 +27,7 @@
 #include "dsp/gate_slot.h"
 #include "dsp/ir_slot.h"
 #include "dsp/nam_slot.h"
+#include "dsp/reverb_slot.h"
 
 namespace {
 
@@ -44,6 +45,13 @@ struct Options {
     unsigned ir_taps = 2048;
     std::string nam_path;
     double nam_slim = 0.49;
+    float amp_gain_db = 0.0f;
+    float drive_amount = 0.15f;
+    float drive_tone = 0.5f;
+    float drive_level_db = 0.0f;
+    bool reverb = false;
+    float reverb_mix = 0.25f;
+    float reverb_size = 0.55f;
     bool gate = false;
     bool comp = false;
     bool drive = false;
@@ -71,6 +79,12 @@ void usage() {
         "  --taps <n>          limite di tap della IR (default 2048)\n"
         "  --nam <file.nam>    carica un modello NAM nello slot amp\n"
         "  --nam-slim <0..1>   sottomodello (default 0.49 = lite)\n"
+        "  --amp-gain <db>     trim sullo slot amp (default 0)\n"
+        "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
+        "  --drive-tone <0..1>   tono del drive (default 0.5)\n"
+        "  --reverb              attiva il riverbero\n"
+        "  --reverb-mix <0..1>   quantita' di riverbero (default 0.25)\n"
+        "  --reverb-size <0..1>  dimensione della stanza (default 0.55)\n"
         "  --gate              attiva il noise gate\n"
         "  --comp              attiva il compressore\n"
         "  --drive             attiva il boost/overdrive\n"
@@ -164,6 +178,38 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
                 return false;
             }
             opt.nam_slim = tmp;
+        } else if (a == "--amp-gain") {
+            const char* v = next("--amp-gain");
+            if (v == nullptr || !parse_float(v, opt.amp_gain_db)) {
+                err = "valore non valido per --amp-gain";
+                return false;
+            }
+        } else if (a == "--drive-amount") {
+            const char* v = next("--drive-amount");
+            if (v == nullptr || !parse_float(v, opt.drive_amount)) {
+                err = "valore non valido per --drive-amount";
+                return false;
+            }
+        } else if (a == "--drive-tone") {
+            const char* v = next("--drive-tone");
+            if (v == nullptr || !parse_float(v, opt.drive_tone)) {
+                err = "valore non valido per --drive-tone";
+                return false;
+            }
+        } else if (a == "--reverb") {
+            opt.reverb = true;
+        } else if (a == "--reverb-mix") {
+            const char* v = next("--reverb-mix");
+            if (v == nullptr || !parse_float(v, opt.reverb_mix)) {
+                err = "valore non valido per --reverb-mix";
+                return false;
+            }
+        } else if (a == "--reverb-size") {
+            const char* v = next("--reverb-size");
+            if (v == nullptr || !parse_float(v, opt.reverb_size)) {
+                err = "valore non valido per --reverb-size";
+                return false;
+            }
         } else if (a == "--gate") {
             opt.gate = true;
         } else if (a == "--comp") {
@@ -256,28 +302,40 @@ int main(int argc, char** argv) {
                 io.buffer_frames(), io.periods());
 
     // Ordine della catena: gate -> comp -> drive -> amp -> ir -> delay -> reverb.
-    // Lo slot "amp" e' ancora un semplice gain, in attesa del motore NAM.
+    // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
     namzero::Chain chain;
-    chain.add(std::make_unique<namzero::GateSlot>());
-    chain.add(std::make_unique<namzero::CompSlot>());
-    chain.add(std::make_unique<namzero::DriveSlot>());
 
+    const std::size_t i_gate = chain.size();
+    chain.add(std::make_unique<namzero::GateSlot>());
+    const std::size_t i_comp = chain.size();
+    chain.add(std::make_unique<namzero::CompSlot>());
+    const std::size_t i_drive = chain.size();
+    auto drive_slot = std::make_unique<namzero::DriveSlot>();
+    drive_slot->set_drive(opt.drive_amount);
+    drive_slot->set_tone(opt.drive_tone);
+    drive_slot->set_level_db(opt.drive_level_db);
+    chain.add(std::move(drive_slot));
+
+    const std::size_t i_amp = chain.size();
     if (!opt.nam_path.empty()) {
         auto amp = std::make_unique<namzero::NamSlot>();
         if (!amp->load(opt.nam_path, opt.nam_slim, err)) {
             std::fprintf(stderr, "amp: %s\n", err.c_str());
             return 1;
         }
-        std::printf("amp: %s | slim %.2f%s | modello a %.0f Hz\n",
+        amp->set_trim_db(opt.amp_gain_db);
+        std::printf("amp: %s | slim %.2f%s | gain modello %.2f | %.0f Hz\n",
                     opt.nam_path.c_str(), opt.nam_slim,
-                    amp->slimmable() ? "" : " (non slimmable)",
+                    amp->slimmable() ? "" : " (non slimmable)", amp->model_gain(),
                     amp->expected_sample_rate());
         chain.add(std::move(amp));
     } else {
         chain.add(std::make_unique<namzero::GainSlot>(0.0f));
     }
 
+    std::size_t i_ir = 0;
     if (!opt.ir_path.empty()) {
+        i_ir = chain.size();
         auto ir = std::make_unique<namzero::IrSlot>();
         if (!ir->load(opt.ir_path, opt.ir_taps, err)) {
             std::fprintf(stderr, "IR: %s\n", err.c_str());
@@ -288,19 +346,31 @@ int main(int argc, char** argv) {
         chain.add(std::move(ir));
     }
 
+    std::size_t i_reverb = 0;
+    if (opt.reverb) {
+        i_reverb = chain.size();
+        auto rv = std::make_unique<namzero::ReverbSlot>();
+        rv->set_wet(opt.reverb_mix);
+        rv->set_room_size(opt.reverb_size);
+        chain.add(std::move(rv));
+    }
+
     chain.prepare(io.rate(), io.period_frames());
 
-    // Tutto spento per default: si accende solo quello richiesto da CLI.
-    chain.set_enabled(3, !opt.nam_path.empty());
-    chain.set_enabled(0, opt.gate);
-    chain.set_enabled(1, opt.comp);
-    chain.set_enabled(2, opt.drive);
+    chain.set_enabled(i_gate, opt.gate);
+    chain.set_enabled(i_comp, opt.comp);
+    chain.set_enabled(i_drive, opt.drive);
+    chain.set_enabled(i_amp, !opt.nam_path.empty());
+    if (i_ir != 0) chain.set_enabled(i_ir, true);
+    if (i_reverb != 0) chain.set_enabled(i_reverb, true);
     chain.reset();
 
-    const std::size_t latency = chain.latency_frames();
-    std::printf("slot: gate %s | comp %s | drive %s | ir %s\n",
+    std::printf("slot: gate %s | comp %s | drive %s | amp %s | ir %s | reverb %s\n",
                 opt.gate ? "on" : "off", opt.comp ? "on" : "off",
-                opt.drive ? "on" : "off", opt.ir_path.empty() ? "off" : "on");
+                opt.drive ? "on" : "off", opt.nam_path.empty() ? "off" : "on",
+                opt.ir_path.empty() ? "off" : "on", opt.reverb ? "on" : "off");
+
+    const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
 

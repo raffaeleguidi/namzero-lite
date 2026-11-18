@@ -2,8 +2,12 @@
 
 #ifdef NAMZERO_HAVE_NAM
 
+#include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <vector>
+
+#include "json.hpp"
 
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
@@ -19,10 +23,45 @@ struct NamSlot::Impl {
     NAM_SAMPLE* out_ptrs[1] = {nullptr};
     double sample_rate = 0.0;
     bool slimmable = false;
+    double model_gain = 1.0;   // gain dichiarato dal .nam
+    double trim_db = 0.0;      // trim utente
 };
 
 NamSlot::NamSlot() : impl_(std::make_unique<Impl>()) {}
 NamSlot::~NamSlot() = default;
+
+namespace {
+
+// Il gain di normalizzazione sta in metadata.gain. Nei SlimmableContainer ogni
+// sottomodello ha il suo, quindi si sceglie quello che verra' attivato.
+double read_model_gain(const std::string& path, double slim) {
+    try {
+        std::ifstream in(path);
+        if (!in) return 1.0;
+        nlohmann::json j;
+        in >> j;
+
+        if (j.contains("config") && j["config"].contains("submodels")) {
+            const auto& subs = j["config"]["submodels"];
+            for (const auto& s : subs) {
+                const double max_value = s.value("max_value", 1.0);
+                if (slim < max_value) {
+                    if (s.contains("model") && s["model"].contains("metadata")) {
+                        return s["model"]["metadata"].value("gain", 1.0);
+                    }
+                    return 1.0;
+                }
+            }
+        }
+        if (j.contains("metadata")) {
+            return j["metadata"].value("gain", 1.0);
+        }
+    } catch (...) {
+    }
+    return 1.0;
+}
+
+}  // namespace
 
 bool NamSlot::load(const std::string& path, double slim, std::string& err) {
     try {
@@ -41,6 +80,7 @@ bool NamSlot::load(const std::string& path, double slim, std::string& err) {
         }
 
         impl_->sample_rate = dsp->GetExpectedSampleRate();
+        impl_->model_gain = read_model_gain(path, slim);
         impl_->dsp = std::move(dsp);
         impl_->in_ptrs[0] = nullptr;
         impl_->out_ptrs[0] = nullptr;
@@ -78,13 +118,17 @@ void NamSlot::process(float* interleaved, std::size_t frames) {
 
     impl_->dsp->process(impl_->in_ptrs, impl_->out_ptrs, static_cast<int>(frames));
 
+    const float gain = static_cast<float>(
+        impl_->model_gain * std::pow(10.0, impl_->trim_db / 20.0));
     for (std::size_t i = 0; i < frames; ++i) {
-        const float v = static_cast<float>(impl_->out_buf[i]);
+        const float v = static_cast<float>(impl_->out_buf[i]) * gain;
         interleaved[i * 2 + 0] = v;
         interleaved[i * 2 + 1] = v;
     }
 }
 
+void NamSlot::set_trim_db(double db) { impl_->trim_db = db; }
+double NamSlot::model_gain() const { return impl_->model_gain; }
 double NamSlot::expected_sample_rate() const { return impl_->sample_rate; }
 bool NamSlot::slimmable() const { return impl_->slimmable; }
 bool NamSlot::loaded() const { return impl_->dsp != nullptr; }
@@ -108,6 +152,8 @@ bool NamSlot::load(const std::string&, double, std::string& err) {
 void NamSlot::prepare(double, std::size_t) {}
 void NamSlot::process(float*, std::size_t) {}
 void NamSlot::reset() {}
+void NamSlot::set_trim_db(double) {}
+double NamSlot::model_gain() const { return 1.0; }
 double NamSlot::expected_sample_rate() const { return 0.0; }
 bool NamSlot::slimmable() const { return false; }
 bool NamSlot::loaded() const { return false; }
