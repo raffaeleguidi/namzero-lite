@@ -320,10 +320,11 @@ variazioni di range, la curva eventualmente no. Da affrontare quando il wah esis
 - **Auto-engage**: accende se l'attivazione resta sopra **10%** per 100 ms, rispegne se resta sotto **5%** per 500 ms: due soglie (isteresi) e due tempi (accendere subito, spegnere senza tagliare una nota che sfuma; 100/500 ms sono i default, configurabili).
 - **Polarità del gate** (`wah_autoengage.invert` / `--wah-invert`): di norma l'attivazione è la posizione (tacco 0 → punta 1) e il wah si accende verso la punta. Con `invert` l'attivazione è `1 − posizione`: la **punta è la zona spenta** e il wah si accende appena si lascia. Non è `expr_invert`: quello rovescia la mappatura del pedale (e il filtro), questo solo il punto di scatto del gate.
 - Il gate resta spento finché il pedale non manda la **prima posizione**: all'avvio non si conosce dove sta il pedale, e accendersi su un valore inventato sarebbe peggio che restare spenti.
+- **Footswitch**: vale il fronte di salita del CC (127 premuto, 0 rilasciato). Il rilascio non produce mai un toggle, quindi la durata della pressione non conta; un debounce a tempo sul singolo evento faceva accendere e rispegnere subito i blocchi quando si teneva premuto oltre la finestra. Se il controller manda solo 127, si torna al tempo (600 ms).
 - **Regola dello slot mod**: il wah è sempre spento all'avvio; lo accende solo l'auto-engage. Accendendosi salva lo stato dello slot (acceso/spento, tremolo/wah) e lo ripristina identico allo spegnimento.
 - Mappatura espressione → frequenza del filtro wah (scala logaritmica, 350 Hz – 2,2 kHz).
 - Tutto lo stato dell'auto-engage vive nel thread controllo; il thread audio riceve solo il valore di frequenza e il flag di bypass.
-- `--midi-log` stampa ogni CC con valore e posizione calcolata: serve a misurare un pedale sconosciuto senza indovinare.
+- `--midi-log` stampa **ogni** messaggio ricevuto (cc, note, program change, pitch bend) con canale e valori: serve a misurare un controller sconosciuto senza indovinare. Mostrare solo i CC rendeva invisibile il caso "gli switch mandano note".
 
 ---
 

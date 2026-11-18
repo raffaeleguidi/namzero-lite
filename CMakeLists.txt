@@ -79,3 +79,7 @@ add_test(NAME wah_autoengage COMMAND wah_autoengage_test)
 add_executable(drive_klon_test test/drive_klon_test.cpp)
 target_include_directories(drive_klon_test PRIVATE src)
 add_test(NAME drive_klon COMMAND drive_klon_test)
+
+add_executable(switch_debounce_test test/switch_debounce_test.cpp)
+target_include_directories(switch_debounce_test PRIVATE src)
+add_test(NAME switch_debounce COMMAND switch_debounce_test)

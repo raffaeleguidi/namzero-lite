@@ -35,6 +35,7 @@
 #include "dsp/delay_slot.h"
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
+#include "control/switch_debounce.h"
 #include "control/wah_autoengage.h"
 #include "dsp/mod_slot.h"
 #include "json.hpp"
@@ -186,7 +187,7 @@ void usage() {
         "  --no-midi            non aprire l'ingresso MIDI\n"
         "  --expr-invert        pedale di espressione con corsa invertita\n"
         "  --wah-invert         wah acceso verso il tacco: spento con la punta a fondo\n"
-        "  --midi-log           stampa ogni CC ricevuto (per misurare il pedale)\n"
+        "  --midi-log           stampa ogni messaggio MIDI ricevuto (cc, note, pc)\n"
         "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
         "  -h, --help           questo messaggio\n"
         "\n"
@@ -1153,9 +1154,9 @@ int main(int argc, char** argv) {
         if (!midi.is_open()) return;
 
         std::vector<namzero::MidiEvent> events;
-        std::array<std::chrono::steady_clock::time_point, 128> last_seen{};
-        const auto epoch = std::chrono::steady_clock::time_point{};
-        for (auto& t : last_seen) t = epoch;
+        // I footswitch mandano 127 alla pressione e 0 al rilascio: conta il
+        // fronte, non il singolo evento (vedi SwitchDebounce).
+        namzero::SwitchDebounce switches;
 
         namzero::WahAutoEngage ae;
         ae.configure(static_cast<float>(cfg.wah_engage_threshold), cfg.wah_engage_ms,
@@ -1188,9 +1189,13 @@ int main(int argc, char** argv) {
             midi.poll(2, events);
 
             const auto now = std::chrono::steady_clock::now();
+            const double now_ms =
+                std::chrono::duration<double, std::milli>(now - t0).count();
 
             for (const auto& e : events) {
-                const bool is_expr = (e.cc == cfg.cc_expression);
+                const uint8_t type = e.status & 0xF0;
+                const bool is_cc = (type == 0xB0);
+                const bool is_expr = is_cc && (e.cc == cfg.cc_expression);
                 if (is_expr) {
                     const float lo = static_cast<float>(cfg.expr_min_raw);
                     const float hi = static_cast<float>(cfg.expr_max_raw);
@@ -1203,30 +1208,26 @@ int main(int argc, char** argv) {
                 }
 
                 if (cfg.midi_log) {
-                    const double ms =
-                        std::chrono::duration<double, std::milli>(now - t0).count();
+                    const unsigned ch = static_cast<unsigned>(e.status & 0x0F) + 1;
                     if (is_expr) {
                         const float act = namzero::wah_activation(pos, cfg.wah_gate_invert);
                         std::printf(
-                            "midi %7.1f ms  cc %3u  val %3u  pos %.2f  gate %.2f%s%s\n", ms,
-                            e.cc, e.value, pos, act,
-                            cfg.expr_invert ? " (corsa invertita)" : "",
+                            "midi %7.1f ms  %-12s ch%u  %3u %3u  pos %.2f  gate %.2f%s%s\n",
+                            now_ms, namzero::midi_kind_name(e.status), ch, e.cc, e.value, pos,
+                            act, cfg.expr_invert ? " (corsa invertita)" : "",
                             cfg.wah_gate_invert ? " (punta = spento)" : "");
                     } else {
-                        std::printf("midi %7.1f ms  cc %3u  val %3u\n", ms, e.cc, e.value);
+                        std::printf("midi %7.1f ms  %-12s ch%u  %3u %3u\n", now_ms,
+                                    namzero::midi_kind_name(e.status), ch, e.cc, e.value);
                     }
                     std::fflush(stdout);
                 }
 
-                if (is_expr) continue;
+                if (!is_cc || is_expr) continue;
 
-                // Cooldown: assorbe sia i pedali che mandano solo il valore alto
-                // sia quelli che mandano anche il rilascio.
-                if (last_seen[e.cc] != epoch &&
-                    now - last_seen[e.cc] < std::chrono::milliseconds(250)) {
-                    continue;
-                }
-                last_seen[e.cc] = now;
+                // Solo il fronte di salita e' una pressione: il rilascio non
+                // deve contare, altrimenti tenere premuto spegne subito il blocco.
+                if (!switches.pressed(e.cc, e.value, now_ms)) continue;
 
                 if (e.cc == cfg.cc_tremolo) {
                     // fs1 e' il tremolo, ma se il wah e' in mano al pedale non
@@ -1248,8 +1249,6 @@ int main(int argc, char** argv) {
                 }
             }
 
-            const double now_ms =
-                std::chrono::duration<double, std::milli>(now - t0).count();
             const float activation =
                 have_expr ? namzero::wah_activation(pos, cfg.wah_gate_invert) : 0.0f;
             const int transition = ae.update(activation, now_ms);

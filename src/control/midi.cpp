@@ -55,11 +55,15 @@ void MidiInput::feed(const uint8_t* data, std::size_t n, std::vector<MidiEvent>&
         data_[have_++] = b;
         if (have_ >= need_) {
             have_ = 0;
-            if ((status_ & 0xF0) == 0xB0) {  // control change
+            // Si consegnano tutti i "channel voice", non solo i CC: se un
+            // controller manda note o program change, il log lo deve mostrare
+            // invece di far sembrare che non stia succedendo niente.
+            const uint8_t type = status_ & 0xF0;
+            if (type >= 0x80 && type <= 0xE0) {
                 MidiEvent e;
                 e.status = status_;
                 e.cc = data_[0];
-                e.value = data_[1];
+                e.value = (need_ == 2) ? data_[1] : 0;
                 out.push_back(e);
             }
         }
