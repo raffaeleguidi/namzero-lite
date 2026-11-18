@@ -16,7 +16,9 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/file.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include "audio/alsa_io.h"
@@ -29,6 +31,7 @@
 #include "dsp/ir_slot.h"
 #include "dsp/nam_slot.h"
 #include "dsp/reverb_slot.h"
+#include "dsp/tremolo_slot.h"
 #include "json.hpp"
 
 namespace {
@@ -64,6 +67,10 @@ struct Config {
     double drive_amount = 0.15;
     double drive_tone = 0.5;
     double drive_level_db = 0.0;
+
+    bool mod_on = false;
+    double mod_rate_hz = 4.5;
+    double mod_depth = 0.6;
 
     bool amp_on = false;
     std::string amp_file;
@@ -112,11 +119,18 @@ void usage() {
         "  --drive              boost/overdrive\n"
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
         "  --drive-tone <0..1>  tono del drive (default 0.5)\n"
+        "  --tremolo            tremolo nello slot mod\n"
+        "  --tremolo-rate <hz>  frequenza (default 4.5)\n"
+        "  --tremolo-depth <0..1> profondita' (default 0.6)\n"
         "  --reverb             riverbero\n"
         "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
         "  --reverb-size <0..1> stanza (default 0.55)\n"
         "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
-        "  -h, --help           questo messaggio\n");
+        "  -h, --help           questo messaggio\n"
+        "\n"
+        "Tasti durante l'esecuzione:\n"
+        "  g gate | c comp | d drive | m tremolo | i ir | r reverb\n"
+        "  s salva lo stato nel preset | q esce\n");
 }
 
 bool parse_uint(const char* s, unsigned& out) {
@@ -220,6 +234,13 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.drive_level_db = get_num(d, "level_db", cfg.drive_level_db);
     }
 
+    auto md = slot_or_empty(j, "mod");
+    if (!md.empty()) {
+        cfg.mod_on = get_bool(md, "on", cfg.mod_on);
+        cfg.mod_rate_hz = get_num(md, "rate_hz", cfg.mod_rate_hz);
+        cfg.mod_depth = get_num(md, "depth", cfg.mod_depth);
+    }
+
     auto amp = slot_or_empty(j, "amp");
     if (!amp.empty()) {
         cfg.amp_on = get_bool(amp, "on", cfg.amp_on);
@@ -248,6 +269,42 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
     if (j.contains("stats") && j["stats"].is_boolean()) {
         cfg.stats = j["stats"].get<bool>();
     }
+    return true;
+}
+
+// Riscrive il preset aggiornando solo gli stati on/off, preservando nome e
+// campi che non conosciamo: un salvataggio non deve distruggere il file.
+bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
+    nlohmann::json j = nlohmann::json::object();
+    {
+        std::ifstream in(path);
+        if (in) {
+            try {
+                in >> j;
+            } catch (...) {
+                j = nlohmann::json::object();
+            }
+        }
+    }
+    if (!j.is_object()) j = nlohmann::json::object();
+    j["version"] = 1;
+    if (!j.contains("slots") || !j["slots"].is_object()) j["slots"] = nlohmann::json::object();
+
+    auto& slots = j["slots"];
+    slots["gate"]["on"] = cfg.gate_on;
+    slots["comp"]["on"] = cfg.comp_on;
+    slots["drive"]["on"] = cfg.drive_on;
+    slots["mod"]["on"] = cfg.mod_on;
+    slots["amp"]["on"] = cfg.amp_on;
+    slots["ir"]["on"] = cfg.ir_on;
+    slots["reverb"]["on"] = cfg.reverb_on;
+
+    std::ofstream out(path);
+    if (!out) {
+        err = "impossibile scrivere " + path;
+        return false;
+    }
+    out << j.dump(2) << "\n";
     return true;
 }
 
@@ -337,6 +394,20 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
             const char* v = next("--taps");
             if (v == nullptr || !parse_uint(v, cfg.ir_taps)) {
                 err = "valore non valido per --taps";
+                return false;
+            }
+        } else if (a == "--tremolo") {
+            cfg.mod_on = true;
+        } else if (a == "--tremolo-rate") {
+            const char* v = next("--tremolo-rate");
+            if (v == nullptr || !parse_float(v, cfg.mod_rate_hz)) {
+                err = "valore non valido per --tremolo-rate";
+                return false;
+            }
+        } else if (a == "--tremolo-depth") {
+            const char* v = next("--tremolo-depth");
+            if (v == nullptr || !parse_float(v, cfg.mod_depth)) {
+                err = "valore non valido per --tremolo-depth";
                 return false;
             }
         } else if (a == "--gate") {
@@ -484,6 +555,12 @@ int main(int argc, char** argv) {
     const std::size_t i_drive = chain.size();
     chain.add(std::make_unique<namzero::DriveSlot>());
 
+    const std::size_t i_mod = chain.size();
+    auto mod_slot = std::make_unique<namzero::TremoloSlot>();
+    mod_slot->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+    mod_slot->set_depth(static_cast<float>(cfg.mod_depth));
+    chain.add(std::move(mod_slot));
+
     const std::size_t i_amp = chain.size();
     const bool has_amp = cfg.amp_on && !cfg.amp_file.empty();
     if (has_amp) {
@@ -531,18 +608,22 @@ int main(int argc, char** argv) {
     chain.set_enabled(i_gate, cfg.gate_on);
     chain.set_enabled(i_comp, cfg.comp_on);
     chain.set_enabled(i_drive, cfg.drive_on);
+    chain.set_enabled(i_mod, cfg.mod_on);
     chain.set_enabled(i_amp, has_amp);
     if (i_ir != 0) chain.set_enabled(i_ir, true);
     if (i_reverb != 0) chain.set_enabled(i_reverb, true);
     chain.reset();
 
-    std::printf("slot: gate %s | comp %s | drive %s | amp %s | ir %s | reverb %s\n",
+    std::printf("slot: gate %s | comp %s | drive %s | mod %s | amp %s | ir %s | reverb %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
-                cfg.drive_on ? "on" : "off", has_amp ? "on" : "off",
-                has_ir ? "on" : "off", cfg.reverb_on ? "on" : "off");
+                cfg.drive_on ? "on" : "off", cfg.mod_on ? "on" : "off",
+                has_amp ? "on" : "off", has_ir ? "on" : "off",
+                cfg.reverb_on ? "on" : "off");
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
+    std::printf("tasti: g gate | c comp | d drive | m tremolo | i ir | r reverb | s salva | q esci\n");
+    std::fflush(stdout);
 
     const std::size_t frames = io.period_frames();
     const std::size_t samples = frames * 2;
@@ -610,6 +691,65 @@ int main(int argc, char** argv) {
         }
     });
 
+    // Tastiera: toggle degli slot mentre suona, senza toccare i file.
+    // stdin e' in modalita' raw, quindi i tasti arrivano senza Invio.
+    std::thread kb_thread([&chain, &cfg, &preset_path, i_gate, i_comp, i_drive, i_mod,
+                           i_ir, i_reverb]() {
+        termios oldt{};
+        const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
+        if (is_tty) {
+            termios raw = oldt;
+            cfmakeraw(&raw);
+            tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+        }
+
+        auto toggle = [&](const char* label, std::size_t idx, bool& flag) {
+            if (idx == 0 && !flag) return;  // slot assente
+            flag = !flag;
+            chain.set_enabled(idx, flag);
+            std::printf("  %s: %s%s\n", label, flag ? "on" : "off",
+                        preset_path.empty() ? "" : "   (s per salvare)");
+            std::fflush(stdout);
+        };
+
+        while (g_running.load()) {
+            pollfd p{STDIN_FILENO, POLLIN, 0};
+            const int r = poll(&p, 1, 100);
+            if (r <= 0) continue;
+
+            char ch = 0;
+            if (::read(STDIN_FILENO, &ch, 1) != 1) {
+                if (!is_tty) break;
+                continue;
+            }
+            switch (ch) {
+                case 'g': toggle("gate", i_gate, cfg.gate_on); break;
+                case 'c': toggle("comp", i_comp, cfg.comp_on); break;
+                case 'd': toggle("drive", i_drive, cfg.drive_on); break;
+                case 'm': toggle("mod", i_mod, cfg.mod_on); break;
+                case 'i': toggle("ir", i_ir, cfg.ir_on); break;
+                case 'r': toggle("reverb", i_reverb, cfg.reverb_on); break;
+                case 's': {
+                    if (preset_path.empty()) {
+                        std::printf("  preset: nessun file da salvare (avviato con i flag)\n");
+                    } else {
+                        std::string e;
+                        if (save_preset(preset_path, cfg, e)) {
+                            std::printf("  preset salvato: %s\n", preset_path.c_str());
+                        } else {
+                            std::printf("  errore: %s\n", e.c_str());
+                        }
+                    }
+                    std::fflush(stdout);
+                    break;
+                }
+                case 'q': g_running.store(false); break;
+                default: break;
+            }
+        }
+        if (is_tty) tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    });
+
     const float master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
 
     while (g_running.load()) {
@@ -654,6 +794,7 @@ int main(int argc, char** argv) {
     g_running.store(false);
     stats_stop.store(true);
     if (stats_thread.joinable()) stats_thread.join();
+    if (kb_thread.joinable()) kb_thread.join();
 
     io.close();
 

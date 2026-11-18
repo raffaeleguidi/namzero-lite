@@ -113,6 +113,25 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 
 ## 5. Modello dati
 
+### Controllo da tastiera (implementato)
+
+Mentre il motore gira, senza toccare i file:
+
+| tasto | azione |
+|---|---|
+| `g` | bypass gate |
+| `c` | bypass compressore |
+| `d` | bypass drive |
+| `m` | bypass tremolo (slot mod) |
+| `i` | bypass IR |
+| `r` | bypass riverbero |
+| `s` | salva lo stato nel preset |
+| `q` | esce |
+
+Il salvataggio riscrive **solo** i campi `on` degli slot: nome e parametri che il motore non
+conosce restano intatti, quindi un `s` non distrugge il file. Richiede un terminale (TTY):
+da `ssh` funziona, da systemd no.
+
 ### Preset (implementato)
 
 Un unico oggetto JSON che specchia la struttura `Config` del motore. I campi assenti
