@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "Tone King Crunch + drive + Deluxe Lean",
+  "audio": { "device": "hw:XTONE", "rate": 48000, "period_frames": 64, "periods": 3, "gain_db": 0.0 },
+  "slots": {
+    "gate":   { "on": true,  "threshold_db": -55, "attack_ms": 2, "release_ms": 120 },
+    "comp":   { "on": true,  "threshold_db": -18, "ratio": 3, "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
+    "drive":  { "on": true,  "amount": 0.18, "tone": 0.55, "level_db": 0 },
+    "amp":    { "on": true,  "file": "models/toneking_a2.nam", "slim": 0.49, "trim_db": -8 },
+    "ir":     { "on": true,  "file": "irs/deluxe_lean.wav", "taps": 2048 },
+    "reverb": { "on": true,  "mix": 0.28, "size": 0.6, "damp": 0.4 }
+  },
+  "stats": false
+}
