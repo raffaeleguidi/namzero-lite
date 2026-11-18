@@ -269,6 +269,8 @@ del wah — esattamente ciò che non deve succedere.
 - Un preset che contiene ancora un blocco `"midi"` viene accettato ma il blocco è
   ignorato, con avviso: la mappa è una sola.
 
+Implementazione dettagliata, diagnostica e problemi tipici: [docs/midi.md](docs/midi.md).
+
 ### Modello reale dell'XTONE (verificato in M0)
 
 Due assi indipendenti di configurazione, entrambi sul canale MIDI 1 (stato `B0`):

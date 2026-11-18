@@ -20,6 +20,7 @@ sulla mappa fissa dei CC, non sul learn.
 - Preset JSON (`-p`) e salvataggio dello stato con `s`
 - MIDI da XTONE: mappa in [config/midi.json](config/midi.json) — CC di ogni slot,
   espressione e auto-engage — uguale per tutti i preset, modificabile senza ricompilare
+  ([dettagli](docs/midi.md))
 - Contatore xrun con recupero automatico e statistiche periodiche
 
 ## Cosa manca (roadmap in PLAN.md)
