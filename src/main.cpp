@@ -926,7 +926,15 @@ int main(int argc, char** argv) {
     }
 
     if (!namzero::rt::install(err)) {
-        std::fprintf(stderr, "realtime non disponibile: %s\n", err.c_str());
+        // Non e' un errore fatale: senza priorita' FIFO si suona lo stesso, ma
+        // con buffer piccoli gli xrun diventano probabili. Il rimedio va detto,
+        // altrimenti sembra che il programma sia rotto.
+        std::fprintf(stderr,
+                     "nota: priorita' realtime non disponibile (%s)\n"
+                     "      si prosegue a priorita' normale: possibili xrun con buffer piccoli.\n"
+                     "      per abilitarla, dopo ogni build: scripts/build.sh\n"
+                     "      (oppure: sudo setcap cap_sys_nice,cap_ipc_lock+ep ./build/namzero-lite)\n",
+                     err.c_str());
     }
 
     Stats stats;

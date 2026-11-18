@@ -45,8 +45,16 @@ rsync -a --exclude build --exclude .git ~/Projects/namzero-lite/ pi@namzero-lite
 
 ```bash
 sudo apt install -y build-essential cmake libasound2-dev
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j2
+scripts/build.sh
+```
+
+`scripts/build.sh` compila **e** applica `cap_sys_nice,cap_ipc_lock` all'eseguibile,
+così si suona senza sudo. Una build fatta a mano con `cmake` è identica ma **perde
+le capability**: il programma parte lo stesso e avvisa *"priorità realtime non
+disponibile"*, con più probabilità di xrun a buffer piccoli. In quel caso:
+
+```bash
+sudo setcap cap_sys_nice,cap_ipc_lock+ep build/namzero-lite
 ```
 
 ## Uso
@@ -55,8 +63,8 @@ cmake --build build -j2
 # elenco dispositivi
 aplay -l; arecord -l
 
-# passthrough con periodo 64 frame sull'XTONE
-sudo taskset -c 3 ./build/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
+# con le capability applicate da scripts/build.sh: niente sudo
+./build/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
 
 # senza privilegi realtime (solo per test a buffer grandi)
 ./build/namzero-lite --device hw:XTONE --buffer 256 --no-rt
@@ -69,7 +77,7 @@ elaborazione del blocco.
 
 | Opzione | Default | Note |
 |---------|---------|------|
-| `--device` | `hw:1,0` | PCM ALSA (capture e playback sullo stesso device) |
+| `--device` | `hw:XTONE` | PCM ALSA (capture e playback sullo stesso device) |
 | `--rate` | `48000` | Hz |
 | `--buffer` | `64` | frame per periodo |
 | `--periods` | `3` | periodi nel buffer |
