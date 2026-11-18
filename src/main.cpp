@@ -30,6 +30,7 @@
 #include "dsp/gate_slot.h"
 #include "dsp/ir_slot.h"
 #include "dsp/nam_slot.h"
+#include "dsp/delay_slot.h"
 #include "dsp/reverb_slot.h"
 #include "dsp/tremolo_slot.h"
 #include "json.hpp"
@@ -81,6 +82,12 @@ struct Config {
     std::string ir_file;
     unsigned ir_taps = 2048;
 
+    bool delay_on = false;
+    double delay_time_ms = 350.0;
+    double delay_feedback = 0.35;
+    double delay_mix = 0.25;
+    double delay_tone = 0.5;
+
     bool reverb_on = false;
     double reverb_mix = 0.25;
     double reverb_size = 0.55;
@@ -122,6 +129,10 @@ void usage() {
         "  --tremolo            tremolo nello slot mod\n"
         "  --tremolo-rate <hz>  frequenza (default 4.5)\n"
         "  --tremolo-depth <0..1> profondita' (default 0.6)\n"
+        "  --delay              delay\n"
+        "  --delay-time <ms>    tempo (default 350)\n"
+        "  --delay-feedback <0..0.95> retroazione (default 0.35)\n"
+        "  --delay-mix <0..1>   quantita' (default 0.25)\n"
         "  --reverb             riverbero\n"
         "  --reverb-mix <0..1>  quantita' (default 0.25)\n"
         "  --reverb-size <0..1> stanza (default 0.55)\n"
@@ -129,7 +140,7 @@ void usage() {
         "  -h, --help           questo messaggio\n"
         "\n"
         "Tasti durante l'esecuzione:\n"
-        "  g gate | c comp | d drive | m tremolo | i ir | r reverb\n"
+        "  g gate | c comp | d drive | m tremolo | l delay | i ir | r reverb\n"
         "  s salva lo stato nel preset | q esce\n");
 }
 
@@ -258,6 +269,15 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         }
     }
 
+    auto dl = slot_or_empty(j, "delay");
+    if (!dl.empty()) {
+        cfg.delay_on = get_bool(dl, "on", cfg.delay_on);
+        cfg.delay_time_ms = get_num(dl, "time_ms", cfg.delay_time_ms);
+        cfg.delay_feedback = get_num(dl, "feedback", cfg.delay_feedback);
+        cfg.delay_mix = get_num(dl, "mix", cfg.delay_mix);
+        cfg.delay_tone = get_num(dl, "tone", cfg.delay_tone);
+    }
+
     auto rv = slot_or_empty(j, "reverb");
     if (!rv.empty()) {
         cfg.reverb_on = get_bool(rv, "on", cfg.reverb_on);
@@ -297,6 +317,7 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     slots["mod"]["on"] = cfg.mod_on;
     slots["amp"]["on"] = cfg.amp_on;
     slots["ir"]["on"] = cfg.ir_on;
+    slots["delay"]["on"] = cfg.delay_on;
     slots["reverb"]["on"] = cfg.reverb_on;
 
     std::ofstream out(path);
@@ -428,6 +449,26 @@ bool parse_args(int argc, char** argv, Config& cfg, std::string& preset_path,
                 err = "valore non valido per --drive-tone";
                 return false;
             }
+        } else if (a == "--delay") {
+            cfg.delay_on = true;
+        } else if (a == "--delay-time") {
+            const char* v = next("--delay-time");
+            if (v == nullptr || !parse_float(v, cfg.delay_time_ms)) {
+                err = "valore non valido per --delay-time";
+                return false;
+            }
+        } else if (a == "--delay-feedback") {
+            const char* v = next("--delay-feedback");
+            if (v == nullptr || !parse_float(v, cfg.delay_feedback)) {
+                err = "valore non valido per --delay-feedback";
+                return false;
+            }
+        } else if (a == "--delay-mix") {
+            const char* v = next("--delay-mix");
+            if (v == nullptr || !parse_float(v, cfg.delay_mix)) {
+                err = "valore non valido per --delay-mix";
+                return false;
+            }
         } else if (a == "--reverb") {
             cfg.reverb_on = true;
         } else if (a == "--reverb-mix") {
@@ -523,10 +564,23 @@ int main(int argc, char** argv) {
     // fa fallire l'avvio con un "device busy" che sembra un problema di config.
     const int lock_fd = ::open("/tmp/namzero-lite.lock", O_CREAT | O_RDWR, 0666);
     if (lock_fd >= 0 && ::flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
-        std::fprintf(stderr,
-                     "errore: un'altra istanza di namzero-lite e' gia' in "
-                     "esecuzione (lock /tmp/namzero-lite.lock)\n");
+        // Il PID nel file dice chi tiene il device: senza, l'unica via e' pkill.
+        char buf[32] = {0};
+        const ssize_t got = ::pread(lock_fd, buf, sizeof(buf) - 1, 0);
+        if (got > 0) {
+            std::fprintf(stderr,
+                         "errore: gia' in esecuzione il processo %s "
+                         "(fermalo con: kill %s)\n",
+                         buf, buf);
+        } else {
+            std::fprintf(stderr, "errore: un'altra istanza e' gia' in esecuzione\n");
+        }
         return 1;
+    }
+    if (lock_fd >= 0) {
+        const std::string pid = std::to_string(::getpid());
+        ::ftruncate(lock_fd, 0);
+        ::pwrite(lock_fd, pid.c_str(), pid.size(), 0);
     }
 
     namzero::AudioConfig acfg;
@@ -593,6 +647,17 @@ int main(int argc, char** argv) {
         chain.add(std::move(ir));
     }
 
+    std::size_t i_delay = 0;
+    if (cfg.delay_on) {
+        i_delay = chain.size();
+        auto dl = std::make_unique<namzero::DelaySlot>();
+        dl->set_time_ms(static_cast<float>(cfg.delay_time_ms));
+        dl->set_feedback(static_cast<float>(cfg.delay_feedback));
+        dl->set_mix(static_cast<float>(cfg.delay_mix));
+        dl->set_tone(static_cast<float>(cfg.delay_tone));
+        chain.add(std::move(dl));
+    }
+
     std::size_t i_reverb = 0;
     if (cfg.reverb_on) {
         i_reverb = chain.size();
@@ -611,18 +676,19 @@ int main(int argc, char** argv) {
     chain.set_enabled(i_mod, cfg.mod_on);
     chain.set_enabled(i_amp, has_amp);
     if (i_ir != 0) chain.set_enabled(i_ir, true);
+    if (i_delay != 0) chain.set_enabled(i_delay, true);
     if (i_reverb != 0) chain.set_enabled(i_reverb, true);
     chain.reset();
 
-    std::printf("slot: gate %s | comp %s | drive %s | mod %s | amp %s | ir %s | reverb %s\n",
+    std::printf("slot: gate %s | comp %s | drive %s | mod %s | amp %s | ir %s | delay %s | reverb %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
                 cfg.drive_on ? "on" : "off", cfg.mod_on ? "on" : "off",
                 has_amp ? "on" : "off", has_ir ? "on" : "off",
-                cfg.reverb_on ? "on" : "off");
+                cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off");
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
-    std::printf("tasti: g gate | c comp | d drive | m tremolo | i ir | r reverb | s salva | q esci\n");
+    std::printf("tasti: g gate | c comp | d drive | m tremolo | l delay | i ir | r reverb | s salva | q esci\n");
     std::fflush(stdout);
 
     const std::size_t frames = io.period_frames();
@@ -694,12 +760,15 @@ int main(int argc, char** argv) {
     // Tastiera: toggle degli slot mentre suona, senza toccare i file.
     // stdin e' in modalita' raw, quindi i tasti arrivano senza Invio.
     std::thread kb_thread([&chain, &cfg, &preset_path, i_gate, i_comp, i_drive, i_mod,
-                           i_ir, i_reverb]() {
+                           i_delay, i_ir, i_reverb]() {
         termios oldt{};
         const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
         if (is_tty) {
             termios raw = oldt;
             cfmakeraw(&raw);
+            // cfmakeraw toglie anche OPOST: senza di esso '\n' scende di una
+            // riga senza tornare a capo, e le stampe si sfalsano a scaletta.
+            raw.c_oflag |= (OPOST | ONLCR);
             tcsetattr(STDIN_FILENO, TCSANOW, &raw);
         }
 
@@ -728,6 +797,7 @@ int main(int argc, char** argv) {
                 case 'd': toggle("drive", i_drive, cfg.drive_on); break;
                 case 'm': toggle("mod", i_mod, cfg.mod_on); break;
                 case 'i': toggle("ir", i_ir, cfg.ir_on); break;
+                case 'l': toggle("delay", i_delay, cfg.delay_on); break;
                 case 'r': toggle("reverb", i_reverb, cfg.reverb_on); break;
                 case 's': {
                     if (preset_path.empty()) {

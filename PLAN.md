@@ -113,6 +113,23 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 
 ## 5. Modello dati
 
+### Delay (implementato)
+
+Stereo, tempo 1 ms–2 s con lettura interpolata (cambiare tempo non fa scatti), feedback
+0–0,95, mix, e **passa-basso nell'anello** di retroazione: ogni ripetizione perde un po' di
+alte, come in un delay analogico. Slot `delay` tra IR e riverbero, tasto `l`.
+
+Costo: catena completa con delay e riverbero **0,65–0,80 ms**; su VOX senza IR 0,43 ms.
+
+### LV2 — da esplorare
+
+Fattibile: `liblilv` e i pacchetti (`calf-plugins`, `guitarix-lv2`, `caps`, `zam-plugins`,
+`lsp-plugins-lv2`) sono nei repo. Un host minimale (~300-400 righe) darebbe chorus, phaser,
+flanger, EQ **e il wah di Guitarix**, che era l'idea originale.
+Rimandato per due motivi: il costo CPU di plugin pensati per desktop va misurato e puo'
+sfondare il budget; e un plugin che alloca nel callback audio fa tacere il pedale.
+Tenuto come opzione futura, non come strada principale.
+
 ### Controllo da tastiera (implementato)
 
 Mentre il motore gira, senza toccare i file:
