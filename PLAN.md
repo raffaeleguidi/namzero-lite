@@ -115,7 +115,7 @@ Ordine immutabile. Ogni slot ha uno stato `on/off` e un set di parametri a schem
 
 ### Wah (implementato)
 
-Slot `mod` con due tipi: `tremolo` e `wah`. Il wah è un filtro a stato variabile TPT
+Slot `mod` con cinque tipi: `tremolo`, `wah`, `univibe`, `flanger`, `phaser`. Il wah è un filtro a stato variabile TPT
 (Cytomic) in bandpass, frequenza su scala logaritmica dalla posizione del pedale
 (350–2200 Hz di default, Q 3). Sta **prima** dell'amplificatore, come un pedale vero.
 
@@ -125,7 +125,17 @@ filtro si apre, diventa un fischio "acido" invece del carattere del wah. Il Q ef
 effettivo. Misurato sulla frequenza centrale: guadagno 5.5× al tacco, 2.5× alla punta
 (prima era ~5.5× anche alla punta).
 
-Controllo: `w` cambia tipo, `,` e `.` muovono la posizione, oppure `position` nel preset.
+Controllo: `w` scorre i tipi (tremolo → univibe → flanger → phaser → wah), `,` e `.`
+muovono la posizione del wah, oppure `type`/`position` nel preset.
+
+**Effetti modulati** (stesso slot, prima dell'amplificatore):
+- `univibe` — 4 celle di sfasamento (allpass del primo ordine) con LFO 200 Hz–2 kHz;
+  la lampada modula anche l'ampiezza, da cui il "respiro".
+- `flanger` — delay 0.5–6.5 ms modulato, retroazione con tanh (niente autooscillazione
+  che si incastra), mix 50/50.
+- `phaser` — 4 celle come l'univibe ma con retroazione.
+- Parametri comuni: `rate_hz`, `depth`, `fx_mix` (quota di segnale trattato, default 0.5),
+  `feedback` (flanger/phaser, default 0.35).
 Con il MIDI attivo l'espressione lo pilota dal vivo (CC 7), con **auto-engage**: il wah
 è spento finché il pedale non sale sopra soglia, e si rispegne da solo al rilascio.
 
@@ -137,7 +147,8 @@ l'utente ha cambiato nel frattempo.
 
 ### Drive (implementato)
 
-Due modelli nello stesso slot, scelti con `k`, con `"type"` nel preset o `--drive-type`:
+Tre modelli nello stesso slot, scelti con `k` (che li scorre), con `"type"` nel preset o
+`--drive-type`:
 
 - `fuzz` — il boost storico: pre-guadagno 1×–31×, tanh, filtro di tono. Spinge presto.
   Ha un **low-shelf a 110 Hz** (`low_db`, default +5 dB) in uscita: senza basse il
@@ -153,6 +164,11 @@ Verificato con un test: a parità di drive il Klon ha distorsione armonica più 
 fuzz (0.15 contro 0.25), a drive 0 non distorce (THD < 2%) e a drive 0.4 il livello sale
 di ~2.5×; la gobba dà +58% a 800 Hz e lascia 4 kHz quasi fermo; il low-shelf del fuzz dà
 +53% a 80 Hz.
+
+- `tubescreamer` — il passa-alto a **720 Hz prima del clipping** è quello che gli dà le
+  basse strette e la gobba sulle medie; clipping simmetrico, tono che taglia le alte
+  (700 Hz–4.2 kHz). Misurato a drive 0.4: guadagno 1.6× a 100 Hz contro 4.2× a 800 Hz,
+  THD 0.05, quindi più pulito sia del fuzz sia del Klon.
 
 ### Delay (implementato)
 

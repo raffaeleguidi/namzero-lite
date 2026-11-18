@@ -99,7 +99,7 @@ class ModArbiter {
 public:
     struct State {
         bool on = false;
-        bool wah = false;  // true = tipo wah, false = tremolo
+        int type = 0;  // indice del tipo di modulazione (0 = tremolo, 1 = wah, ...)
     };
 
     // Il gate ha acceso il wah: memorizza lo stato da ripristinare.

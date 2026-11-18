@@ -119,35 +119,35 @@ static void test_arbiter() {
     // Tremolo acceso -> il pedale accende il wah -> al rilascio torna il tremolo.
     {
         ModArbiter ar;
-        ar.engage({true, false});
+        ar.engage({true, 0});
         CHECK(ar.engaged());
         // Un secondo engage non deve sovrascrivere il salvataggio.
-        ar.engage({false, false});
+        ar.engage({false, 0});
         const auto st = ar.release();
         CHECK(st.on);
-        CHECK(!st.wah);
+        CHECK(st.type == 0);
         CHECK(!ar.engaged());
         // Release a vuoto: neutro, non rispolvera il salvataggio vecchio.
         const auto again = ar.release();
         CHECK(!again.on);
-        CHECK(!again.wah);
+        CHECK(again.type == 0);
     }
 
     // Slot spento -> al rilascio resta spento.
     {
         ModArbiter ar;
-        ar.engage({false, false});
+        ar.engage({false, 0});
         const auto st = ar.release();
         CHECK(!st.on);
     }
 
-    // Stato con wah gia' selezionato ma spento: torna spento.
+    // Stato con wah gia' selezionato ma spento: torna spento, stesso tipo.
     {
         ModArbiter ar;
-        ar.engage({false, true});
+        ar.engage({false, 1});
         const auto st = ar.release();
         CHECK(!st.on);
-        CHECK(st.wah);
+        CHECK(st.type == 1);
     }
 }
 

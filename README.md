@@ -15,8 +15,11 @@ sulla mappa fissa dei CC, non sul learn.
 - Thread realtime: `SCHED_FIFO`, `mlockall`, nessuna allocazione nel loop
 - Framework a slot con bypass e **crossfade di 5 ms** (anti-click)
 - Slot: gate, comp, drive, mod, amp NAM, IR, delay, riverbero
-- Drive con due modelli: `fuzz` (storico) e `klon` (trasparente, blend col pulito)
-- Mod: tremolo e wah; il wah è spento finché non lo accende il pedale (auto-engage)
+- Drive con tre modelli: `fuzz` (storico), `klon` (trasparente, blend col pulito) e
+  `tubescreamer` (medi in avanti, basse strette)
+- Mod: tremolo, univibe, flanger, phaser e wah; il wah è spento finché non lo accende
+  il pedale (auto-engage)
+- Delay con tre modi (stereo, ping-pong, ping-pong stereo), ciclabili con `p`
 - Preset JSON (`-p`) e salvataggio dello stato con `s`
 - MIDI da XTONE: mappa in [config/midi.json](config/midi.json) — CC di ogni slot,
   espressione e auto-engage — uguale per tutti i preset, modificabile senza ricompilare

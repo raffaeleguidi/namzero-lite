@@ -83,9 +83,11 @@ struct Config {
     double drive_low_db = 5.0;  // solo fuzz: peso delle basse
 
     bool mod_on = false;
-    std::string mod_type = "tremolo";  // tremolo | wah
+    std::string mod_type = "tremolo";  // tremolo | univibe | flanger | phaser | wah
     double mod_rate_hz = 4.5;
     double mod_depth = 0.6;
+    double mod_fx_mix = 0.5;   // univibe/flanger/phaser: quota di segnale trattato
+    double mod_feedback = 0.35;  // flanger/phaser
     double mod_position = 0.5;
     double mod_q = 3.0;
     double mod_mix = 1.0;
@@ -122,6 +124,50 @@ struct Config {
     bool help = false;
 };
 
+// Tipi di mod e drive in ordine di ciclo: la stessa tabella serve a validare
+// il preset, al tasto che li scorre e al ripristino dello stato del mod.
+constexpr const char* kModTypeNames[] = {"tremolo", "wah", "univibe", "flanger", "phaser"};
+constexpr std::size_t kModTypeCount = sizeof(kModTypeNames) / sizeof(kModTypeNames[0]);
+
+// Rate suggerito per tipo: quando si scorre con 'w' il rate si adegua, altrimenti
+// un flanger a 4.5 Hz (default del tremolo) suonerebbe come un vibrato nervoso.
+constexpr float kModDefaultRate[] = {4.5f, 0.0f, 1.0f, 0.5f, 0.8f};
+
+constexpr const char* kDriveTypeNames[] = {"fuzz", "klon", "tubescreamer"};
+constexpr std::size_t kDriveTypeCount = sizeof(kDriveTypeNames) / sizeof(kDriveTypeNames[0]);
+
+int mod_type_index(const std::string& name) {
+    for (std::size_t i = 0; i < kModTypeCount; ++i) {
+        if (name == kModTypeNames[i]) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+namzero::ModSlot::Type mod_type_enum(int idx) {
+    switch (idx) {
+        case 1: return namzero::ModSlot::Type::kWah;
+        case 2: return namzero::ModSlot::Type::kUnivibe;
+        case 3: return namzero::ModSlot::Type::kFlanger;
+        case 4: return namzero::ModSlot::Type::kPhaser;
+        default: return namzero::ModSlot::Type::kTremolo;
+    }
+}
+
+int drive_type_index(const std::string& name) {
+    for (std::size_t i = 0; i < kDriveTypeCount; ++i) {
+        if (name == kDriveTypeNames[i]) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+namzero::DriveSlot::Type drive_type_enum(int idx) {
+    switch (idx) {
+        case 1: return namzero::DriveSlot::Type::kKlon;
+        case 2: return namzero::DriveSlot::Type::kTubescreamer;
+        default: return namzero::DriveSlot::Type::kFuzz;
+    }
+}
+
 struct Stats {
     std::atomic<uint64_t> blocks{0};
     std::atomic<uint64_t> xruns{0};
@@ -151,7 +197,7 @@ void usage() {
         "  --gate-release <ms>  rilascio: lungo = tiene le code (default 120)\n"
         "  --comp               compressore\n"
         "  --drive              boost/overdrive\n"
-        "  --drive-type <t>     fuzz (default) | klon\n"
+        "  --drive-type <t>     fuzz (default) | klon | tubescreamer\n"
         "  --drive-amount <0..1> quantita' di drive (default 0.15)\n"
         "  --drive-tone <0..1>  tono del drive (default 0.5)\n"
         "  --drive-blend <0..1> solo klon: quota di segnale saturato (default 0.40)\n"
@@ -183,7 +229,8 @@ void usage() {
         "  -h, --help           questo messaggio\n"
         "\n"
         "Tasti durante l'esecuzione:\n"
-        "  g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
+        "  g gate | c comp | o overdrive | k modello drive | p modo delay\n"
+        "  m mod | w tipo mod | , . wah\n"
         "  d delay | t tap tempo | i ir | r reverb\n"
         "  s salva lo stato nel preset | q o Ctrl+C esce\n");
 }
@@ -301,6 +348,8 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         }
         cfg.mod_rate_hz = get_num(md, "rate_hz", cfg.mod_rate_hz);
         cfg.mod_depth = get_num(md, "depth", cfg.mod_depth);
+        cfg.mod_fx_mix = get_num(md, "fx_mix", cfg.mod_fx_mix);
+        cfg.mod_feedback = get_num(md, "feedback", cfg.mod_feedback);
         cfg.mod_position = get_num(md, "position", cfg.mod_position);
         cfg.mod_q = get_num(md, "q", cfg.mod_q);
         cfg.mod_mix = get_num(md, "mix", cfg.mod_mix);
@@ -739,12 +788,12 @@ int main(int argc, char** argv) {
 
     // Un tipo scritto male non deve diventare un modello a caso: si torna al
     // default e lo si dice, invece di far suonare qualcosa di inatteso.
-    if (cfg.drive_type != "fuzz" && cfg.drive_type != "klon") {
+    if (drive_type_index(cfg.drive_type) < 0) {
         std::fprintf(stderr, "drive: tipo \"%s\" sconosciuto, uso fuzz\n",
                      cfg.drive_type.c_str());
         cfg.drive_type = "fuzz";
     }
-    if (cfg.mod_type != "tremolo" && cfg.mod_type != "wah") {
+    if (mod_type_index(cfg.mod_type) < 0) {
         std::fprintf(stderr, "mod: tipo \"%s\" sconosciuto, uso tremolo\n",
                      cfg.mod_type.c_str());
         cfg.mod_type = "tremolo";
@@ -878,8 +927,7 @@ int main(int argc, char** argv) {
     {
         auto dr = std::make_unique<namzero::DriveSlot>();
         drive_ptr = dr.get();
-        dr->set_type(cfg.drive_type == "klon" ? namzero::DriveSlot::Type::kKlon
-                                              : namzero::DriveSlot::Type::kFuzz);
+        dr->set_type(drive_type_enum(drive_type_index(cfg.drive_type)));
         dr->set_drive(static_cast<float>(cfg.drive_amount));
         dr->set_tone(static_cast<float>(cfg.drive_tone));
         dr->set_level_db(static_cast<float>(cfg.drive_level_db));
@@ -893,8 +941,7 @@ int main(int argc, char** argv) {
     auto mod_owner = std::make_unique<namzero::ModSlot>();
     namzero::ModSlot* mod_ptr = mod_owner.get();
     auto mod_slot = std::move(mod_owner);
-    mod_ptr->set_type(cfg.mod_type == "wah" ? namzero::ModSlot::Type::kWah
-                                             : namzero::ModSlot::Type::kTremolo);
+    mod_ptr->set_type(mod_type_enum(mod_type_index(cfg.mod_type)));
     mod_slot->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
     mod_slot->set_depth(static_cast<float>(cfg.mod_depth));
     mod_ptr->set_position(static_cast<float>(cfg.mod_position));
@@ -902,6 +949,8 @@ int main(int argc, char** argv) {
     mod_slot->set_wah_mix(static_cast<float>(cfg.mod_mix));
     mod_slot->set_wah_low_hz(static_cast<float>(cfg.mod_low_hz));
     mod_slot->set_wah_high_hz(static_cast<float>(cfg.mod_high_hz));
+    mod_slot->set_fx_mix(static_cast<float>(cfg.mod_fx_mix));
+    mod_slot->set_feedback(static_cast<float>(cfg.mod_feedback));
     chain.add(std::move(mod_slot));
 
     const std::size_t i_amp = chain.size();
@@ -991,16 +1040,17 @@ int main(int argc, char** argv) {
     std::printf("comp: soglia %.1f dB | ratio %.1f | attack %.1f ms | release %.0f ms | makeup %.1f dB\n",
                 cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms, cfg.comp_release_ms,
                 cfg.comp_makeup_db);
-    std::printf("slot: gate %s | comp %s | drive %s (%s) | mod %s | amp %s | ir %s | delay %s | reverb %s\n",
+    std::printf("slot: gate %s | comp %s | drive %s (%s) | mod %s (%s) | amp %s | ir %s | delay %s | reverb %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
                 cfg.drive_on ? "on" : "off", cfg.drive_type.c_str(),
-                cfg.mod_on ? "on" : "off",
+                cfg.mod_on ? "on" : "off", cfg.mod_type.c_str(),
                 has_amp ? "on" : "off", has_ir ? "on" : "off",
                 cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off");
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
-    std::printf("tasti: g gate | c comp | o overdrive | k modello drive | m mod | w tipo mod | , . wah\n"
+    std::printf("tasti: g gate | c comp | o overdrive | k modello drive | p modo delay\n"
+                "        m mod | w tipo mod | , . wah\n"
                 "        d delay | t tap tempo | i ir | r reverb | s salva | q o Ctrl+C esci\n");
     std::fflush(stdout);
 
@@ -1159,11 +1209,28 @@ int main(int argc, char** argv) {
                 case 'k': {
                     if (drive_ptr == nullptr) break;
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    const bool to_klon = (cfg.drive_type != "klon");
-                    cfg.drive_type = to_klon ? "klon" : "fuzz";
-                    drive_ptr->set_type(to_klon ? namzero::DriveSlot::Type::kKlon
-                                                : namzero::DriveSlot::Type::kFuzz);
+                    int idx = drive_type_index(cfg.drive_type);
+                    idx = (idx + 1) % static_cast<int>(kDriveTypeCount);
+                    cfg.drive_type = kDriveTypeNames[idx];
+                    drive_ptr->set_type(drive_type_enum(idx));
                     std::printf("  drive: %s\n", cfg.drive_type.c_str());
+                    std::fflush(stdout);
+                    break;
+                }
+                case 'p': {
+                    if (delay_slot == nullptr) break;
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    if (cfg.delay_mode == "stereo") {
+                        cfg.delay_mode = "ping_pong";
+                        delay_slot->set_mode(namzero::DelaySlot::Mode::kPingPong);
+                    } else if (cfg.delay_mode == "ping_pong") {
+                        cfg.delay_mode = "ping_pong_stereo";
+                        delay_slot->set_mode(namzero::DelaySlot::Mode::kPingPongStereo);
+                    } else {
+                        cfg.delay_mode = "stereo";
+                        delay_slot->set_mode(namzero::DelaySlot::Mode::kStereo);
+                    }
+                    std::printf("  delay: %s\n", cfg.delay_mode.c_str());
                     std::fflush(stdout);
                     break;
                 }
@@ -1212,16 +1279,26 @@ int main(int argc, char** argv) {
                         break;
                     }
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    const bool to_wah = (cfg.mod_type != "wah");
-                    cfg.mod_type = to_wah ? "wah" : "tremolo";
-                    mod_ptr->set_type(to_wah ? namzero::ModSlot::Type::kWah
-                                              : namzero::ModSlot::Type::kTremolo);
-                    if (to_wah && wah_armed && cfg.mod_on) {
+                    int idx = mod_type_index(cfg.mod_type);
+                    idx = (idx + 1) % static_cast<int>(kModTypeCount);
+                    cfg.mod_type = kModTypeNames[idx];
+                    mod_ptr->set_type(mod_type_enum(idx));
+                    const bool is_wah = (cfg.mod_type == "wah");
+                    if (!is_wah) {
+                        cfg.mod_rate_hz = kModDefaultRate[idx];
+                        mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+                    }
+                    if (is_wah && wah_armed && cfg.mod_on) {
                         cfg.mod_on = false;
                         chain.set_enabled(i_mod, false);
                     }
-                    std::printf("  mod: %s%s\n", cfg.mod_type.c_str(),
-                                (to_wah && wah_armed) ? " (spento: lo accende il pedale)" : "");
+                    if (is_wah) {
+                        std::printf("  mod: %s%s\n", cfg.mod_type.c_str(),
+                                    wah_armed ? " (spento: lo accende il pedale)" : "");
+                    } else {
+                        std::printf("  mod: %s (rate %.1f Hz)\n", cfg.mod_type.c_str(),
+                                    cfg.mod_rate_hz);
+                    }
                     std::fflush(stdout);
                     break;
                 }
@@ -1297,11 +1374,8 @@ int main(int argc, char** argv) {
         // ripristinare, cosi' le due strade non possono divergere.
         auto apply_mod = [&](const namzero::ModArbiter::State& st) {
             cfg.mod_on = st.on;
-            cfg.mod_type = st.wah ? "wah" : "tremolo";
-            if (mod_ptr != nullptr) {
-                mod_ptr->set_type(st.wah ? namzero::ModSlot::Type::kWah
-                                         : namzero::ModSlot::Type::kTremolo);
-            }
+            cfg.mod_type = kModTypeNames[static_cast<std::size_t>(st.type)];
+            if (mod_ptr != nullptr) mod_ptr->set_type(mod_type_enum(st.type));
             if (i_mod != kNoSlot) chain.set_enabled(i_mod, st.on);
         };
 
@@ -1361,11 +1435,19 @@ int main(int argc, char** argv) {
                     // non si tocca (comanda il pedale).
                     if (arbiter.engaged()) continue;
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    cfg.mod_type = "tremolo";
-                    if (mod_ptr != nullptr) mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
+                    // Se lo slot e' sul wah questo comando lo riporta al tremolo;
+                    // per gli altri effetti si cambia solo on/off, senza
+                    // sovrascrivere il tipo scelto dall'utente.
+                    if (cfg.mod_type == "wah") {
+                        cfg.mod_type = "tremolo";
+                        if (mod_ptr != nullptr) {
+                            mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
+                        }
+                    }
                     cfg.mod_on = !cfg.mod_on;
                     if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
-                    std::printf("  mod: %s (CC%d)\n", cfg.mod_on ? "on" : "off", e.cc);
+                    std::printf("  mod: %s (%s, CC%d)\n", cfg.mod_on ? "on" : "off",
+                                cfg.mod_type.c_str(), e.cc);
                     std::fflush(stdout);
                     continue;
                 }
@@ -1404,8 +1486,8 @@ int main(int argc, char** argv) {
 
             if (transition == 1) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
-                arbiter.engage({cfg.mod_on, cfg.mod_type == "wah"});
-                apply_mod({true, true});
+                arbiter.engage({cfg.mod_on, std::max(0, mod_type_index(cfg.mod_type))});
+                apply_mod({true, 1});  // 1 = wah
                 wah_engaged.store(true);
                 std::printf("  wah: acceso dal pedale\n");
                 std::fflush(stdout);

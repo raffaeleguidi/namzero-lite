@@ -25,7 +25,7 @@ namespace namzero {
 // Stanno nello stesso slot: si cambia modello senza toccare la catena.
 class DriveSlot final : public Slot {
 public:
-    enum class Type { kFuzz, kKlon };
+    enum class Type { kFuzz, kKlon, kTubescreamer };
 
     void set_type(Type t) { type_.store(t, std::memory_order_relaxed); }
     Type type() const { return type_.load(std::memory_order_relaxed); }
@@ -49,6 +49,7 @@ public:
     void reset() override {
         lp_l_ = lp_r_ = 0.0f;
         pre_lp_l_ = pre_lp_r_ = 0.0f;
+        hp_lp_l_ = hp_lp_r_ = 0.0f;
         dc_x_l_ = dc_x_r_ = 0.0f;
         dc_y_l_ = dc_y_r_ = 0.0f;
         mid_l_.reset();
@@ -62,10 +63,10 @@ public:
 
     void process(float* interleaved, std::size_t frames) override {
         update_coeffs();
-        if (type_.load(std::memory_order_relaxed) == Type::kKlon) {
-            process_klon(interleaved, frames);
-        } else {
-            process_fuzz(interleaved, frames);
+        switch (type_.load(std::memory_order_relaxed)) {
+            case Type::kKlon: process_klon(interleaved, frames); break;
+            case Type::kTubescreamer: process_tubescreamer(interleaved, frames); break;
+            default: process_fuzz(interleaved, frames); break;
         }
     }
 
@@ -139,14 +140,17 @@ private:
     }
 
     void update_coeffs() {
-        const bool klon = (type_.load(std::memory_order_relaxed) == Type::kKlon);
+        const Type type = type_.load(std::memory_order_relaxed);
+        const bool klon = (type == Type::kKlon);
         const float t = tone_.load(std::memory_order_relaxed);
-        // Il fuzz apre fino a 8 kHz, il Klon resta piu' chiuso: e' un pedale da
-        // "piu' di tutto", non da bright.
-        const float cutoff = klon ? 1200.0f * std::pow(8.0f, t) : 800.0f * std::pow(10.0f, t);
+        // Il fuzz apre fino a 8 kHz, il Klon resta piu' chiuso, il Tube Screamer
+        // e' il piu' scuro dei tre: il suo tono taglia, non apre.
+        float cutoff = 800.0f * std::pow(10.0f, t);
+        if (klon) cutoff = 1200.0f * std::pow(8.0f, t);
+        else if (type == Type::kTubescreamer) cutoff = 700.0f * std::pow(6.0f, t);
         tone_coef_ = 1.0f - std::exp(-2.0f * 3.14159265f * cutoff / fs_);
 
-        // I due filtri non si accendono insieme: si calcola solo quello del
+        // I filtri fissi non si accendono insieme: si calcola solo quello del
         // modello in uso (un sin/cos per blocco, non per campione).
         if (klon) {
             Biquad proto;
@@ -198,6 +202,38 @@ private:
         constexpr float kKneePos = 0.50f;
         constexpr float kKneeNeg = 0.38f;
         return x >= 0.0f ? knee_clip(x, kKneePos) : -knee_clip(-x, kKneeNeg);
+    }
+
+    // Tube Screamer: il passa-alto prima del clipping e' quello che lo rende
+    // "stretto" e con la gobba sulle medie; il tono dopo taglia le alte.
+    // Il clipping e' simmetrico (due diodi in controfase), quindi armoniche
+    // dispari: piu' "canto" che "gracchio".
+    void process_tubescreamer(float* interleaved, std::size_t frames) {
+        const float drive = drive_.load(std::memory_order_relaxed);
+        const float pre = 1.0f + drive * 30.0f;
+        const float level = db_to_lin(level_db_.load(std::memory_order_relaxed));
+        const float norm = level / std::tanh(pre);
+        // 720 Hz: sotto quella frequenza il pedale non manda nulla nel clipping.
+        const float hp_coef = 1.0f - std::exp(-2.0f * 3.14159265f * 720.0f / fs_);
+
+        for (std::size_t i = 0; i < frames; ++i) {
+            const float in_l = interleaved[i * 2 + 0];
+            const float in_r = interleaved[i * 2 + 1];
+
+            hp_lp_l_ += (in_l - hp_lp_l_) * hp_coef;
+            hp_lp_r_ += (in_r - hp_lp_r_) * hp_coef;
+            const float v_l = pre * (in_l - hp_lp_l_);
+            const float v_r = pre * (in_r - hp_lp_r_);
+
+            const float y_l = std::tanh(v_l) * norm;
+            const float y_r = std::tanh(v_r) * norm;
+
+            lp_l_ += (y_l - lp_l_) * tone_coef_;
+            lp_r_ += (y_r - lp_r_) * tone_coef_;
+
+            interleaved[i * 2 + 0] = lp_l_;
+            interleaved[i * 2 + 1] = lp_r_;
+        }
     }
 
     void process_klon(float* interleaved, std::size_t frames) {
@@ -266,6 +302,8 @@ private:
     float lp_r_ = 0.0f;
     float pre_lp_l_ = 0.0f;
     float pre_lp_r_ = 0.0f;
+    float hp_lp_l_ = 0.0f;
+    float hp_lp_r_ = 0.0f;
     float dc_x_l_ = 0.0f;
     float dc_x_r_ = 0.0f;
     float dc_y_l_ = 0.0f;

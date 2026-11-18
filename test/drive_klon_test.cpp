@@ -125,6 +125,18 @@ int main() {
     CHECK(mid4 > mid0 * 1.3);
     CHECK(hi_mid4 < hi_mid0 * 1.15);
 
+    // Tube Screamer: il passa-alto a 720 Hz prima del clipping gli toglie le
+    // basse e gli dà la gobba sulle medie. A 100 Hz deve rendere molto meno che
+    // a 800, e deve restare piu' pulito del fuzz.
+    {
+        const auto ts = run(namzero::DriveSlot::Type::kTubescreamer, 0.4f, 4.0f, 5.0f, in);
+        const double ts_bass = gain_at(namzero::DriveSlot::Type::kTubescreamer, 0.4f, 4.0f, 5.0f, 100.0);
+        const double ts_mid = gain_at(namzero::DriveSlot::Type::kTubescreamer, 0.4f, 4.0f, 5.0f, 800.0);
+        CHECK(ts_bass < ts_mid * 0.7);
+        CHECK(gain_at(namzero::DriveSlot::Type::kTubescreamer, 0.4f, 4.0f, 5.0f, kF0) > 1.2);
+        CHECK(thd(ts) < thd_fuzz * 0.5);
+    }
+
     // Basse del fuzz: il low-shelf deve dare peso senza toccare il resto.
     const double low0 = gain_at(namzero::DriveSlot::Type::kFuzz, 0.4f, 4.0f, 0.0f, 80.0);
     const double low5 = gain_at(namzero::DriveSlot::Type::kFuzz, 0.4f, 4.0f, 5.0f, 80.0);
