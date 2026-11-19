@@ -78,6 +78,19 @@ int main() {
         CHECK(c.drive_select_cc[2] == 38);
     }
 
+    // delay_select: un CC per modo.
+    {
+        const auto j = nlohmann::json::parse(R"({
+            "delay_select": { "stereo": 45, "ping_pong": 46, "ping_pong_stereo": 47 }
+        })");
+        namzero::MidiConfig c;
+        std::string err;
+        CHECK(namzero::parse_midi_config(j, c, err));
+        CHECK(c.delay_select_cc[0] == 45);
+        CHECK(c.delay_select_cc[1] == 46);
+        CHECK(c.delay_select_cc[2] == 47);
+    }
+
     // Boost di fine catena.
     {
         const auto j = nlohmann::json::parse(R"({ "boost": { "cc": 44, "percent": 30 } })");
@@ -111,6 +124,9 @@ int main() {
     CHECK(rejects(R"({ "boost": { "cc": 200 } })"));                        // fuori range
     CHECK(rejects(R"({ "boost": { "cc": 44, "percent": 500 } })"));         // boost assurdo
     CHECK(rejects(R"({ "boost": { "cc": 10 } })"));                         // collide col mod
+    CHECK(rejects(R"({ "delay_select": { "boh": 45 } })"));                 // modo sconosciuto
+    CHECK(rejects(R"({ "delay_select": { "stereo": 200 } })"));             // fuori range
+    CHECK(rejects(R"({ "delay_select": { "stereo": 32 }, "mod_select": { "tremolo": 32 } })"));
     CHECK(rejects(R"({ "expression": { "cc": -1 } })"));                   // espressione fuori range
     CHECK(rejects(R"([1, 2, 3])"));                                        // radice non oggetto
 

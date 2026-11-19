@@ -165,6 +165,32 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         if (!get_num(b, "percent", cfg.boost_percent, err)) return false;
     }
 
+    if (j.contains("delay_select")) {
+        const auto& ls = j["delay_select"];
+        if (!ls.is_object()) {
+            err = "midi.json: \"delay_select\" deve essere un oggetto {modo: CC}";
+            return false;
+        }
+        for (auto it = ls.begin(); it != ls.end(); ++it) {
+            const int idx = delay_mode_index(it.key());
+            if (idx < 0) {
+                err = "midi.json: modo delay sconosciuto \"" + it.key() +
+                      "\" (attesi: stereo, ping_pong, ping_pong_stereo)";
+                return false;
+            }
+            if (!it.value().is_number_integer()) {
+                err = "midi.json: il CC di \"" + it.key() + "\" deve essere un intero";
+                return false;
+            }
+            const int value = it.value().get<int>();
+            if (!in_cc_range(value)) {
+                err = "midi.json: il CC di \"" + it.key() + "\" deve stare fra 0 e 127";
+                return false;
+            }
+            cfg.delay_select_cc[static_cast<std::size_t>(idx)] = value;
+        }
+    }
+
     if (j.contains("cc")) {
         const auto& cc = j["cc"];
         if (!cc.is_object()) {
@@ -270,6 +296,44 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             if (cfg.drive_select_cc[k] == cc) {
                 err = std::string("midi.json: drive_select \"") + kDriveTypeNames[k] +
                       "\" e \"" + kDriveTypeNames[i] + "\" hanno lo stesso CC";
+                return false;
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < kDelayModeCount; ++i) {
+        const int cc = cfg.delay_select_cc[i];
+        if (cc < 0) continue;
+        if (cc == cfg.expression_cc) {
+            err = std::string("midi.json: delay_select \"") + kDelayModeNames[i] +
+                  "\" usa lo stesso CC dell'espressione";
+            return false;
+        }
+        for (std::size_t k = 0; k < kMidiActionCount; ++k) {
+            if (cfg.slot_cc[k] == cc) {
+                err = std::string("midi.json: delay_select \"") + kDelayModeNames[i] +
+                      "\" usa lo stesso CC di " + midi_action_name(static_cast<MidiAction>(k));
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < kModTypeCount; ++k) {
+            if (cfg.mod_select_cc[k] == cc) {
+                err = std::string("midi.json: delay_select \"") + kDelayModeNames[i] +
+                      "\" usa lo stesso CC di mod_select \"" + kModTypeNames[k] + "\"";
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < kDriveTypeCount; ++k) {
+            if (cfg.drive_select_cc[k] == cc) {
+                err = std::string("midi.json: delay_select \"") + kDelayModeNames[i] +
+                      "\" usa lo stesso CC di drive_select \"" + kDriveTypeNames[k] + "\"";
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < i; ++k) {
+            if (cfg.delay_select_cc[k] == cc) {
+                err = std::string("midi.json: delay_select \"") + kDelayModeNames[k] +
+                      "\" e \"" + kDelayModeNames[i] + "\" hanno lo stesso CC";
                 return false;
             }
         }

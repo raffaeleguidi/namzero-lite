@@ -63,6 +63,7 @@ Gli slot della catena, nell'ordine in cui vengono comandati:
 | espressione | 7 | pedale, banco A |
 | `mod_select` | 32/33/34/35 | **seleziona** tremolo/univibe/flanger/phaser (un tasto per effetto); non e' un CC di slot |
 | `drive_select` | 36/37/38 | **seleziona** fuzz/klon/tubescreamer (radio button) |
+| `delay_select` | 45/46/47 | **seleziona** stereo/ping-pong/ping-pong stereo (radio button) |
 | `boost` | 44 | **aumenta** il volume di `percent`% a fine catena; ripremendo torna al livello originale |
 
 I gruppi dell'XTONE cambiano **solo i numeri di CC**: A = 10/20/11, B = 22/24/25,

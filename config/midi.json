@@ -42,5 +42,10 @@
   "boost": {
     "cc": 44,
     "percent": 20
+  },
+  "delay_select": {
+    "stereo": 45,
+    "ping_pong": 46,
+    "ping_pong_stereo": 47
   }
 }

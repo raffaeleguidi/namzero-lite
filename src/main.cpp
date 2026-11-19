@@ -36,6 +36,7 @@
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
 #include "control/midi_config.h"
+#include "control/delay_modes.h"
 #include "control/drive_types.h"
 #include "control/mod_types.h"
 #include "control/midi_socket.h"
@@ -153,6 +154,14 @@ namzero::ModSlot::Type mod_type_enum(int idx) {
     }
 }
 
+
+namzero::DelaySlot::Mode delay_mode_enum(int idx) {
+    switch (idx) {
+        case 1: return namzero::DelaySlot::Mode::kPingPong;
+        case 2: return namzero::DelaySlot::Mode::kPingPongStereo;
+        default: return namzero::DelaySlot::Mode::kStereo;
+    }
+}
 
 namzero::DriveSlot::Type drive_type_enum(int idx) {
     switch (idx) {
@@ -794,6 +803,11 @@ int main(int argc, char** argv) {
                      cfg.drive_type.c_str());
         cfg.drive_type = "fuzz";
     }
+    if (namzero::delay_mode_index(cfg.delay_mode) < 0) {
+        std::fprintf(stderr, "delay: modo \"%s\" sconosciuto, uso stereo\n",
+                     cfg.delay_mode.c_str());
+        cfg.delay_mode = "stereo";
+    }
     if (namzero::mod_type_index(cfg.mod_type) < 0) {
         std::fprintf(stderr, "mod: tipo \"%s\" sconosciuto, uso tremolo\n",
                      cfg.mod_type.c_str());
@@ -1105,6 +1119,21 @@ int main(int argc, char** argv) {
                                 cc);
                 }
             }
+            auto print_select = [](const char* label, const int* ccs, std::size_t count) {
+                bool any = false;
+                std::string line;
+                for (std::size_t i = 0; i < count; ++i) {
+                    if (ccs[i] < 0) continue;
+                    if (any) line += "/";
+                    line += std::to_string(ccs[i]);
+                    any = true;
+                }
+                if (any) std::printf("  %-6s CC%s\n", label, line.c_str());
+            };
+            print_select("mod", midi_cfg.mod_select_cc.data(), namzero::kModTypeCount);
+            print_select("drive", midi_cfg.drive_select_cc.data(), namzero::kDriveTypeCount);
+            print_select("delay", midi_cfg.delay_select_cc.data(), namzero::kDelayModeCount);
+
             if (midi_cfg.boost_cc >= 0) {
                 std::printf("  %-6s CC%d (+%.0f%%)\n", "boost", midi_cfg.boost_cc,
                             midi_cfg.boost_percent);
@@ -1177,6 +1206,13 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < namzero::kDriveTypeCount; ++i) {
         const int cc = midi_cfg.drive_select_cc[i];
         if (cc >= 0) cc_drive_select[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
+    }
+
+    std::array<int8_t, 128> cc_delay_select{};
+    cc_delay_select.fill(-1);
+    for (std::size_t i = 0; i < namzero::kDelayModeCount; ++i) {
+        const int cc = midi_cfg.delay_select_cc[i];
+        if (cc >= 0) cc_delay_select[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
     }
 
     std::array<int8_t, 128> cc_mod_select{};
@@ -1609,6 +1645,21 @@ int main(int argc, char** argv) {
                     if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
                     std::printf("  drive: %s %s (CC%d)\n", cfg.drive_type.c_str(),
                                 cfg.drive_on ? "on" : "off", e.cc);
+                    std::fflush(stdout);
+                    continue;
+                }
+
+                const int lsel = cc_delay_select[e.cc];
+                if (lsel >= 0) {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    const char* mode = namzero::kDelayModeNames[lsel];
+                    const bool same = (cfg.delay_mode == mode && cfg.delay_on);
+                    cfg.delay_mode = mode;
+                    if (delay_slot != nullptr) delay_slot->set_mode(delay_mode_enum(lsel));
+                    cfg.delay_on = !same;
+                    if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
+                    std::printf("  delay: %s %s (CC%d)\n", mode,
+                                cfg.delay_on ? "on" : "off", e.cc);
                     std::fflush(stdout);
                     continue;
                 }
