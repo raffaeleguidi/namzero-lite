@@ -136,27 +136,29 @@ config vanno tenuti su una partizione separata o sincronizzati a mano.
 | device non trovato | `aplay -l`, numero di scheda cambiato |
 | MIDI assente | `amidi -l`, `aconnect -l`, cavo OTG |
 
-### Dopo ogni build: `scripts/build.sh`
+### Dopo ogni modifica: due script
 
-Tutte le operazioni che servono a ogni ricompilazione stanno in un comando solo
-(da lanciare **dalla console**, chiede la password per sudo):
+Le operazioni sono divise in due, così la build non richiede mai sudo:
 
 ```bash
-./scripts/build.sh
+./scripts/build.sh        # compila e testa, nessun sudo
+./scripts/permissions.sh  # setcap, governor, unit del bridge: chiede la password
 ```
 
-Lo script:
+`build.sh`:
 
 1. si rifiuta di compilare se il motore è in esecuzione (`ETXTBSY` e contesa CPU);
-2. ferma il bridge BLE (~67 MB liberati: con 415 MB la build finirebbe in swap);
-3. compila con **un job** (`-j2` fa uccidere `cc1plus` dall'OOM);
-4. lancia i test;
-5. riapplica le capability `cap_sys_nice,cap_ipc_lock` (un eseguibile ricompilato
-   le perde: senza, niente SCHED_FIFO né `mlockall`);
-6. mette il governor su `performance` e lo rende **persistente** (unit `cpu-performance`);
-7. prepara il venv e le dipendenze del bridge (`dbus-fast`);
-8. installa/aggiorna la unit del bridge e la (ri)avvia;
-9. verifica capability, governor e connessione al pedale.
+2. compila con **un job** (`-j2` fa uccidere `cc1plus` dall'OOM);
+3. lancia i test;
+4. ricorda di eseguire `permissions.sh` (dopo la build le capability sono perse).
+
+`permissions.sh`:
+
+1. riapplica `cap_sys_nice,cap_ipc_lock` (SCHED_FIFO + `mlockall`);
+2. mette il governor su `performance` e lo rende persistente (unit `cpu-performance`);
+3. prepara il venv e le dipendenze del bridge (`dbus-fast`);
+4. installa/aggiorna e riavvia la unit del bridge;
+5. verifica capability, governor e connessione al pedale.
 
 Se gli xrun restano, in ordine di efficacia:
 

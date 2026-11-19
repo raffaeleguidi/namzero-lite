@@ -55,17 +55,16 @@ rsync -a --exclude build --exclude .git ~/Projects/namzero-lite/ pi@namzero-lite
 
 ```bash
 sudo apt install -y build-essential cmake libasound2-dev
-scripts/build.sh
+./scripts/build.sh        # compila e testa (niente sudo)
+./scripts/permissions.sh  # setcap, governor, unit del bridge (sudo)
 ```
 
-`scripts/build.sh` compila **e** applica `cap_sys_nice,cap_ipc_lock` all'eseguibile,
-così si suona senza sudo. Una build fatta a mano con `cmake` è identica ma **perde
-le capability**: il programma parte lo stesso e avvisa *"priorità realtime non
-disponibile"*, con più probabilità di xrun a buffer piccoli. In quel caso:
-
-```bash
-sudo setcap cap_sys_nice,cap_ipc_lock+ep build/namzero-lite
-```
+`build.sh` non usa sudo; `permissions.sh` applica `cap_sys_nice,cap_ipc_lock`
+all'eseguibile (così si suona senza sudo), mette il governor su `performance` e
+installa la unit del bridge BLE. Una build fatta a mano con `cmake` è identica ma
+**perde le capability**: il programma parte lo stesso e avvisa *"priorità
+realtime non disponibile"*, con più probabilità di xrun a buffer piccoli. In quel
+caso basta `./scripts/permissions.sh`.
 
 ## Uso
 
@@ -73,7 +72,7 @@ sudo setcap cap_sys_nice,cap_ipc_lock+ep build/namzero-lite
 # elenco dispositivi
 aplay -l; arecord -l
 
-# con le capability applicate da scripts/build.sh: niente sudo
+# con le capability applicate da scripts/permissions.sh: niente sudo
 ./build/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
 
 # senza privilegi realtime (solo per test a buffer grandi)
