@@ -41,6 +41,13 @@ public:
     // Basse del fuzz: low-shelf a 110 Hz (default +5 dB).
     void set_low_db(float db) { low_db_.store(clamp(db, -12.0f, 12.0f), std::memory_order_relaxed); }
 
+    float drive() const { return drive_.load(std::memory_order_relaxed); }
+    float tone() const { return tone_.load(std::memory_order_relaxed); }
+    float level_db() const { return level_db_.load(std::memory_order_relaxed); }
+    float blend() const { return blend_.load(std::memory_order_relaxed); }
+    float mid_db() const { return mid_db_.load(std::memory_order_relaxed); }
+    float low_db() const { return low_db_.load(std::memory_order_relaxed); }
+
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
         reset();

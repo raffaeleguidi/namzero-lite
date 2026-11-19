@@ -16,6 +16,12 @@ public:
     void set_attack_ms(float ms) { attack_ms_.store(ms, std::memory_order_relaxed); }
     void set_release_ms(float ms) { release_ms_.store(ms, std::memory_order_relaxed); }
 
+    // Getter: servono a --print-config per verificare che il preset sia
+    // arrivato davvero allo slot (e non solo nel Config).
+    float threshold_db() const { return threshold_db_.load(std::memory_order_relaxed); }
+    float attack_ms() const { return attack_ms_.load(std::memory_order_relaxed); }
+    float release_ms() const { return release_ms_.load(std::memory_order_relaxed); }
+
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
         reset();

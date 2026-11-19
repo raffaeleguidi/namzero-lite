@@ -35,6 +35,12 @@ public:
 
     void set_mode(Mode m) { mode_.store(m, std::memory_order_relaxed); }
 
+    float time_ms() const { return time_ms_.load(std::memory_order_relaxed); }
+    float feedback() const { return fb_.load(std::memory_order_relaxed); }
+    float mix() const { return mix_.load(std::memory_order_relaxed); }
+    float tone() const { return tone_.load(std::memory_order_relaxed); }
+    Mode mode() const { return mode_.load(std::memory_order_relaxed); }
+
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
         const std::size_t n = static_cast<std::size_t>(fs_ * kMaxDelayMs / 1000.0f) + 4;

@@ -18,6 +18,12 @@ public:
     void set_release_ms(float ms) { release_ms_.store(ms, std::memory_order_relaxed); }
     void set_makeup_db(float db) { makeup_db_.store(db, std::memory_order_relaxed); }
 
+    float threshold_db() const { return threshold_db_.load(std::memory_order_relaxed); }
+    float ratio() const { return ratio_.load(std::memory_order_relaxed); }
+    float attack_ms() const { return attack_ms_.load(std::memory_order_relaxed); }
+    float release_ms() const { return release_ms_.load(std::memory_order_relaxed); }
+    float makeup_db() const { return makeup_db_.load(std::memory_order_relaxed); }
+
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
         reset();

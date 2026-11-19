@@ -268,6 +268,22 @@ restano al default, quindi un preset puo' essere parziale.
 
 ---
 
+## 5b. Preset e parametri
+
+Ogni preset e' un JSON completo (audio, slot, comportamento) letto una volta
+all'avvio. Schema, default e chiavi di ogni effetto: [docs/presets.md](docs/presets.md).
+
+La verifica che i valori arrivino davvero agli slot e' automatica:
+
+```bash
+./build/namzero-lite -p config/presets/vox_wah.json --print-config
+python3 scripts/verify_presets.py
+```
+
+`--print-config` legge i parametri **dagli slot** (non dal Config del parser) e lo
+script li confronta con i file: e' il controllo che avrebbe intercettato gate e comp
+quando leggevano il preset senza applicarlo.
+
 ## 6. Controllo MIDI
 
 ### Configurazione: `config/midi.json`

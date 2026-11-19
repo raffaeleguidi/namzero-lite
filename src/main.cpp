@@ -119,6 +119,7 @@ struct Config {
     // La mappa MIDI non sta qui ne' nei preset: vive in midi.json (vedi
     // MidiConfig), cosi' si cambia senza ricompilare e vale per tutti i preset.
     bool midi_log = false;  // stampa ogni messaggio: serve a misurare il pedale
+    bool print_config = false;  // stampa i valori effettivi letti dagli slot ed esce
 
     bool stats = false;
     bool help = false;
@@ -231,6 +232,7 @@ void usage() {
         "  --expr-invert        pedale di espressione con corsa invertita\n"
         "  --wah-invert         wah acceso verso il tacco: spento con la punta a fondo\n"
         "  --midi-log           stampa ogni messaggio MIDI ricevuto (cc, note, pc)\n"
+        "  --print-config       stampa i valori effettivi letti dagli slot ed esce\n"
         "  --stats              statistiche ogni 5 s (default: solo problemi)\n"
         "  -h, --help           questo messaggio\n"
         "\n"
@@ -496,6 +498,10 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
         // Diagnostica: non e' una configurazione, quindi convive con -p.
         if (a == "--midi-log") {
             cfg.midi_log = true;
+            continue;
+        }
+        if (a == "--print-config") {
+            cfg.print_config = true;
             continue;
         }
         // La mappa MIDI vive in midi.json, non nei preset: questi flag non
@@ -788,6 +794,7 @@ int main(int argc, char** argv) {
         }
         from_file.stats = cfg.stats;
         from_file.midi_log = cfg.midi_log;
+        from_file.print_config = cfg.print_config;
         cfg = from_file;
         std::printf("preset: %s\n", preset_path.c_str());
     }
@@ -844,66 +851,6 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN);
 
-    // Istanza singola: il device audio e' esclusivo, e un residuo in background
-    // fa fallire l'avvio con un "device busy" che sembra un problema di config.
-    const int lock_fd = ::open("/tmp/namzero-lite.lock", O_CREAT | O_RDWR, 0666);
-    if (lock_fd >= 0 && ::flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
-        // Il PID nel file dice chi tiene il device: senza, l'unica via e' pkill.
-        char buf[32] = {0};
-        const ssize_t got = ::pread(lock_fd, buf, sizeof(buf) - 1, 0);
-        if (got > 0) {
-            std::fprintf(stderr,
-                         "errore: gia' in esecuzione il processo %s "
-                         "(fermalo con: kill %s)\n",
-                         buf, buf);
-        } else {
-            std::fprintf(stderr, "errore: un'altra istanza e' gia' in esecuzione\n");
-        }
-        return 1;
-    }
-    if (lock_fd >= 0) {
-        const std::string pid = std::to_string(::getpid());
-        ::ftruncate(lock_fd, 0);
-        ::pwrite(lock_fd, pid.c_str(), pid.size(), 0);
-    }
-
-    namzero::AudioConfig acfg;
-    acfg.device = cfg.device;
-    acfg.rate = cfg.rate;
-    acfg.period_frames = cfg.period;
-    acfg.periods = cfg.periods;
-
-    namzero::AlsaDuplex io;
-    if (!io.open(acfg, err)) {
-        std::fprintf(stderr, "audio: %s\n", err.c_str());
-        return 1;
-    }
-    std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi\n",
-                io.device().c_str(), io.rate(), io.period_frames(),
-                io.buffer_frames(), io.periods());
-
-    // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
-    // l'auto-engage prende il comando dello slot mod fin dall'avvio.
-    namzero::MidiInput midi;
-    if (midi_cfg.enabled) {
-        std::string merr;
-        if (midi.open(midi_cfg.device, merr)) {
-            std::printf("midi: %s | espressione CC%d | switch %s\n", midi_cfg.device.c_str(),
-                        midi_cfg.expression_cc, midi_cfg.switches.c_str());
-            for (std::size_t i = 0; i < namzero::kMidiActionCount; ++i) {
-                const int cc = midi_cfg.slot_cc[i];
-                if (cc >= 0) {
-                    std::printf("  %-6s CC%d\n",
-                                namzero::midi_action_name(static_cast<namzero::MidiAction>(i)),
-                                cc);
-                }
-            }
-        } else {
-            std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
-        }
-    }
-    const bool wah_armed = midi.is_open();
-
     // Ordine della catena: gate -> comp -> drive -> amp -> ir -> reverb.
     // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
     namzero::Chain chain;
@@ -911,16 +858,20 @@ int main(int argc, char** argv) {
     // I parametri vanno applicati allo slot: senza queste chiamate il gate (e
     // il comp) restavano sui default compilati, qualunque cosa dicesse il preset.
     const std::size_t i_gate = chain.size();
+    namzero::GateSlot* gate_ptr = nullptr;
     {
         auto gt = std::make_unique<namzero::GateSlot>();
+        gate_ptr = gt.get();
         gt->set_threshold_db(static_cast<float>(cfg.gate_threshold_db));
         gt->set_attack_ms(static_cast<float>(cfg.gate_attack_ms));
         gt->set_release_ms(static_cast<float>(cfg.gate_release_ms));
         chain.add(std::move(gt));
     }
     const std::size_t i_comp = chain.size();
+    namzero::CompSlot* comp_ptr = nullptr;
     {
         auto cp = std::make_unique<namzero::CompSlot>();
+        comp_ptr = cp.get();
         cp->set_threshold_db(static_cast<float>(cfg.comp_threshold_db));
         cp->set_ratio(static_cast<float>(cfg.comp_ratio));
         cp->set_attack_ms(static_cast<float>(cfg.comp_attack_ms));
@@ -978,10 +929,12 @@ int main(int argc, char** argv) {
     }
 
     std::size_t i_ir = kNoSlot;
+    namzero::IrSlot* ir_ptr = nullptr;
     const bool has_ir = cfg.ir_on && !cfg.ir_file.empty();
     if (has_ir) {
         i_ir = chain.size();
         auto ir = std::make_unique<namzero::IrSlot>();
+        ir_ptr = ir.get();
         if (!ir->load(cfg.ir_file, cfg.ir_taps, err)) {
             std::fprintf(stderr, "IR: %s\n", err.c_str());
             return 1;
@@ -1013,15 +966,154 @@ int main(int argc, char** argv) {
     }
 
     const std::size_t i_reverb = chain.size();
+    namzero::ReverbSlot* reverb_ptr = nullptr;
     {
         auto rv = std::make_unique<namzero::ReverbSlot>();
+        reverb_ptr = rv.get();
         rv->set_wet(static_cast<float>(cfg.reverb_mix));
         rv->set_room_size(static_cast<float>(cfg.reverb_size));
         rv->set_damp(static_cast<float>(cfg.reverb_damp));
         chain.add(std::move(rv));
     }
 
+
+    // --print-config: valori letti DAGLI SLOT, non dal Config. E' la verifica
+    // che il preset sia arrivato fino in fondo (lettura + applicazione); il
+    // confronto con i JSON lo fa scripts/verify_presets.py.
+    if (cfg.print_config) {
+        auto mod_name = [](namzero::ModSlot::Type t) {
+            switch (t) {
+                case namzero::ModSlot::Type::kWah: return "wah";
+                case namzero::ModSlot::Type::kUnivibe: return "univibe";
+                case namzero::ModSlot::Type::kFlanger: return "flanger";
+                case namzero::ModSlot::Type::kPhaser: return "phaser";
+                default: return "tremolo";
+            }
+        };
+        auto drive_name = [](namzero::DriveSlot::Type t) {
+            switch (t) {
+                case namzero::DriveSlot::Type::kKlon: return "klon";
+                case namzero::DriveSlot::Type::kTubescreamer: return "tubescreamer";
+                default: return "fuzz";
+            }
+        };
+        auto delay_mode_name = [](namzero::DelaySlot::Mode m) {
+            switch (m) {
+                case namzero::DelaySlot::Mode::kPingPong: return "ping_pong";
+                case namzero::DelaySlot::Mode::kPingPongStereo: return "ping_pong_stereo";
+                default: return "stereo";
+            }
+        };
+
+        std::printf("cfg.gate.threshold_db=%.4f\n", gate_ptr->threshold_db());
+        std::printf("cfg.gate.attack_ms=%.4f\n", gate_ptr->attack_ms());
+        std::printf("cfg.gate.release_ms=%.4f\n", gate_ptr->release_ms());
+
+        std::printf("cfg.comp.threshold_db=%.4f\n", comp_ptr->threshold_db());
+        std::printf("cfg.comp.ratio=%.4f\n", comp_ptr->ratio());
+        std::printf("cfg.comp.attack_ms=%.4f\n", comp_ptr->attack_ms());
+        std::printf("cfg.comp.release_ms=%.4f\n", comp_ptr->release_ms());
+        std::printf("cfg.comp.makeup_db=%.4f\n", comp_ptr->makeup_db());
+
+        std::printf("cfg.drive.type=%s\n", drive_name(drive_ptr->type()));
+        std::printf("cfg.drive.amount=%.4f\n", drive_ptr->drive());
+        std::printf("cfg.drive.tone=%.4f\n", drive_ptr->tone());
+        std::printf("cfg.drive.level_db=%.4f\n", drive_ptr->level_db());
+        std::printf("cfg.drive.blend=%.4f\n", drive_ptr->blend());
+        std::printf("cfg.drive.mid_db=%.4f\n", drive_ptr->mid_db());
+        std::printf("cfg.drive.low_db=%.4f\n", drive_ptr->low_db());
+
+        std::printf("cfg.mod.type=%s\n", mod_name(mod_ptr->type()));
+        std::printf("cfg.mod.rate_hz=%.4f\n", mod_ptr->rate_hz());
+        std::printf("cfg.mod.depth=%.4f\n", mod_ptr->depth());
+        std::printf("cfg.mod.position=%.4f\n", mod_ptr->position());
+        std::printf("cfg.mod.q=%.4f\n", mod_ptr->wah_q());
+        std::printf("cfg.mod.mix=%.4f\n", mod_ptr->wah_mix());
+        std::printf("cfg.mod.low_hz=%.4f\n", mod_ptr->wah_low_hz());
+        std::printf("cfg.mod.high_hz=%.4f\n", mod_ptr->wah_high_hz());
+        std::printf("cfg.mod.fx_mix=%.4f\n", mod_ptr->fx_mix());
+        std::printf("cfg.mod.feedback=%.4f\n", mod_ptr->feedback());
+
+        std::printf("cfg.amp.file=%s\n", cfg.amp_file.c_str());
+        std::printf("cfg.amp.slim=%.4f\n", cfg.amp_slim);
+        std::printf("cfg.amp.trim_db=%.4f\n", cfg.amp_trim_db);
+
+        std::printf("cfg.ir.file=%s\n", cfg.ir_file.c_str());
+        std::printf("cfg.ir.taps=%zu\n", ir_ptr != nullptr ? ir_ptr->taps() : 0u);
+
+        std::printf("cfg.delay.time_ms=%.4f\n", delay_slot->time_ms());
+        std::printf("cfg.delay.feedback=%.4f\n", delay_slot->feedback());
+        std::printf("cfg.delay.mix=%.4f\n", delay_slot->mix());
+        std::printf("cfg.delay.tone=%.4f\n", delay_slot->tone());
+        std::printf("cfg.delay.mode=%s\n", delay_mode_name(delay_slot->mode()));
+
+        std::printf("cfg.reverb.mix=%.4f\n", reverb_ptr->wet());
+        std::printf("cfg.reverb.size=%.4f\n", reverb_ptr->room_size());
+        std::printf("cfg.reverb.damp=%.4f\n", reverb_ptr->damp());
+        return 0;
+    }
+
+
+    // Istanza singola: il device audio e' esclusivo, e un residuo in background
+    // fa fallire l'avvio con un "device busy" che sembra un problema di config.
+    const int lock_fd = ::open("/tmp/namzero-lite.lock", O_CREAT | O_RDWR, 0666);
+    if (lock_fd >= 0 && ::flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        // Il PID nel file dice chi tiene il device: senza, l'unica via e' pkill.
+        char buf[32] = {0};
+        const ssize_t got = ::pread(lock_fd, buf, sizeof(buf) - 1, 0);
+        if (got > 0) {
+            std::fprintf(stderr,
+                         "errore: gia' in esecuzione il processo %s "
+                         "(fermalo con: kill %s)\n",
+                         buf, buf);
+        } else {
+            std::fprintf(stderr, "errore: un'altra istanza e' gia' in esecuzione\n");
+        }
+        return 1;
+    }
+    if (lock_fd >= 0) {
+        const std::string pid = std::to_string(::getpid());
+        ::ftruncate(lock_fd, 0);
+        ::pwrite(lock_fd, pid.c_str(), pid.size(), 0);
+    }
+
+    namzero::AudioConfig acfg;
+    acfg.device = cfg.device;
+    acfg.rate = cfg.rate;
+    acfg.period_frames = cfg.period;
+    acfg.periods = cfg.periods;
+
+    namzero::AlsaDuplex io;
+    if (!io.open(acfg, err)) {
+        std::fprintf(stderr, "audio: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi\n",
+                io.device().c_str(), io.rate(), io.period_frames(),
+                io.buffer_frames(), io.periods());
     chain.prepare(io.rate(), io.period_frames());
+
+    // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
+    // l'auto-engage prende il comando dello slot mod fin dall'avvio.
+    namzero::MidiInput midi;
+    if (midi_cfg.enabled) {
+        std::string merr;
+        if (midi.open(midi_cfg.device, merr)) {
+            std::printf("midi: %s | espressione CC%d | switch %s\n", midi_cfg.device.c_str(),
+                        midi_cfg.expression_cc, midi_cfg.switches.c_str());
+            for (std::size_t i = 0; i < namzero::kMidiActionCount; ++i) {
+                const int cc = midi_cfg.slot_cc[i];
+                if (cc >= 0) {
+                    std::printf("  %-6s CC%d\n",
+                                namzero::midi_action_name(static_cast<namzero::MidiAction>(i)),
+                                cc);
+                }
+            }
+        } else {
+            std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
+        }
+    }
+    const bool wah_armed = midi.is_open();
 
     // Regola: il wah non parte mai acceso, lo accende solo il pedale. Se il
     // MIDI non c'e' (o e' disattivato) resta il controllo manuale, altrimenti

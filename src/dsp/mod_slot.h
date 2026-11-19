@@ -40,6 +40,16 @@ public:
     void set_fx_mix(float m) { fx_mix_.store(clamp(m, 0.0f, 1.0f), std::memory_order_relaxed); }
     void set_feedback(float f) { feedback_.store(clamp(f, 0.0f, 0.85f), std::memory_order_relaxed); }
 
+    float rate_hz() const { return rate_.load(std::memory_order_relaxed); }
+    float depth() const { return depth_.load(std::memory_order_relaxed); }
+    float position() const { return position_.load(std::memory_order_relaxed); }
+    float wah_q() const { return q_.load(std::memory_order_relaxed); }
+    float wah_mix() const { return mix_.load(std::memory_order_relaxed); }
+    float wah_low_hz() const { return low_hz_.load(std::memory_order_relaxed); }
+    float wah_high_hz() const { return high_hz_.load(std::memory_order_relaxed); }
+    float fx_mix() const { return fx_mix_.load(std::memory_order_relaxed); }
+    float feedback() const { return feedback_.load(std::memory_order_relaxed); }
+
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
         reset();

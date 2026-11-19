@@ -4,7 +4,9 @@ Motore audio realtime per chitarra su Raspberry Pi Zero 2W con XSONIC XTONE come
 interfaccia audio: modelli NAM *lite*, catena a slot fissi con bypass, controllo
 MIDI da footswitch.
 
-Il piano di progetto completo è in [PLAN.md](PLAN.md).
+Il piano di progetto completo è in [PLAN.md](PLAN.md). Dettagli su
+[preset e parametri](docs/presets.md), [controllo MIDI](docs/midi.md) e
+[tuning del sistema](docs/rt-setup.md).
 
 **Stato**: catena completa e suonabile sul Pi (M2). Gli effetti ci sono tutti; il MIDI è
 sulla mappa fissa dei CC, non sul learn.

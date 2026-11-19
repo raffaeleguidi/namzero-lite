@@ -25,6 +25,10 @@ public:
     void set_dry(float v) { dry_.store(clamp01(v), std::memory_order_relaxed); }
     void set_width(float v) { width_.store(clamp01(v), std::memory_order_relaxed); }
 
+    float wet() const { return wet_.load(std::memory_order_relaxed); }
+    float room_size() const { return room_.load(std::memory_order_relaxed); }
+    float damp() const { return damp_.load(std::memory_order_relaxed); }
+
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         const double scale = sample_rate / 44100.0;
         static const int kComb[8] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617};
