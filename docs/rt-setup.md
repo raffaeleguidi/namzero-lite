@@ -153,8 +153,10 @@ Lo script:
 4. lancia i test;
 5. riapplica le capability `cap_sys_nice,cap_ipc_lock` (un eseguibile ricompilato
    le perde: senza, niente SCHED_FIFO né `mlockall`);
-6. mette il governor su `performance`;
-7. riavvia il bridge se era acceso e stampa la verifica di capability e governor.
+6. mette il governor su `performance` e lo rende **persistente** (unit `cpu-performance`);
+7. prepara il venv e le dipendenze del bridge (`dbus-fast`);
+8. installa/aggiorna la unit del bridge e la (ri)avvia;
+9. verifica capability, governor e connessione al pedale.
 
 Se gli xrun restano, in ordine di efficacia:
 

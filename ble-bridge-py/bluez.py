@@ -54,6 +54,35 @@ async def _find_adapter(bus: MessageBus) -> str:
     raise RuntimeError("nessun adapter Bluetooth: il servizio bluetooth e' attivo?")
 
 
+async def _resolve_address(bus: MessageBus, device: str, log) -> str:
+    """MAC diretto, oppure nome risolto dalla cache di BlueZ (niente scansione).
+
+    Il pedale accoppiato resta nella lista dei device di BlueZ anche quando non
+    si annuncia: il nome basta a trovare l'indirizzo.
+    """
+    if MAC.match(device):
+        return device.upper()
+
+    needle = device.lower()
+    for _path, interfaces in (await _managed_objects(bus)).items():
+        dev = interfaces.get("org.bluez.Device1")
+        if dev is None:
+            continue
+        names = []
+        for key in ("Name", "Alias"):
+            value = dev.get(key)
+            if value is not None:
+                names.append(str(value.value).lower())
+        if any(needle in name for name in names):
+            address = str(dev["Address"].value).upper()
+            log(f'"{device}" -> {address}')
+            return address
+
+    raise RuntimeError(
+        f'BlueZ non conosce "{device}": accoppia il pedale una volta con bluetoothctl'
+    )
+
+
 async def _connect_device(bus: MessageBus, path: str, log) -> None:
     device = await _interface(bus, path, "org.bluez.Device1")
     props = await _interface(bus, path, "org.freedesktop.DBus.Properties")
@@ -113,17 +142,10 @@ async def _midi_characteristic(bus: MessageBus) -> str:
 
 async def run_session(device: str, log, on_packet) -> None:
     """Una sessione completa. Ritorna quando il pedale si disconnette."""
-    if not MAC.match(device):
-        raise RuntimeError(
-            f'NAMZERO_BLE_DEVICE="{device}" non e\' un MAC: con questo backend '
-            "serve l'indirizzo (es. AA:BB:CC:DD:EE:FF), perche' il pedale "
-            "connesso non si annuncia e la ricerca per nome non lo trova"
-        )
-    mac = device.upper()
-
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     path = None
     try:
+        mac = await _resolve_address(bus, device, log)
         adapter = await _find_adapter(bus)
         path = _path_for(adapter, mac)
         if path not in await _managed_objects(bus):
