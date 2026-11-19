@@ -17,8 +17,8 @@ sulla mappa fissa dei CC, non sul learn.
 - Slot: gate, comp, drive, mod, amp NAM, IR, delay, riverbero
 - Drive con tre modelli: `fuzz` (storico), `klon` (trasparente, blend col pulito) e
   `tubescreamer` (medi in avanti, basse strette)
-- Mod: tremolo, univibe, flanger, phaser e wah; il wah è spento finché non lo accende
-  il pedale (auto-engage)
+- Mod: tremolo, univibe, flanger, phaser (ciclabili con `w`) e wah; il wah è spento
+  finché non lo accende il pedale (auto-engage)
 - Delay con tre modi (stereo, ping-pong, ping-pong stereo), ciclabili con `p`
 - Preset JSON (`-p`) e salvataggio dello stato con `s`
 - MIDI da XTONE: mappa in [config/midi.json](config/midi.json) — CC di ogni slot,

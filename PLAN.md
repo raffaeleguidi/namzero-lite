@@ -125,17 +125,23 @@ filtro si apre, diventa un fischio "acido" invece del carattere del wah. Il Q ef
 effettivo. Misurato sulla frequenza centrale: guadagno 5.5× al tacco, 2.5× alla punta
 (prima era ~5.5× anche alla punta).
 
-Controllo: `w` scorre i tipi (tremolo → univibe → flanger → phaser → wah), `,` e `.`
-muovono la posizione del wah, oppure `type`/`position` nel preset.
+Controllo: `w` scorre i tipi **tremolo → univibe → flanger → phaser**; il wah è fuori
+dalla turnazione perché si usa dal pedale (o da preset / `--wah`), selezionarlo da tastiera
+serviva solo a vederlo spento. `,` e `.` muovono la posizione del wah, oppure
+`type`/`position` nel preset.
 
 **Effetti modulati** (stesso slot, prima dell'amplificatore):
 - `univibe` — 4 celle di sfasamento (allpass del primo ordine) con LFO 200 Hz–2 kHz;
   la lampada modula anche l'ampiezza, da cui il "respiro".
 - `flanger` — delay 0.5–6.5 ms modulato, retroazione con tanh (niente autooscillazione
   che si incastra), mix 50/50.
-- `phaser` — 4 celle come l'univibe ma con retroazione.
+- `phaser` — 4 celle come l'univibe ma con retroazione; lo sweep va da 350 Hz a 3 kHz
+  (più in alto del primo tentativo, che con le tacche nei bassi suonava "scatoloso").
 - Parametri comuni: `rate_hz`, `depth`, `fx_mix` (quota di segnale trattato, default 0.5),
-  `feedback` (flanger/phaser, default 0.35).
+  `feedback` (flanger 0.35, phaser 0.20).
+- Flanger e phaser hanno un **passa-alto a 280 Hz sul solo segnale trattato**: il comb
+  sulle basse non si sente come effetto, si sente come scatola. L'univibe no: gli
+  toglierebbe il corpo.
 Con il MIDI attivo l'espressione lo pilota dal vivo (CC 7), con **auto-engage**: il wah
 è spento finché il pedale non sale sopra soglia, e si rispegne da solo al rilascio.
 

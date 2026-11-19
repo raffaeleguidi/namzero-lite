@@ -87,14 +87,14 @@ int main() {
     };
 
     for (const auto& fx : effects) {
-        const auto mod = run(fx.type, 0.8f, 220.0);
+        const auto mod = run(fx.type, 0.8f, 800.0);
         CHECK(mod.finite);
         CHECK(mod.max_rms < 2.0);
         CHECK(ratio(mod) > 3.0);  // l'effetto deve modulare davvero
 
         // A profondita' zero non deve muoversi: se "respira" lo stesso, c'e'
         // qualcosa che oscilla per conto suo.
-        const auto still = run(fx.type, 0.0f, 220.0);
+        const auto still = run(fx.type, 0.0f, 800.0);
         CHECK(still.finite);
         CHECK(ratio(still) < 1.2);
     }

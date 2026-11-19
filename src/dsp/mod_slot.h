@@ -52,6 +52,7 @@ public:
         for (auto& ap : ap_l_) ap = AllPass{};
         for (auto& ap : ap_r_) ap = AllPass{};
         fb_l_ = fb_r_ = 0.0f;
+        hpf_lp_l_ = hpf_lp_r_ = 0.0f;
         dl_l_.fill(0.0f);
         dl_r_.fill(0.0f);
         write_ = 0;
@@ -167,6 +168,7 @@ private:
         const float mix = fx_mix_.load(std::memory_order_relaxed);
         const float fb = univibe ? 0.0f : feedback_.load(std::memory_order_relaxed);
         const float inc = rate / fs_;
+        const float hpf_coef = 1.0f - std::exp(-2.0f * 3.14159265f * 280.0f / fs_);
 
         for (std::size_t i = 0; i < frames; ++i) {
             const float lfo = lfo_value(phase_);
@@ -175,7 +177,10 @@ private:
             // coefficienti si aggiornano ogni 16 campioni: costa un tan ogni 16
             // e il passo e' comunque molto piu' fine di quanto serva all'orecchio.
             if ((i & 15u) == 0u) {
-                const float fc = 200.0f * std::pow(10.0f, depth * lfo);
+                // Sweep piu' alto del primo tentativo (era 200 Hz..2 kHz): con le
+                // tacche nei bassi il phaser suonava "scatoloso". 350 Hz..3 kHz
+                // lo tiene nella zona dove il comb si sente come movimento.
+                const float fc = 350.0f * std::pow(3000.0f / 350.0f, depth * lfo);
                 const float a = allpass_coef(fc);
                 for (auto& ap : ap_l_) ap.a = a;
                 for (auto& ap : ap_r_) ap.a = a;
@@ -190,6 +195,16 @@ private:
             for (auto& ap : ap_r_) xr = ap.process(xr);
             fb_l_ = xl;
             fb_r_ = xr;
+
+            // Passa-alto sul solo segnale trattato: le tacche del comb sulle
+            // basse non si sentono come effetto, si sentono come scatola.
+            // L'univibe non ce l'ha: gli toglierebbe il corpo che gli piace.
+            if (!univibe) {
+                hpf_lp_l_ += (xl - hpf_lp_l_) * hpf_coef;
+                hpf_lp_r_ += (xr - hpf_lp_r_) * hpf_coef;
+                xl -= hpf_lp_l_;
+                xr -= hpf_lp_r_;
+            }
 
             // L'univibe non e' solo fase: la lampada modula anche l'ampiezza,
             // ed e' quella pulsazione a dargli il carattere "vivo".
@@ -219,6 +234,7 @@ private:
         const float mix = fx_mix_.load(std::memory_order_relaxed);
         const float fb = feedback_.load(std::memory_order_relaxed);
         const float inc = rate / fs_;
+        const float hpf_coef = 1.0f - std::exp(-2.0f * 3.14159265f * 280.0f / fs_);
 
         for (std::size_t i = 0; i < frames; ++i) {
             const float lfo = lfo_value(phase_);
@@ -228,8 +244,11 @@ private:
             float pos = static_cast<float>(write_) - delay;
             while (pos < 0.0f) pos += static_cast<float>(kDelayLen);
 
-            const float yl = read_delay(dl_l_, pos);
-            const float yr = read_delay(dl_r_, pos);
+            // Il wet passa-alto: il comb sulle basse e' quello che fa "scatola".
+            hpf_lp_l_ += (read_delay(dl_l_, pos) - hpf_lp_l_) * hpf_coef;
+            hpf_lp_r_ += (read_delay(dl_r_, pos) - hpf_lp_r_) * hpf_coef;
+            const float yl = read_delay(dl_l_, pos) - hpf_lp_l_;
+            const float yr = read_delay(dl_r_, pos) - hpf_lp_r_;
 
             const float in_l = interleaved[i * 2 + 0];
             const float in_r = interleaved[i * 2 + 1];
@@ -275,6 +294,8 @@ private:
     std::array<AllPass, 4> ap_r_{};
     float fb_l_ = 0.0f;
     float fb_r_ = 0.0f;
+    float hpf_lp_l_ = 0.0f;
+    float hpf_lp_r_ = 0.0f;
 
     std::array<float, kDelayLen> dl_l_{};
     std::array<float, kDelayLen> dl_r_{};

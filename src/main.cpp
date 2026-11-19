@@ -129,9 +129,15 @@ struct Config {
 constexpr const char* kModTypeNames[] = {"tremolo", "wah", "univibe", "flanger", "phaser"};
 constexpr std::size_t kModTypeCount = sizeof(kModTypeNames) / sizeof(kModTypeNames[0]);
 
-// Rate suggerito per tipo: quando si scorre con 'w' il rate si adegua, altrimenti
-// un flanger a 4.5 Hz (default del tremolo) suonerebbe come un vibrato nervoso.
+// Rate e feedback suggeriti per tipo: quando si scorre con 'w' i parametri si
+// adeguano, altrimenti un flanger a 4.5 Hz suonerebbe come un vibrato nervoso.
 constexpr float kModDefaultRate[] = {4.5f, 0.0f, 1.0f, 0.5f, 0.8f};
+constexpr float kModDefaultFeedback[] = {0.0f, 0.0f, 0.0f, 0.35f, 0.20f};
+
+// Il wah non e' nella turnazione: si usa col pedale (o da preset / --wah).
+// Restare in elenco significava solo poterlo selezionare spento.
+constexpr int kModCycle[] = {0, 2, 3, 4};  // tremolo, univibe, flanger, phaser
+constexpr int kModCycleCount = static_cast<int>(sizeof(kModCycle) / sizeof(kModCycle[0]));
 
 constexpr const char* kDriveTypeNames[] = {"fuzz", "klon", "tubescreamer"};
 constexpr std::size_t kDriveTypeCount = sizeof(kDriveTypeNames) / sizeof(kDriveTypeNames[0]);
@@ -1279,26 +1285,23 @@ int main(int argc, char** argv) {
                         break;
                     }
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    int idx = mod_type_index(cfg.mod_type);
-                    idx = (idx + 1) % static_cast<int>(kModTypeCount);
-                    cfg.mod_type = kModTypeNames[idx];
-                    mod_ptr->set_type(mod_type_enum(idx));
-                    const bool is_wah = (cfg.mod_type == "wah");
-                    if (!is_wah) {
-                        cfg.mod_rate_hz = kModDefaultRate[idx];
-                        mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+                    // Si scorre solo fra gli effetti: il wah si usa dal pedale.
+                    const int cur = mod_type_index(cfg.mod_type);
+                    int next = kModCycle[0];
+                    for (int i = 0; i < kModCycleCount; ++i) {
+                        if (kModCycle[i] == cur) {
+                            next = kModCycle[(i + 1) % kModCycleCount];
+                            break;
+                        }
                     }
-                    if (is_wah && wah_armed && cfg.mod_on) {
-                        cfg.mod_on = false;
-                        chain.set_enabled(i_mod, false);
-                    }
-                    if (is_wah) {
-                        std::printf("  mod: %s%s\n", cfg.mod_type.c_str(),
-                                    wah_armed ? " (spento: lo accende il pedale)" : "");
-                    } else {
-                        std::printf("  mod: %s (rate %.1f Hz)\n", cfg.mod_type.c_str(),
-                                    cfg.mod_rate_hz);
-                    }
+                    cfg.mod_type = kModTypeNames[next];
+                    cfg.mod_rate_hz = kModDefaultRate[next];
+                    cfg.mod_feedback = kModDefaultFeedback[next];
+                    mod_ptr->set_type(mod_type_enum(next));
+                    mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+                    mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
+                    std::printf("  mod: %s (rate %.1f Hz)\n", cfg.mod_type.c_str(),
+                                cfg.mod_rate_hz);
                     std::fflush(stdout);
                     break;
                 }
