@@ -7,7 +7,9 @@ Wants=bluetooth.target
 User=pi
 Environment=NAMZERO_BLE_DEVICE=FootCtrl
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
-ExecStart=/home/pi/bin/ble-midi-bridge
+# Versione Python (default): bastano ~26 MB. La unit usa il venv perche' bleak
+# non e' nei pacchetti di sistema.
+ExecStart=/home/pi/ble-venv/bin/python /home/pi/namzero-lite/ble-bridge-py/main.py
 Restart=always
 RestartSec=3
 

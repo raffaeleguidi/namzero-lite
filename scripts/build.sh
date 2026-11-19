@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 
 BIN="build/namzero-lite"
 NAM_DIR="${NAM_DIR:-/home/pi/nam}"
-BRIDGE_BIN="${BRIDGE_BIN:-/home/pi/bin/ble-midi-bridge}"
+BRIDGE_RUN="$PWD/ble-bridge-py/run.sh"
 BRIDGE_WAS_RUNNING=0
 
 if pgrep -f "namzero-lite -p" >/dev/null 2>&1; then
@@ -25,9 +25,15 @@ if pgrep -f "namzero-lite -p" >/dev/null 2>&1; then
   exit 1
 fi
 
+if pgrep -f "ble-bridge-py/main.py" >/dev/null 2>&1; then
+  BRIDGE_WAS_RUNNING=1
+fi
 if pgrep -x ble-midi-bridge >/dev/null 2>&1; then
   BRIDGE_WAS_RUNNING=1
+fi
+if [ "$BRIDGE_WAS_RUNNING" = 1 ]; then
   echo "== fermo il bridge BLE (libera memoria per la build)"
+  pkill -f "ble-bridge-py/main.py" || true
   pkill -x ble-midi-bridge || true
   sleep 1
 fi
@@ -66,9 +72,9 @@ except OSError:
     print("   capability: ASSENTI")
 PY
 
-if [ "$BRIDGE_WAS_RUNNING" = 1 ] && [ -x "$BRIDGE_BIN" ]; then
-  echo "== riavvio il bridge BLE"
-  setsid nohup "$BRIDGE_BIN" >/tmp/ble.log 2>&1 </dev/null &
+if [ "$BRIDGE_WAS_RUNNING" = 1 ] && [ -x "$BRIDGE_RUN" ]; then
+  echo "== riavvio il bridge BLE (Python)"
+  setsid nohup "$BRIDGE_RUN" >/tmp/ble.log 2>&1 </dev/null &
   sleep 1
 fi
 
