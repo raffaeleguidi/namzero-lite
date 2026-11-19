@@ -232,6 +232,7 @@ void usage() {
         "\n"
         "Tasti durante l'esecuzione:\n"
         "  g gate | c comp | o overdrive | k modello drive | p modo delay\n"
+        "  + - volume ampli\n"
         "  m mod | w tipo mod | , . wah\n"
         "  d delay | t tap tempo | i ir | r reverb\n"
         "  s salva lo stato nel preset | q o Ctrl+C esce\n");
@@ -905,9 +906,11 @@ int main(int argc, char** argv) {
     chain.add(std::move(mod_slot));
 
     const std::size_t i_amp = chain.size();
+    namzero::NamSlot* amp_ptr = nullptr;
     const bool has_amp = cfg.amp_on && !cfg.amp_file.empty();
     if (has_amp) {
         auto amp = std::make_unique<namzero::NamSlot>();
+        amp_ptr = amp.get();
         if (!amp->load(cfg.amp_file, cfg.amp_slim, err)) {
             std::fprintf(stderr, "amp: %s\n", err.c_str());
             return 1;
@@ -1153,7 +1156,7 @@ int main(int argc, char** argv) {
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
-    std::printf("tasti: g gate | c comp | o overdrive | k modello drive | p modo delay\n"
+    std::printf("tasti: g gate | c comp | o overdrive | k modello drive | p modo delay | + - volume amp\n"
                 "        m mod | w tipo mod | , . wah\n"
                 "        d delay | t tap tempo | i ir | r reverb | s salva | q o Ctrl+C esci\n");
     std::fflush(stdout);
@@ -1261,7 +1264,7 @@ int main(int argc, char** argv) {
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
     std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, wah_armed,
-                           drive_ptr, i_gate, i_comp, i_drive, i_mod,
+                           drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
                            i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
         const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
@@ -1342,6 +1345,33 @@ int main(int argc, char** argv) {
                         delay_slot->set_mode(namzero::DelaySlot::Mode::kStereo);
                     }
                     std::printf("  delay: %s\n", cfg.delay_mode.c_str());
+                    std::fflush(stdout);
+                    break;
+                }
+                case '+':
+                case '=': {
+                    if (amp_ptr == nullptr) {
+                        std::printf("  amp: non presente in questo preset\n");
+                        std::fflush(stdout);
+                        break;
+                    }
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    cfg.amp_trim_db = cfg.amp_trim_db >= 24.0 ? 24.0 : cfg.amp_trim_db + 1.0;
+                    amp_ptr->set_trim_db(cfg.amp_trim_db);
+                    std::printf("  amp: %+.1f dB\n", cfg.amp_trim_db);
+                    std::fflush(stdout);
+                    break;
+                }
+                case '-': {
+                    if (amp_ptr == nullptr) {
+                        std::printf("  amp: non presente in questo preset\n");
+                        std::fflush(stdout);
+                        break;
+                    }
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    cfg.amp_trim_db = cfg.amp_trim_db <= -24.0 ? -24.0 : cfg.amp_trim_db - 1.0;
+                    amp_ptr->set_trim_db(cfg.amp_trim_db);
+                    std::printf("  amp: %+.1f dB\n", cfg.amp_trim_db);
                     std::fflush(stdout);
                     break;
                 }
