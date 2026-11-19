@@ -143,9 +143,10 @@ Default: silenzioso, parla solo se qualcosa non va.
 
 - **La mappa MIDI** sta in `config/midi.json` e vale per tutti i preset. Un
   blocco `"midi"` dentro un preset viene ignorato con un avviso.
-- **Il salvataggio con `s`** riscrive solo i campi `on` degli slot: nome, tipi,
-  parametri e chiavi sconosciute restano intatti. Non salva i cambi fatti dal
-  vivo che non sono on/off (modo del delay, tap tempo, tipo di drive/mod).
+- **Il salvataggio con `s`** riscrive i campi `on` degli slot e il volume
+  dell'ampli (`slots.amp.trim_db`, regolato con `+` e `-`): nome, tipi, altri
+  parametri e chiavi sconosciute restano intatti. Non salva gli altri cambi fatti
+  dal vivo (modo del delay, tap tempo, tipo di drive/mod).
 - **Il preset non si ricarica da solo**: vale quanto detto sopra, si legge
   all'avvio.
 

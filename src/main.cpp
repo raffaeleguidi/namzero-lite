@@ -414,8 +414,9 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
     return true;
 }
 
-// Riscrive il preset aggiornando solo gli stati on/off, preservando nome e
-// campi che non conosciamo: un salvataggio non deve distruggere il file.
+// Riscrive il preset aggiornando gli stati on/off e il volume dell'ampli (trim),
+// preservando nome e campi che non conosciamo: un salvataggio non deve
+// distruggere il file.
 bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     nlohmann::json j = nlohmann::json::object();
     {
@@ -438,6 +439,9 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     slots["drive"]["on"] = cfg.drive_on;
     slots["mod"]["on"] = cfg.mod_on;
     slots["amp"]["on"] = cfg.amp_on;
+    // Il trim si regola dal vivo con + e -: se non lo salvassimo, il volume
+    // tornerebbe quello del file a ogni riavvio.
+    slots["amp"]["trim_db"] = cfg.amp_trim_db;
     slots["ir"]["on"] = cfg.ir_on;
     slots["delay"]["on"] = cfg.delay_on;
     slots["reverb"]["on"] = cfg.reverb_on;
