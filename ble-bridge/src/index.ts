@@ -1,11 +1,18 @@
+import { setMaxListeners } from "node:events";
+
 import { runSession, sleep } from "./bluez";
 import { describeMessage } from "./ble_midi";
 import { MidiSocket } from "./socket";
 
 // Configurazione da ambiente: niente file da parsare per un processo cosi' piccolo.
-const device = process.env.NAMZERO_BLE_DEVICE ?? "Chocolate";
+const device = process.env.NAMZERO_BLE_DEVICE ?? "FootCtrl";
 const socketPath = process.env.NAMZERO_BLE_SOCKET ?? "/tmp/namzero-lite-ble.sock";
 const debug = process.env.NAMZERO_BLE_DEBUG === "1";
+
+// node-ble aggiunge un listener D-Bus per ogni device scoperto: con la
+// scansione continua si supera il limite di default e arriva un warning che
+// non indica un problema vero.
+setMaxListeners(0);
 
 function log(message: string): void {
   const now = new Date().toISOString().slice(11, 23);

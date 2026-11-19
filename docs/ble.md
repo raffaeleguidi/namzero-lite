@@ -45,7 +45,7 @@ Senza questo file il bridge riceve `AccessDenied` da D-Bus.
 
 3. **Il Chocolate in modalita' MIDI**: va impostata dall'app M-Vave. Nella
 modalita' giusta il dispositivo si annuncia via BLE con un nome che contiene
-"Chocolate"; il bridge lo cerca per nome (o per MAC, vedi sotto).
+"FootCtrl"; il bridge lo cerca per nome (o per MAC, vedi sotto).
 
 ## Compilare (dal Mac)
 
@@ -76,7 +76,7 @@ Variabili:
 
 | Variabile | Default | Note |
 |-----------|---------|------|
-| `NAMZERO_BLE_DEVICE` | `Chocolate` | parte del nome BLE **oppure** MAC (`AA:BB:...`) |
+| `NAMZERO_BLE_DEVICE` | `FootCtrl` | parte del nome BLE **oppure** MAC (`AA:BB:...`); il Chocolate si annuncia come `FootCtrl` |
 | `NAMZERO_BLE_SOCKET` | `/tmp/namzero-lite-ble.sock` | deve combaciare con `midi.ble.socket` in `config/midi.json` |
 | `NAMZERO_BLE_DEBUG` | `0` | `1` stampa ogni messaggio decodificato |
 
@@ -102,7 +102,7 @@ Wants=bluetooth.target
 
 [Service]
 User=pi
-Environment=NAMZERO_BLE_DEVICE=Chocolate
+Environment=NAMZERO_BLE_DEVICE=FootCtrl
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
 ExecStart=/home/pi/bin/ble-midi-bridge
 Restart=always
@@ -144,7 +144,7 @@ l'espressione, `midi.json` viene rifiutato all'avvio con un messaggio esplicito.
 |---------|-------|
 | `Resource Not Ready` | adattatore BT spento: `sudo hciconfig hci0 up` |
 | `AccessDenied` / `Not Authorized` | manca il file D-Bus di cui sopra |
-| `nessun dispositivo BLE con "Chocolate" nel nome` | dispositivo spento, non in modalita' MIDI, o gia' connesso a un altro host |
+| `nessun dispositivo BLE con "FootCtrl" nel nome` | dispositivo spento, non in modalita' MIDI, o gia' connesso a un altro host |
 | Connesso ma nessun messaggio | il Chocolate e' in modalita' HID/tastiera: va messo in MIDI dall'app |
 | Messaggi nel log ma gli effetti non cambiano | CC diversi da quelli in `mod_select`, o motore non in ascolto sulla stessa socket |
 
@@ -153,7 +153,7 @@ Verifica rapida del device:
 ```bash
 bluetoothctl
 [bluetooth]# power on
-[bluetooth]# scan on          # cerca "Chocolate"
+[bluetooth]# scan on          # cerca "FootCtrl"
 ```
 
 ## Perche' Bun e non Python

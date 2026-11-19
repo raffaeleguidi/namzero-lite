@@ -5,7 +5,7 @@ Wants=bluetooth.target
 
 [Service]
 User=pi
-Environment=NAMZERO_BLE_DEVICE=Chocolate
+Environment=NAMZERO_BLE_DEVICE=FootCtrl
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
 ExecStart=/home/pi/bin/ble-midi-bridge
 Restart=always
