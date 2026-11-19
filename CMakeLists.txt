@@ -27,6 +27,7 @@ add_executable(namzero-lite
   src/dsp/nam_slot.cpp
   src/control/midi.cpp
   src/control/midi_config.cpp
+  src/control/midi_socket.cpp
 )
 
 target_include_directories(namzero-lite PRIVATE src third_party ${ALSA_INCLUDE_DIRS})
@@ -92,6 +93,14 @@ add_test(NAME mod_fx COMMAND mod_fx_test)
 add_executable(wah_tone_test test/wah_tone_test.cpp)
 target_include_directories(wah_tone_test PRIVATE src)
 add_test(NAME wah_tone COMMAND wah_tone_test)
+
+add_executable(midi_parser_test test/midi_parser_test.cpp)
+target_include_directories(midi_parser_test PRIVATE src)
+add_test(NAME midi_parser COMMAND midi_parser_test)
+
+add_executable(midi_socket_test test/midi_socket_test.cpp src/control/midi_socket.cpp)
+target_include_directories(midi_socket_test PRIVATE src)
+add_test(NAME midi_socket COMMAND midi_socket_test)
 
 add_executable(midi_config_test test/midi_config_test.cpp src/control/midi_config.cpp)
 target_include_directories(midi_config_test PRIVATE src third_party)

@@ -61,6 +61,7 @@ Gli slot della catena, nell'ordine in cui vengono comandati:
 | `delay` | 11 | banco A (fs3) |
 | `reverb` | 24 | banco B |
 | espressione | 7 | pedale, banco A |
+| `mod_select` | 40/41/42/43 | **seleziona** tremolo/univibe/flanger/phaser (un tasto per effetto); non e' un CC di slot |
 
 I gruppi dell'XTONE cambiano **solo i numeri di CC**: A = 10/20/11, B = 22/24/25,
 C = 30/43/42. Con questa mappa i tre banchi coprono tutti gli slot tranne `amp`, che
@@ -77,6 +78,9 @@ rawmidi (hw:XTONE)
                        └── chain.set_enabled(slot, …)   atomico, crossfade 5 ms
 ```
 
+- Gli ingressi sono **due**: il rawmidi dell'XTONE e la socket del bridge BLE
+  (`midi.ble.socket`, vedi [ble.md](ble.md)). Il parser e' lo stesso, quindi il
+  comportamento non cambia da dove arriva il messaggio.
 - Il parser accetta anche **note, program change, pitch bend**: non servono per suonare,
   ma `--midi-log` li mostra. Prima il parser scartava tutto ciò che non era CC e un
   controller che mandava note sembrava muto.

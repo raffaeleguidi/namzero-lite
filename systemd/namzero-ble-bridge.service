@@ -1,0 +1,15 @@
+[Unit]
+Description=namzero-lite BLE MIDI bridge
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+User=pi
+Environment=NAMZERO_BLE_DEVICE=Chocolate
+Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
+ExecStart=/usr/local/bin/ble-midi-bridge
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

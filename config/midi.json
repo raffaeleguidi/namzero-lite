@@ -9,7 +9,7 @@
     "invert": false
   },
   "wah_autoengage": {
-    "threshold": 0.10,
+    "threshold": 0.1,
     "release_threshold": 0.05,
     "engage_ms": 100,
     "release_ms": 500,
@@ -24,5 +24,14 @@
     "ir": 30,
     "delay": 11,
     "reverb": 24
+  },
+  "mod_select": {
+    "tremolo": 40,
+    "univibe": 41,
+    "flanger": 42,
+    "phaser": 43
+  },
+  "ble": {
+    "socket": "/tmp/namzero-lite-ble.sock"
   }
 }

@@ -88,6 +88,47 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         get_bool(w, "invert", cfg.wah_invert);
     }
 
+    if (j.contains("ble")) {
+        const auto& ble = j["ble"];
+        if (!ble.is_object()) {
+            err = "midi.json: \"ble\" deve essere un oggetto";
+            return false;
+        }
+        if (ble.contains("socket") && ble["socket"].is_string()) {
+            cfg.ble_socket = ble["socket"].get<std::string>();
+        }
+    }
+
+    if (j.contains("mod_select")) {
+        const auto& ms = j["mod_select"];
+        if (!ms.is_object()) {
+            err = "midi.json: \"mod_select\" deve essere un oggetto {tipo: CC}";
+            return false;
+        }
+        for (auto it = ms.begin(); it != ms.end(); ++it) {
+            const int idx = mod_type_index(it.key());
+            if (idx < 0) {
+                err = "midi.json: tipo di modulazione sconosciuto \"" + it.key() +
+                      "\" (attesi: tremolo, univibe, flanger, phaser)";
+                return false;
+            }
+            if (idx == 1) {
+                err = "midi.json: il wah non si seleziona da footswitch, si usa dal pedale";
+                return false;
+            }
+            if (!it.value().is_number_integer()) {
+                err = "midi.json: il CC di \"" + it.key() + "\" deve essere un intero";
+                return false;
+            }
+            const int value = it.value().get<int>();
+            if (!in_cc_range(value)) {
+                err = "midi.json: il CC di \"" + it.key() + "\" deve stare fra 0 e 127";
+                return false;
+            }
+            cfg.mod_select_cc[static_cast<std::size_t>(idx)] = value;
+        }
+    }
+
     if (j.contains("cc")) {
         const auto& cc = j["cc"];
         if (!cc.is_object()) {
@@ -138,6 +179,30 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
                 err = std::string("midi.json: ") + midi_action_name(static_cast<MidiAction>(k)) +
                       " e " + midi_action_name(static_cast<MidiAction>(i)) +
                       " hanno lo stesso CC";
+                return false;
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < kModTypeCount; ++i) {
+        const int cc = cfg.mod_select_cc[i];
+        if (cc < 0) continue;
+        if (cc == cfg.expression_cc) {
+            err = std::string("midi.json: mod_select \"") + kModTypeNames[i] +
+                  "\" usa lo stesso CC dell'espressione";
+            return false;
+        }
+        for (std::size_t k = 0; k < kMidiActionCount; ++k) {
+            if (cfg.slot_cc[k] == cc) {
+                err = std::string("midi.json: mod_select \"") + kModTypeNames[i] +
+                      "\" usa lo stesso CC di " + midi_action_name(static_cast<MidiAction>(k));
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < i; ++k) {
+            if (cfg.mod_select_cc[k] == cc) {
+                err = std::string("midi.json: mod_select \"") + kModTypeNames[k] +
+                      "\" e \"" + kModTypeNames[i] + "\" hanno lo stesso CC";
                 return false;
             }
         }

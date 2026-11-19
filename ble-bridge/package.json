@@ -1,0 +1,14 @@
+{
+  "name": "namzero-ble-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "build": "bun build --compile --target=bun-linux-arm64 --external x11 src/index.ts --outfile dist/ble-midi-bridge"
+  },
+  "dependencies": {
+    "debug": "^4.4.3",
+    "node-ble": "^1.13.0"
+  }
+}

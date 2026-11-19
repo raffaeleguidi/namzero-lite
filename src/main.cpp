@@ -36,6 +36,8 @@
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
 #include "control/midi_config.h"
+#include "control/mod_types.h"
+#include "control/midi_socket.h"
 #include "control/switch_debounce.h"
 #include "control/wah_autoengage.h"
 #include "dsp/mod_slot.h"
@@ -127,8 +129,6 @@ struct Config {
 
 // Tipi di mod e drive in ordine di ciclo: la stessa tabella serve a validare
 // il preset, al tasto che li scorre e al ripristino dello stato del mod.
-constexpr const char* kModTypeNames[] = {"tremolo", "wah", "univibe", "flanger", "phaser"};
-constexpr std::size_t kModTypeCount = sizeof(kModTypeNames) / sizeof(kModTypeNames[0]);
 
 // Rate e feedback suggeriti per tipo: quando si scorre con 'w' i parametri si
 // adeguano, altrimenti un flanger a 4.5 Hz suonerebbe come un vibrato nervoso.
@@ -143,12 +143,6 @@ constexpr int kModCycleCount = static_cast<int>(sizeof(kModCycle) / sizeof(kModC
 constexpr const char* kDriveTypeNames[] = {"fuzz", "klon", "tubescreamer"};
 constexpr std::size_t kDriveTypeCount = sizeof(kDriveTypeNames) / sizeof(kDriveTypeNames[0]);
 
-int mod_type_index(const std::string& name) {
-    for (std::size_t i = 0; i < kModTypeCount; ++i) {
-        if (name == kModTypeNames[i]) return static_cast<int>(i);
-    }
-    return -1;
-}
 
 namzero::ModSlot::Type mod_type_enum(int idx) {
     switch (idx) {
@@ -806,7 +800,7 @@ int main(int argc, char** argv) {
                      cfg.drive_type.c_str());
         cfg.drive_type = "fuzz";
     }
-    if (mod_type_index(cfg.mod_type) < 0) {
+    if (namzero::mod_type_index(cfg.mod_type) < 0) {
         std::fprintf(stderr, "mod: tipo \"%s\" sconosciuto, uso tremolo\n",
                      cfg.mod_type.c_str());
         cfg.mod_type = "tremolo";
@@ -898,7 +892,7 @@ int main(int argc, char** argv) {
     auto mod_owner = std::make_unique<namzero::ModSlot>();
     namzero::ModSlot* mod_ptr = mod_owner.get();
     auto mod_slot = std::move(mod_owner);
-    mod_ptr->set_type(mod_type_enum(mod_type_index(cfg.mod_type)));
+    mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
     mod_slot->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
     mod_slot->set_depth(static_cast<float>(cfg.mod_depth));
     mod_ptr->set_position(static_cast<float>(cfg.mod_position));
@@ -1113,6 +1107,18 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
         }
     }
+    // Bridge BLE: il motore fa da server, il bridge si connette e scrive byte
+    // MIDI. Se la socket non si apre si prosegue: il pedale USB funziona lo stesso.
+    namzero::MidiSocket ble;
+    if (!midi_cfg.ble_socket.empty()) {
+        std::string berr;
+        if (ble.listen(midi_cfg.ble_socket, berr)) {
+            std::printf("midi: bridge BLE in ascolto su %s\n", midi_cfg.ble_socket.c_str());
+        } else {
+            std::fprintf(stderr, "midi: bridge BLE: %s (si prosegue senza)\n", berr.c_str());
+        }
+    }
+
     const bool wah_armed = midi.is_open();
 
     // Regola: il wah non parte mai acceso, lo accende solo il pedale. Se il
@@ -1160,6 +1166,13 @@ int main(int argc, char** argv) {
         const int cc = midi_cfg.slot_cc[i];
         if (cc >= 0) cc_action[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
     }
+    std::array<int8_t, 128> cc_mod_select{};
+    cc_mod_select.fill(-1);
+    for (std::size_t i = 0; i < namzero::kModTypeCount; ++i) {
+        const int cc = midi_cfg.mod_select_cc[i];
+        if (cc >= 0) cc_mod_select[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
+    }
+
     const std::array<std::size_t, namzero::kMidiActionCount> slot_index = {
         i_gate, i_comp, i_drive, i_mod, i_amp, i_ir, i_delay, i_reverb};
     std::array<bool*, namzero::kMidiActionCount> slot_flag = {
@@ -1378,7 +1391,7 @@ int main(int argc, char** argv) {
                     }
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     // Si scorre solo fra gli effetti: il wah si usa dal pedale.
-                    const int cur = mod_type_index(cfg.mod_type);
+                    const int cur = namzero::mod_type_index(cfg.mod_type);
                     int next = kModCycle[0];
                     for (int i = 0; i < kModCycleCount; ++i) {
                         if (kModCycle[i] == cur) {
@@ -1386,7 +1399,7 @@ int main(int argc, char** argv) {
                             break;
                         }
                     }
-                    cfg.mod_type = kModTypeNames[next];
+                    cfg.mod_type = namzero::kModTypeNames[next];
                     cfg.mod_rate_hz = kModDefaultRate[next];
                     cfg.mod_feedback = kModDefaultFeedback[next];
                     mod_ptr->set_type(mod_type_enum(next));
@@ -1441,7 +1454,7 @@ int main(int argc, char** argv) {
 
     // MIDI: assegnazioni fisse, uguali in ogni preset.
     std::thread midi_thread([&]() {
-        if (!midi.is_open()) return;
+        if (!midi.is_open() && !ble.is_open()) return;
 
         std::vector<namzero::MidiEvent> events;
         // I footswitch mandano 127 alla pressione e 0 al rilascio: conta il
@@ -1469,14 +1482,24 @@ int main(int argc, char** argv) {
         // ripristinare, cosi' le due strade non possono divergere.
         auto apply_mod = [&](const namzero::ModArbiter::State& st) {
             cfg.mod_on = st.on;
-            cfg.mod_type = kModTypeNames[static_cast<std::size_t>(st.type)];
+            cfg.mod_type = namzero::kModTypeNames[static_cast<std::size_t>(st.type)];
             if (mod_ptr != nullptr) mod_ptr->set_type(mod_type_enum(st.type));
             if (i_mod != kNoSlot) chain.set_enabled(i_mod, st.on);
         };
 
         while (g_running.load()) {
             events.clear();
-            midi.poll(2, events);
+            if (midi.is_open()) {
+                midi.poll(2, events);
+            }
+            if (ble.is_open()) {
+                ble.poll(events);
+            }
+            if (!midi.is_open() && events.empty()) {
+                // Solo BLE: senza il poll del rawmidi non c'e' attesa, quindi
+                // si dorme qui per non bruciare la CPU.
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
 
             const auto now = std::chrono::steady_clock::now();
             const double now_ms =
@@ -1518,6 +1541,27 @@ int main(int argc, char** argv) {
                 // Solo il fronte di salita e' una pressione: il rilascio non
                 // deve contare, altrimenti tenere premuto spegne subito il blocco.
                 if (!switches.pressed(e.cc, e.value, now_ms)) continue;
+
+                const int sel = cc_mod_select[e.cc];
+                if (sel >= 0) {
+                    // Un tasto = un effetto: seleziona il tipo e accende lo slot;
+                    // ripremere lo stesso tasto lo spegne.
+                    if (arbiter.engaged()) continue;  // il pedale tiene il wah
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    const bool same = (cfg.mod_type == namzero::kModTypeNames[sel] && cfg.mod_on);
+                    cfg.mod_type = namzero::kModTypeNames[sel];
+                    cfg.mod_rate_hz = kModDefaultRate[sel];
+                    cfg.mod_feedback = kModDefaultFeedback[sel];
+                    mod_ptr->set_type(mod_type_enum(sel));
+                    mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+                    mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
+                    cfg.mod_on = !same;
+                    if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                    std::printf("  mod: %s %s (CC%d)\n", cfg.mod_type.c_str(),
+                                cfg.mod_on ? "on" : "off", e.cc);
+                    std::fflush(stdout);
+                    continue;
+                }
 
                 const int action = cc_action[e.cc];
                 if (action < 0) continue;  // CC non mappato in midi.json
@@ -1581,7 +1625,7 @@ int main(int argc, char** argv) {
 
             if (transition == 1) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
-                arbiter.engage({cfg.mod_on, std::max(0, mod_type_index(cfg.mod_type))});
+                arbiter.engage({cfg.mod_on, std::max(0, namzero::mod_type_index(cfg.mod_type))});
                 apply_mod({true, 1});  // 1 = wah
                 wah_engaged.store(true);
                 std::printf("  wah: acceso dal pedale\n");

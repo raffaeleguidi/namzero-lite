@@ -22,3 +22,9 @@ compile_commands.json
 # archivi di IR
 irs/*.zip
 *.zip
+
+# bridge BLE (Bun)
+ble-bridge/node_modules/
+ble-bridge/dist/
+ble-bridge/.tmp/
+ble-bridge/.bun-cache/
