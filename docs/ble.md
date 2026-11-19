@@ -6,7 +6,7 @@ pacchetti BLE-MIDI e scrive i byte puliti su una socket Unix dove il motore e'
 in ascolto.
 
 ```
-Chocolate ──BLE──▶ bridge (Python/bleak) ──Unix socket──▶ namzero-lite
+Chocolate ──BLE──▶ bridge (Python/dbus-fast) ──Unix socket──▶ namzero-lite
                     ble-bridge-py/            /tmp/namzero-lite-ble.sock
 ```
 
@@ -14,7 +14,7 @@ Perche' cosi': BlueZ e D-Bus non sono realtime e possono bloccarsi; il motore
 non deve accorgersene. Se il bridge muore, il pedale USB (XTONE) continua a
 funzionare e il motore resta in piedi. Quando il bridge torna, si riconnette.
 
-**Versione di default: Python** (`ble-bridge-py/`, `bleak`). Misurata sul Pi:
+**Versione di default: Python** (`ble-bridge-py/`, `dbus-fast`). Misurata sul Pi:
 **~26 MB di RAM e ~0% di CPU a riposo**, contro 67 MB e 5,2% della versione Bun
 (`ble-bridge/`, tenuta come esperimento). Ogni MB conta su 415 MB con zram.
 
@@ -27,8 +27,9 @@ sudo hciconfig hci0 up          # oppure: bluetoothctl power on
 rfkill list                     # se e' bloccato: sudo rfkill unblock bluetooth
 ```
 
-2. **Il Chocolate in modalita' MIDI**: si imposta dall'app M-Vave. Il pedale si
-   annuncia come **`FootCtrl`**, quindi si cerca quello (o il MAC).
+2. **Il Chocolate in modalita' MIDI**: si imposta dall'app M-Vave. Serve il **MAC**
+   del pedale: da connesso (o assopito) non si annuncia, quindi non si cerca per
+   nome ma ci si connette direttamente all'indirizzo.
 
 3. **Accoppiare una volta** (senza bonding il pedale non espone il servizio MIDI:
    si connette, non risolve il GATT e il link cade):
@@ -66,7 +67,7 @@ Variabili:
 
 | Variabile | Default | Note |
 |-----------|---------|------|
-| `NAMZERO_BLE_DEVICE` | `FootCtrl` | parte del nome BLE **oppure** MAC (`AA:BB:...`) |
+| `NAMZERO_BLE_DEVICE` | `77:CD:E5:29:2A:4F` | **MAC** del pedale (obbligatorio: la ricerca per nome non funziona quando e' connesso) |
 | `NAMZERO_BLE_SOCKET` | `/tmp/namzero-lite-ble.sock` | deve combaciare con `midi.ble.socket` in `config/midi.json` |
 | `NAMZERO_BLE_DEBUG` | `0` | `1` stampa ogni messaggio decodificato |
 | `BLE_PYTHON` | `~/ble-venv/bin/python` | interprete usato da `run.sh` |
@@ -74,8 +75,8 @@ Variabili:
 Output atteso in debug:
 
 ```
-20:43:00.337 bridge BLE MIDI: cerco "FootCtrl", scrivo su /tmp/namzero-lite-ble.sock
-20:43:00.900 trovato "FootCtrl" (77:CD:E5:29:2A:4F)
+20:43:00.337 bridge BLE MIDI: cerco "77:CD:E5:29:2A:4F", scrivo su /tmp/namzero-lite-ble.sock
+20:43:00.900 connessione a 77:CD:E5:29:2A:4F
 20:43:01.226 connesso a 77:CD:E5:29:2A:4F
 20:43:01.227 notifiche BLE MIDI attive
 20:43:05.881 midi: cc ch1 32 0  [b0 20 00]
@@ -100,7 +101,7 @@ Wants=bluetooth.target
 
 [Service]
 User=pi
-Environment=NAMZERO_BLE_DEVICE=FootCtrl
+Environment=NAMZERO_BLE_DEVICE=77:CD:E5:29:2A:4F
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
 ExecStart=/home/pi/ble-venv/bin/python /home/pi/namzero-lite/ble-bridge-py/main.py
 Restart=always
@@ -142,7 +143,7 @@ lo comanda solo il pedale di espressione (auto-engage). Dettagli in
 |---------|-------|
 | `Resource Not Ready` | adattatore BT spento: `sudo hciconfig hci0 up` |
 | `AccessDenied` / `Not Authorized` | mancano i permessi D-Bus per l'utente |
-| `nessun dispositivo BLE con "FootCtrl"` | pedale spento, in sleep, o gia' connesso a un altro host (telefono) |
+| `BlueZ non conosce il MAC` | pedale mai accoppiato, o MAC sbagliato |
 | `il dispositivo non espone il servizio BLE MIDI` | e' in modalita' HID/tastiera, o non e' accoppiato |
 | Connesso ma nessun messaggio | il Chocolate e' in modalita' HID: va messo in MIDI dall'app |
 | Messaggi nel log ma gli effetti non cambiano | CC diversi da quelli in `midi.json`, o motore non in ascolto |

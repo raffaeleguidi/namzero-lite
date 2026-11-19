@@ -1,1 +1,1 @@
-bleak>=0.22
+dbus-fast>=2.0
