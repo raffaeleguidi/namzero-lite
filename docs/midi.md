@@ -90,6 +90,12 @@ Con la mappa attuale di `config/midi.json`:
 | B (blu) | comp | reverb | gate | **CC 4: non mappato** |
 | C (rosso) | ir | libero (43) | libero (42) | **CC 1: non mappato** |
 
+Il **gruppo blu** e' usato per la navigazione dei preset: **CC 22 = slot
+precedente, CC 24 = slot successivo, CC 25 = primo slot**. Per questo gate, comp
+e reverb non hanno piu' un CC (erano 25/22/24): restano comandabili da tastiera
+(`g`, `c`, `r`) e si possono rimappare, per esempio sui CC liberi 43/42 del
+gruppo rosso.
+
 Due conseguenze:
 
 - l'**espressione** (wah/volume) funziona solo nel gruppo A, perché in B e C il

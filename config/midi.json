@@ -16,14 +16,14 @@
     "invert": true
   },
   "cc": {
-    "gate": 25,
-    "comp": 22,
+    "gate": -1,
+    "comp": -1,
     "drive": 20,
     "mod": 10,
     "amp": 23,
     "ir": 30,
     "delay": 11,
-    "reverb": 24
+    "reverb": -1
   },
   "mod_select": {
     "tremolo": 32,

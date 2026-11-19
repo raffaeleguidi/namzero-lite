@@ -771,6 +771,9 @@ int main(int argc, char** argv) {
     std::string preset_path;
     std::string err;
     bool saw_flag = false;
+    // Slot in uso: serve alla navigazione (prec/succ) e viene tramandato al
+    // processo ri-eseguito con NAMZERO_SLOT.
+    std::atomic<int> current_slot{0};
 
     if (!parse_args(argc, argv, cfg, midi_cli, preset_path, saw_flag, err)) {
         std::fprintf(stderr, "errore: %s\n\n", err.c_str());
@@ -814,6 +817,10 @@ int main(int argc, char** argv) {
     };
 
 
+    {
+        const char* env_slot = std::getenv("NAMZERO_SLOT");
+        if (env_slot != nullptr) current_slot.store(std::atoi(env_slot));
+    }
     if (preset_path.empty() && have_presets) {
         const int slot = presets_cfg.start_slot >= 0 ? presets_cfg.start_slot : read_last_slot();
         const std::string file = slot_file(slot);
@@ -1416,6 +1423,7 @@ int main(int argc, char** argv) {
                 case '0': case '1': case '2': case '3': case '4':
                 case '5': case '6': case '7': case '8': case '9':
                     switch_slot.store(ch - '0');
+                    current_slot.store(ch - '0');
                     std::printf("  preset: slot %c\n", ch);
                     std::fflush(stdout);
                     break;
@@ -1672,9 +1680,27 @@ int main(int argc, char** argv) {
                     std::fflush(stdout);
                 }
 
+                // Gruppo blu dell'XTONE: navigazione preset. 22 = indietro,
+                // 24 = avanti, 25 = primo slot. I CC sono presi prima della
+                // mappa degli slot, cosi' non vengono interpretati due volte.
+                if (is_cc) {
+                    int target = -1;
+                    const int cur = current_slot.load();
+                    if (e.cc == 22) target = (cur + 9) % 10;
+                    else if (e.cc == 24) target = (cur + 1) % 10;
+                    else if (e.cc == 25) target = 0;
+                    if (target >= 0) {
+                        switch_slot.store(target);
+                        std::printf("  preset: slot %d (nav CC%d)\n", target, e.cc);
+                        std::fflush(stdout);
+                        continue;
+                    }
+                }
+
                 if ((e.status & 0xF0) == 0xC0) {
                     if (e.cc < 10) {
                         switch_slot.store(e.cc);
+                        current_slot.store(e.cc);
                         std::printf("  preset: slot %d (PC)\n", e.cc);
                         std::fflush(stdout);
                     }
@@ -1887,6 +1913,7 @@ int main(int argc, char** argv) {
         const std::string file = slot_file(wanted);
         if (!file.empty()) {
             write_last_slot(wanted);
+            setenv("NAMZERO_SLOT", std::to_string(wanted).c_str(), 1);
             std::printf("slot %d: %s\n", wanted, file.c_str());
             std::fflush(stdout);
             io.close();
