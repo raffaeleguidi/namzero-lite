@@ -17,6 +17,11 @@ void Chain::add(std::unique_ptr<Slot> slot) {
     entries_.push_back(std::move(entry));
 }
 
+void Chain::clear() {
+    entries_.clear();
+    dry_.clear();
+}
+
 void Chain::prepare(double sample_rate, std::size_t max_frames) {
     dry_.assign(max_frames * kChannels, 0.0f);
 

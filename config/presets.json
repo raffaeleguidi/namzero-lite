@@ -1,0 +1,20 @@
+{
+  "gate": {
+    "threshold_db": -70,
+    "attack_ms": 2,
+    "release_ms": 3000
+  },
+  "start_slot": -1,
+  "slots": [
+    "presets/vox_wah.json",
+    "presets/plexl.json",
+    "presets/toneking_lean.json",
+    "presets/toneking_crunch.json",
+    "presets/toneking_big.json",
+    "presets/vox_ac30_edge.json",
+    "presets/vox_ac30_klon.json",
+    "presets/vox_ac30_tremolo.json",
+    "presets/vox_delay.json",
+    null
+  ]
+}

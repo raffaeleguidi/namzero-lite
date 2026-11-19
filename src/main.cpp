@@ -39,6 +39,7 @@
 #include "control/delay_modes.h"
 #include "control/drive_types.h"
 #include "control/mod_types.h"
+#include "control/presets_config.h"
 #include "control/midi_socket.h"
 #include "control/switch_debounce.h"
 #include "control/wah_autoengage.h"
@@ -781,6 +782,47 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    // --- presets.json: gate globale e slot 0-9 -----------------------------
+    namzero::PresetsConfig presets_cfg;
+    bool have_presets = false;
+    {
+        std::ifstream in("config/presets.json");
+        if (in) {
+            if (!namzero::load_presets_config("config/presets.json", presets_cfg, err)) {
+                std::fprintf(stderr, "errore: %s\n", err.c_str());
+                return 2;
+            }
+            have_presets = true;
+        }
+    }
+    auto slot_file = [&](int slot) -> std::string {
+        if (!have_presets || slot < 0 || slot >= 10) return {};
+        const std::string& f = presets_cfg.slots[static_cast<std::size_t>(slot)];
+        if (f.empty()) return {};
+        return f[0] == '/' ? f : "config/" + f;
+    };
+    auto read_last_slot = [&]() -> int {
+        std::ifstream in("config/.last_slot");
+        int slot = 0;
+        if (in) in >> slot;
+        if (!have_presets || slot < 0 || slot >= 10) return 0;
+        return slot;
+    };
+    auto write_last_slot = [](int slot) {
+        std::ofstream out("config/.last_slot");
+        if (out) out << slot << "\n";
+    };
+
+
+    if (preset_path.empty() && have_presets) {
+        const int slot = presets_cfg.start_slot >= 0 ? presets_cfg.start_slot : read_last_slot();
+        const std::string file = slot_file(slot);
+        if (!file.empty()) {
+            preset_path = file;
+            std::printf("slot: %d -> %s\n", slot, preset_path.c_str());
+        }
+    }
+
     if (!preset_path.empty()) {
         // Preset e flag sono alternativi: mescolarli renderebbe ambiguo chi
         // vince, e i due percorsi divergerebbero in silenzio.
@@ -797,6 +839,11 @@ int main(int argc, char** argv) {
         from_file.midi_log = cfg.midi_log;
         from_file.print_config = cfg.print_config;
         cfg = from_file;
+        if (have_presets) {
+            cfg.gate_threshold_db = presets_cfg.gate.threshold_db;
+            cfg.gate_attack_ms = presets_cfg.gate.attack_ms;
+            cfg.gate_release_ms = presets_cfg.gate.release_ms;
+        }
         std::printf("preset: %s\n", preset_path.c_str());
     }
 
@@ -862,6 +909,9 @@ int main(int argc, char** argv) {
     const float base_master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
     std::atomic<float> master_gain{base_master};
     bool boost_on = false;
+    // Slot richiesto da tasto o Program Change: il loop audio esce e main
+    // ri-esegue il processo con il nuovo preset (buco ~300 ms).
+    std::atomic<int> switch_slot{-1};
 
     // Ordine della catena: gate -> comp -> drive -> amp -> ir -> reverb.
     // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
@@ -1313,7 +1363,7 @@ int main(int argc, char** argv) {
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
-    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, wah_armed,
+    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, wah_armed,
                            drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
                            i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
@@ -1363,6 +1413,12 @@ int main(int argc, char** argv) {
                 continue;
             }
             switch (ch) {
+                case '0': case '1': case '2': case '3': case '4':
+                case '5': case '6': case '7': case '8': case '9':
+                    switch_slot.store(ch - '0');
+                    std::printf("  preset: slot %c\n", ch);
+                    std::fflush(stdout);
+                    break;
                 case 'g': toggle("gate", i_gate, cfg.gate_on); break;
                 case 'c': toggle("comp", i_comp, cfg.comp_on); break;
                 case 'o': {
@@ -1616,6 +1672,15 @@ int main(int argc, char** argv) {
                     std::fflush(stdout);
                 }
 
+                if ((e.status & 0xF0) == 0xC0) {
+                    if (e.cc < 10) {
+                        switch_slot.store(e.cc);
+                        std::printf("  preset: slot %d (PC)\n", e.cc);
+                        std::fflush(stdout);
+                    }
+                    continue;
+                }
+
                 if (!is_cc || is_expr) continue;
 
                 // Solo il fronte di salita e' una pressione: il rilascio non
@@ -1767,6 +1832,16 @@ int main(int argc, char** argv) {
     });
 
     while (g_running.load()) {
+        const int pending = switch_slot.load();
+        if (pending >= 0) {
+            if (slot_file(pending).empty()) {
+                std::printf("  slot %d vuoto, resta il preset attuale\n", pending);
+                std::fflush(stdout);
+                switch_slot.store(-1);
+            } else {
+                break;
+            }
+        }
         const long n = io.read_i32(in_i32.data(), frames);
         if (n < 0) {
             if (io.recover(static_cast<int>(n), /*capture_side=*/true)) {
@@ -1803,6 +1878,24 @@ int main(int argc, char** argv) {
         }
 
         stats.blocks.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Cambio preset: si ri-esegue il processo con -p. Il device viene chiuso
+    // prima, cosi' il nuovo processo lo trova libero.
+    const int wanted = switch_slot.load();
+    if (wanted >= 0 && g_running.load()) {
+        const std::string file = slot_file(wanted);
+        if (!file.empty()) {
+            write_last_slot(wanted);
+            std::printf("slot %d: %s\n", wanted, file.c_str());
+            std::fflush(stdout);
+            io.close();
+            const std::string exe = "/proc/self/exe";
+            char* args[] = {argv[0], const_cast<char*>("-p"), const_cast<char*>(file.c_str()),
+                            nullptr};
+            execv(exe.c_str(), args);
+            std::perror("execv");
+        }
     }
 
     g_running.store(false);

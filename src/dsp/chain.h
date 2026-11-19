@@ -16,6 +16,10 @@ class Chain {
 public:
     void add(std::unique_ptr<Slot> slot);
 
+    // Svuota la catena (cambio preset: si ricostruisce in place, cosi' i
+    // riferimenti dei thread di controllo restano validi).
+    void clear();
+
     void prepare(double sample_rate, std::size_t max_frames);
 
     // Chiamabili dal thread di controllo; il thread audio legge atomici.

@@ -28,6 +28,7 @@ add_executable(namzero-lite
   src/control/midi.cpp
   src/control/midi_config.cpp
   src/control/midi_socket.cpp
+  src/control/presets_config.cpp
 )
 
 target_include_directories(namzero-lite PRIVATE src third_party ${ALSA_INCLUDE_DIRS})

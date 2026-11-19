@@ -10,10 +10,7 @@
   },
   "slots": {
     "gate": {
-      "on": true,
-      "threshold_db": -78,
-      "attack_ms": 2,
-      "release_ms": 10000
+      "on": true
     },
     "comp": {
       "on": false,

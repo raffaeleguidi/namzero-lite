@@ -70,6 +70,37 @@ I gruppi dell'XTONE cambiano **solo i numeri di CC**: A = 10/20/11, B = 22/24/25
 C = 30/43/42. Con questa mappa i tre banchi coprono tutti gli slot tranne `amp`, che
 non è assegnato dall'XTONE (il CC 23 è libero per un controller esterno).
 
+
+### XTONE: i tre gruppi (A verde, B blu, C rosso)
+
+L'XTONE cambia i CC che manda a seconda del gruppo selezionato:
+
+| | A (verde) | B (blu) | C (rosso) |
+|---|---|---|---|
+| FS A | CC 10 | CC 22 | CC 30 |
+| FS B | CC 20 | CC 24 | CC 43 |
+| FS C | CC 11 | CC 25 | CC 42 |
+| EXP | CC 7 | CC 4 | CC 1 |
+
+Con la mappa attuale di `config/midi.json`:
+
+| Gruppo | FS A | FS B | FS C | EXP |
+|---|---|---|---|---|
+| A (verde) | mod | drive | delay | espressione ✔ |
+| B (blu) | comp | reverb | gate | **CC 4: non mappato** |
+| C (rosso) | ir | libero (43) | libero (42) | **CC 1: non mappato** |
+
+Due conseguenze:
+
+- l'**espressione** (wah/volume) funziona solo nel gruppo A, perché in B e C il
+  pedale manda CC 4 e CC 1: per usarla ovunque servono tre CC di espressione
+  (modifica da fare se serve);
+- i gruppi B e C hanno CC liberi (43, 42) e CC gia' usati: sono i candidati per
+  la navigazione dei preset, se non si vuole usare il Program Change.
+
+I tre gruppi sono la base su cui decidere la mappa: A per gli stomp, B/C per la
+navigazione, oppure PC per i preset e CC per gli stomp.
+
 ### Radio button: `mod_select`, `drive_select`, `delay_select`
 
 Le tre mappe funzionano tutte allo stesso modo:

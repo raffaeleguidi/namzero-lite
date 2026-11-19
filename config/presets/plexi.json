@@ -10,10 +10,7 @@
   },
   "slots": {
     "gate": {
-      "on": true,
-      "threshold_db": -55.0,
-      "attack_ms": 2.0,
-      "release_ms": 120.0
+      "on": true
     },
     "comp": {
       "on": true,
@@ -26,7 +23,7 @@
     "drive": {
       "on": false,
       "type": "fuzz",
-      "blend": 0.40,
+      "blend": 0.4,
       "amount": 0.15,
       "tone": 0.5,
       "level_db": 0.0
