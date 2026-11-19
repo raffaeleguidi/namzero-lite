@@ -43,9 +43,25 @@ sudo systemctl restart dbus
 
 Senza questo file il bridge riceve `AccessDenied` da D-Bus.
 
-3. **Il Chocolate in modalita' MIDI**: va impostata dall'app M-Vave. Nella
-modalita' giusta il dispositivo si annuncia via BLE con un nome che contiene
-"FootCtrl"; il bridge lo cerca per nome (o per MAC, vedi sotto).
+3. **Il Chocolate in modalita' MIDI**: va impostata dall'app M-Vave. Il pedale si
+annuncia come **`FootCtrl`**, quindi si cerca quello (o il MAC).
+
+4. **Accoppiare una volta** (senza bonding il pedale non espone il servizio MIDI:
+   si connette, non risolve il GATT e il link cade):
+
+```bash
+bluetoothctl
+[bluetooth]# agent NoInputNoOutput
+[bluetooth]# default-agent
+[bluetooth]# scan on                 # attendere che compaia FootCtrl
+[bluetooth]# pair 77:CD:E5:29:2A:4F
+[bluetooth]# trust 77:CD:E5:29:2A:4F
+[bluetooth]# quit
+```
+
+Dopo il pairing, `bluetoothctl info` mostra `Paired: yes` e tra gli UUID compare
+`03b80e5a-ede8-4b33-a751-6ce34ec4c700` (BLE MIDI). Il MAC va sostituito con
+quello del proprio pedale.
 
 ## Compilare (dal Mac)
 
@@ -123,11 +139,11 @@ la sessione BLE finisce e il ciclo esterno riprova dopo 2 s.
 
 ## Mappare i tasti (un tasto = un effetto)
 
-I CC che il Chocolate manda si configurano dall'app M-Vave (consiglio:
-`CC 40/41/42/43`, uno per tasto). Poi in `config/midi.json`:
+Il Chocolate configurato con l'app M-Vave manda, di default, **CC 32/33/34/35**
+(uno per tasto, un solo messaggio per pressione con valore 0). In `config/midi.json`:
 
 ```json
-"mod_select": { "tremolo": 40, "univibe": 41, "flanger": 42, "phaser": 43 }
+"mod_select": { "tremolo": 32, "univibe": 33, "flanger": 34, "phaser": 35 }
 ```
 
 Comportamento: il primo tasto accende quell'effetto (e spegne il precedente,
@@ -143,6 +159,7 @@ l'espressione, `midi.json` viene rifiutato all'avvio con un messaggio esplicito.
 | Sintomo | Causa |
 |---------|-------|
 | `Resource Not Ready` | adattatore BT spento: `sudo hciconfig hci0 up` |
+| `gatt: nessuna risposta` / link che cade subito | pedale non accoppiato: `pair` + `trust` come sopra |
 | `AccessDenied` / `Not Authorized` | manca il file D-Bus di cui sopra |
 | `nessun dispositivo BLE con "FootCtrl" nel nome` | dispositivo spento, non in modalita' MIDI, o gia' connesso a un altro host |
 | Connesso ma nessun messaggio | il Chocolate e' in modalita' HID/tastiera: va messo in MIDI dall'app |

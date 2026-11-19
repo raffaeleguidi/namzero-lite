@@ -26,10 +26,10 @@
     "reverb": 24
   },
   "mod_select": {
-    "tremolo": 40,
-    "univibe": 41,
-    "flanger": 42,
-    "phaser": 43
+    "tremolo": 32,
+    "univibe": 33,
+    "flanger": 34,
+    "phaser": 35
   },
   "ble": {
     "socket": "/tmp/namzero-lite-ble.sock"
