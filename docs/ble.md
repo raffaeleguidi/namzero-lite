@@ -56,19 +56,20 @@ bun run build          # bun build --compile --target=bun-linux-arm64
 ```
 
 Produce `dist/ble-midi-bridge`, un binario aarch64 con il runtime Bun dentro
-(~95 MB). Si copia sul Pi:
+(~95 MB). Si copia sul Pi in `~/bin` (niente sudo):
 
 ```bash
-scp dist/ble-midi-bridge pi@namzero-lite:/usr/local/bin/
-ssh pi@namzero-lite 'sudo chmod +x /usr/local/bin/ble-midi-bridge'
+scp dist/ble-midi-bridge pi@namzero-lite:~/bin/
+ssh pi@namzero-lite 'chmod +x ~/bin/ble-midi-bridge'
 ```
 
-Non serve Bun sul Pi: il binario e' autosufficiente.
+Non serve Bun sul Pi: il binario e' autosufficiente. Se lo vuoi in
+`/usr/local/bin` serve `sudo mv` (e la unit va aggiornata).
 
 ## Avviare
 
 ```bash
-NAMZERO_BLE_DEBUG=1 /usr/local/bin/ble-midi-bridge
+NAMZERO_BLE_DEBUG=1 ~/bin/ble-midi-bridge
 ```
 
 Variabili:
@@ -103,7 +104,7 @@ Wants=bluetooth.target
 User=pi
 Environment=NAMZERO_BLE_DEVICE=Chocolate
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
-ExecStart=/usr/local/bin/ble-midi-bridge
+ExecStart=/home/pi/bin/ble-midi-bridge
 Restart=always
 RestartSec=3
 
