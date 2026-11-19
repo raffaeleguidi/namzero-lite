@@ -70,6 +70,18 @@ I gruppi dell'XTONE cambiano **solo i numeri di CC**: A = 10/20/11, B = 22/24/25
 C = 30/43/42. Con questa mappa i tre banchi coprono tutti gli slot tranne `amp`, che
 non è assegnato dall'XTONE (il CC 23 è libero per un controller esterno).
 
+### Radio button: `mod_select`, `drive_select`, `delay_select`
+
+Le tre mappe funzionano tutte allo stesso modo:
+
+- slot **spento** + tasto → si accende con quella scelta;
+- slot **acceso con un'altra scelta** + tasto → passa a quella (mutuamente esclusivi);
+- slot **acceso proprio con quella scelta** + tasto → si spegne.
+
+In pratica sono gruppi di radio button con la possibilità di tornare a "nessuno".
+Ogni selezione imposta anche i parametri suggeriti del tipo (rate/feedback per le
+modulazioni), così il tasto produce subito un suono sensato.
+
 ## 3. Dai byte rawmidi allo slot
 
 ```

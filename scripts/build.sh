@@ -1,31 +1,77 @@
 #!/usr/bin/env bash
-# Build sul Pi + capability per girare senza sudo.
+# Build + tuning del motore sul Pi, da ripetere dopo ogni modifica.
 #
-# Girare senza root e' preferibile: il processo non ha privilegi generali, solo
-# i due che servono (priorita' FIFO e blocco della memoria).
+# Fa, in ordine:
+#   1. controlla che il motore non sia in esecuzione (ETXTBSY e contesa CPU)
+#   2. ferma il bridge BLE: libera ~67 MB e la build non finisce in swap
+#   3. compila con UN job (415 MB di RAM: -j2 fa uccidere cc1plus dall'OOM)
+#   4. lancia i test
+#   5. applica le capability: SCHED_FIFO + mlockall senza essere root
+#   6. mette il governor della CPU su performance
+#   7. riavvia il bridge se era acceso
+#
+# Uso:  ./scripts/build.sh            (chiede la password per sudo)
+#       JOBS=2 ./scripts/build.sh     (solo se la macchina e' libera)
 set -euo pipefail
-
 cd "$(dirname "$0")/.."
 
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-# Un job solo: su Zero 2W (415 MB) due traduzioni pesanti in parallelo, con
-# json.hpp di mezzo, fanno terminare cc1plus dal kernel per memoria esaurita.
-# Con JOBS=2 si puo' forzare, se la macchina e' libera.
+BIN="build/namzero-lite"
+NAM_DIR="${NAM_DIR:-/home/pi/nam}"
+BRIDGE_BIN="${BRIDGE_BIN:-/home/pi/bin/ble-midi-bridge}"
+BRIDGE_WAS_RUNNING=0
+
+if pgrep -f "namzero-lite -p" >/dev/null 2>&1; then
+  echo "errore: il motore e' gia' in esecuzione. Fermalo (q o Ctrl+C) prima di compilare." >&2
+  exit 1
+fi
+
+if pgrep -x ble-midi-bridge >/dev/null 2>&1; then
+  BRIDGE_WAS_RUNNING=1
+  echo "== fermo il bridge BLE (libera memoria per la build)"
+  pkill -x ble-midi-bridge || true
+  sleep 1
+fi
+
+echo "== memoria disponibile"
+free -m | head -2
+
+echo "== configure"
+cmake -B build -DCMAKE_BUILD_TYPE=Release ${NAM_DIR:+-DNAM_DIR="$NAM_DIR"}
+
+echo "== build (-j${JOBS:-1})"
 cmake --build build -j"${JOBS:-1}"
 
-BIN="build/namzero-lite"
+echo "== test"
+(cd build && ctest --output-on-failure)
 
-# setcap e' idempotente: si riapplica dopo ogni build, perche' un eseguibile
-# ricompilato perde le capability.
-echo "applico le capability a $BIN"
-sudo /usr/sbin/setcap cap_sys_nice,cap_ipc_lock+ep "$BIN"
+echo "== capability (realtime + mlockall)"
+sudo setcap cap_sys_nice,cap_ipc_lock+ep "$BIN"
 
-# getcap sta in libcap2-bin, che non e' sempre installato: verifica via xattr.
-python3 - "$BIN" <<'PYEOF'
-import os, sys
+echo "== governor performance"
+sudo sh -c 'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$f"; done'
+
+echo "== verifica"
+for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+  printf "   %s -> %s\n" "$f" "$(cat "$f")"
+done
+python3 - "$BIN" <<'PY'
+import os
+import sys
+
 path = sys.argv[1]
-raw = os.getxattr(path, "security.capability")
-print("security.capability:", raw.hex())
-PYEOF
+try:
+    caps = os.getxattr(path, "security.capability")
+    print(f"   capability: {caps.hex()}")
+except OSError:
+    print("   capability: ASSENTI")
+PY
 
-echo "eseguibile pronto: ./$BIN"
+if [ "$BRIDGE_WAS_RUNNING" = 1 ] && [ -x "$BRIDGE_BIN" ]; then
+  echo "== riavvio il bridge BLE"
+  setsid nohup "$BRIDGE_BIN" >/tmp/ble.log 2>&1 </dev/null &
+  sleep 1
+fi
+
+echo
+echo "pronto. Esempio:"
+echo "   ./$BIN -p config/presets/vox_wah.json"

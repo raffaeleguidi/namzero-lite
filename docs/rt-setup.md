@@ -136,6 +136,26 @@ config vanno tenuti su una partizione separata o sincronizzati a mano.
 | device non trovato | `aplay -l`, numero di scheda cambiato |
 | MIDI assente | `amidi -l`, `aconnect -l`, cavo OTG |
 
+### Dopo ogni build: `scripts/build.sh`
+
+Tutte le operazioni che servono a ogni ricompilazione stanno in un comando solo
+(da lanciare **dalla console**, chiede la password per sudo):
+
+```bash
+./scripts/build.sh
+```
+
+Lo script:
+
+1. si rifiuta di compilare se il motore è in esecuzione (`ETXTBSY` e contesa CPU);
+2. ferma il bridge BLE (~67 MB liberati: con 415 MB la build finirebbe in swap);
+3. compila con **un job** (`-j2` fa uccidere `cc1plus` dall'OOM);
+4. lancia i test;
+5. riapplica le capability `cap_sys_nice,cap_ipc_lock` (un eseguibile ricompilato
+   le perde: senza, niente SCHED_FIFO né `mlockall`);
+6. mette il governor su `performance`;
+7. riavvia il bridge se era acceso e stampa la verifica di capability e governor.
+
 Se gli xrun restano, in ordine di efficacia:
 
 1. `sudo setcap cap_sys_nice,cap_ipc_lock+ep build/namzero-lite` (RT + memoria

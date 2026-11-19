@@ -22,6 +22,9 @@ sulla mappa fissa dei CC, non sul learn.
 - Mod: tremolo, univibe, flanger, phaser (ciclabili con `w`) e wah; il wah è spento
   finché non lo accende il pedale (auto-engage)
 - Delay con tre modi (stereo, ping-pong, ping-pong stereo), ciclabili con `p`
+- Tasti `+`/`-` per il volume dell'ampli; boost di volume a fine catena via MIDI
+- Selezioni radio via CC per modulazioni, drive e delay (un tasto per scelta,
+  ripremendo lo stesso si spegne)
 - Preset JSON (`-p`) e salvataggio dello stato con `s`
 - MIDI da XTONE: mappa in [config/midi.json](config/midi.json) — CC di ogni slot,
   espressione e auto-engage — uguale per tutti i preset, modificabile senza ricompilare
