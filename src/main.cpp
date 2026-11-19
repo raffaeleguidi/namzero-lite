@@ -826,6 +826,7 @@ int main(int argc, char** argv) {
         const std::string file = slot_file(slot);
         if (!file.empty()) {
             preset_path = file;
+            current_slot.store(slot);
             std::printf("slot: %d -> %s\n", slot, preset_path.c_str());
         }
     }
@@ -1127,7 +1128,7 @@ int main(int argc, char** argv) {
 
     // Istanza singola: il device audio e' esclusivo, e un residuo in background
     // fa fallire l'avvio con un "device busy" che sembra un problema di config.
-    const int lock_fd = ::open("/tmp/namzero-lite.lock", O_CREAT | O_RDWR, 0666);
+    const int lock_fd = ::open("/tmp/namzero-lite.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0666);
     if (lock_fd >= 0 && ::flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
         // Il PID nel file dice chi tiene il device: senza, l'unica via e' pkill.
         char buf[32] = {0};

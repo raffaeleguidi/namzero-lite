@@ -7,7 +7,7 @@
   "start_slot": -1,
   "slots": [
     "presets/vox_wah.json",
-    "presets/plexl.json",
+    "presets/plexi.json",
     "presets/toneking_lean.json",
     "presets/toneking_crunch.json",
     "presets/toneking_big.json",
