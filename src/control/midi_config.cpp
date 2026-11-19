@@ -155,6 +155,16 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         }
     }
 
+    if (j.contains("boost")) {
+        const auto& b = j["boost"];
+        if (!b.is_object()) {
+            err = "midi.json: \"boost\" deve essere un oggetto {cc, percent}";
+            return false;
+        }
+        if (!get_int(b, "cc", cfg.boost_cc, err)) return false;
+        if (!get_num(b, "percent", cfg.boost_percent, err)) return false;
+    }
+
     if (j.contains("cc")) {
         const auto& cc = j["cc"];
         if (!cc.is_object()) {
@@ -260,6 +270,42 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             if (cfg.drive_select_cc[k] == cc) {
                 err = std::string("midi.json: drive_select \"") + kDriveTypeNames[k] +
                       "\" e \"" + kDriveTypeNames[i] + "\" hanno lo stesso CC";
+                return false;
+            }
+        }
+    }
+
+    if (cfg.boost_cc >= 0) {
+        if (!in_cc_range(cfg.boost_cc)) {
+            err = "midi.json: boost.cc deve stare fra 0 e 127";
+            return false;
+        }
+        if (cfg.boost_percent < 0.0 || cfg.boost_percent > 200.0) {
+            err = "midi.json: boost.percent deve stare fra 0 e 200";
+            return false;
+        }
+        if (cfg.boost_cc == cfg.expression_cc) {
+            err = "midi.json: boost usa lo stesso CC dell'espressione";
+            return false;
+        }
+        for (std::size_t k = 0; k < kMidiActionCount; ++k) {
+            if (cfg.slot_cc[k] == cfg.boost_cc) {
+                err = std::string("midi.json: boost usa lo stesso CC di ") +
+                      midi_action_name(static_cast<MidiAction>(k));
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < kModTypeCount; ++k) {
+            if (cfg.mod_select_cc[k] == cfg.boost_cc) {
+                err = std::string("midi.json: boost usa lo stesso CC di mod_select \"") +
+                      kModTypeNames[k] + "\"";
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < kDriveTypeCount; ++k) {
+            if (cfg.drive_select_cc[k] == cfg.boost_cc) {
+                err = std::string("midi.json: boost usa lo stesso CC di drive_select \"") +
+                      kDriveTypeNames[k] + "\"";
                 return false;
             }
         }

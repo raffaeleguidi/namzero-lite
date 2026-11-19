@@ -839,6 +839,12 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN);
 
+    // Boost di fine catena: il gain master vive in un atomico perche' il thread
+    // MIDI lo cambia e il thread audio lo legge a ogni blocco.
+    const float base_master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
+    std::atomic<float> master_gain{base_master};
+    bool boost_on = false;
+
     // Ordine della catena: gate -> comp -> drive -> amp -> ir -> reverb.
     // Gli indici si memorizzano man mano: gli slot opzionali sposterebbero gli altri.
     namzero::Chain chain;
@@ -1098,6 +1104,10 @@ int main(int argc, char** argv) {
                                 namzero::midi_action_name(static_cast<namzero::MidiAction>(i)),
                                 cc);
                 }
+            }
+            if (midi_cfg.boost_cc >= 0) {
+                std::printf("  %-6s CC%d (+%.0f%%)\n", "boost", midi_cfg.boost_cc,
+                            midi_cfg.boost_percent);
             }
         } else {
             std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
@@ -1572,6 +1582,22 @@ int main(int argc, char** argv) {
                 // deve contare, altrimenti tenere premuto spegne subito il blocco.
                 if (!switches.pressed(e.cc, e.value, now_ms)) continue;
 
+                if (midi_cfg.boost_cc >= 0 && e.cc == midi_cfg.boost_cc) {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    boost_on = !boost_on;
+                    const float boost =
+                        boost_on ? 1.0f + static_cast<float>(midi_cfg.boost_percent) / 100.0f
+                                 : 1.0f;
+                    master_gain.store(base_master * boost, std::memory_order_relaxed);
+                    if (boost_on) {
+                        std::printf("  boost: on (+%.0f%%)\n", midi_cfg.boost_percent);
+                    } else {
+                        std::printf("  boost: off\n");
+                    }
+                    std::fflush(stdout);
+                    continue;
+                }
+
                 const int dsel = cc_drive_select[e.cc];
                 if (dsel >= 0) {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -1685,8 +1711,6 @@ int main(int argc, char** argv) {
         }
     });
 
-    const float master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
-
     while (g_running.load()) {
         const long n = io.read_i32(in_i32.data(), frames);
         if (n < 0) {
@@ -1706,7 +1730,7 @@ int main(int argc, char** argv) {
         clock_gettime(CLOCK_MONOTONIC, &t0);
         chain.process(buf.data(), frames);
         for (std::size_t i = 0; i < samples; ++i) {
-            buf[i] = soft_clip(buf[i] * master);
+            buf[i] = soft_clip(buf[i] * master_gain.load(std::memory_order_relaxed));
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
         store_max(stats.max_us, elapsed_us(t0, t1));

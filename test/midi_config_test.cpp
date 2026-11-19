@@ -78,6 +78,16 @@ int main() {
         CHECK(c.drive_select_cc[2] == 38);
     }
 
+    // Boost di fine catena.
+    {
+        const auto j = nlohmann::json::parse(R"({ "boost": { "cc": 44, "percent": 30 } })");
+        namzero::MidiConfig c;
+        std::string err;
+        CHECK(namzero::parse_midi_config(j, c, err));
+        CHECK(c.boost_cc == 44);
+        CHECK(c.boost_percent == 30.0);
+    }
+
     // -1 toglie un binding.
     {
         const auto j = nlohmann::json::parse(R"({ "cc": { "mod": -1, "drive": -1, "delay": -1 } })");
@@ -98,6 +108,9 @@ int main() {
     CHECK(rejects(R"({ "drive_select": { "fuzz": 10 } })"));               // collide col mod di default
     CHECK(rejects(R"({ "drive_select": { "fuzz": 36, "klon": 36 } })"));   // doppio
     CHECK(rejects(R"({ "drive_select": { "fuzz": 32 }, "mod_select": { "tremolo": 32 } })"));
+    CHECK(rejects(R"({ "boost": { "cc": 200 } })"));                        // fuori range
+    CHECK(rejects(R"({ "boost": { "cc": 44, "percent": 500 } })"));         // boost assurdo
+    CHECK(rejects(R"({ "boost": { "cc": 10 } })"));                         // collide col mod
     CHECK(rejects(R"({ "expression": { "cc": -1 } })"));                   // espressione fuori range
     CHECK(rejects(R"([1, 2, 3])"));                                        // radice non oggetto
 

@@ -38,5 +38,9 @@
     "fuzz": 36,
     "klon": 37,
     "tubescreamer": 38
+  },
+  "boost": {
+    "cc": 44,
+    "percent": 20
   }
 }

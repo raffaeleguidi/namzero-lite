@@ -74,6 +74,11 @@ struct MidiConfig {
     // Stessa cosa per il drive: un tasto per modello.
     std::array<int, kDriveTypeCount> drive_select_cc = {-1, -1, -1};
 
+    // Boost di volume a fine catena, comandato da un CC: percentuale sul gain
+    // master (es. 20 = +20%). cc < 0 = disattivato.
+    int boost_cc = -1;
+    double boost_percent = 20.0;
+
     // Percorso della socket del bridge BLE; vuoto = nessun bridge.
     std::string ble_socket;
 };
