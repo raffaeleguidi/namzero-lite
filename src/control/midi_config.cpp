@@ -129,6 +129,32 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         }
     }
 
+    if (j.contains("drive_select")) {
+        const auto& ds = j["drive_select"];
+        if (!ds.is_object()) {
+            err = "midi.json: \"drive_select\" deve essere un oggetto {tipo: CC}";
+            return false;
+        }
+        for (auto it = ds.begin(); it != ds.end(); ++it) {
+            const int idx = drive_type_index(it.key());
+            if (idx < 0) {
+                err = "midi.json: tipo di drive sconosciuto \"" + it.key() +
+                      "\" (attesi: fuzz, klon, tubescreamer)";
+                return false;
+            }
+            if (!it.value().is_number_integer()) {
+                err = "midi.json: il CC di \"" + it.key() + "\" deve essere un intero";
+                return false;
+            }
+            const int value = it.value().get<int>();
+            if (!in_cc_range(value)) {
+                err = "midi.json: il CC di \"" + it.key() + "\" deve stare fra 0 e 127";
+                return false;
+            }
+            cfg.drive_select_cc[static_cast<std::size_t>(idx)] = value;
+        }
+    }
+
     if (j.contains("cc")) {
         const auto& cc = j["cc"];
         if (!cc.is_object()) {
@@ -203,6 +229,37 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             if (cfg.mod_select_cc[k] == cc) {
                 err = std::string("midi.json: mod_select \"") + kModTypeNames[k] +
                       "\" e \"" + kModTypeNames[i] + "\" hanno lo stesso CC";
+                return false;
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < kDriveTypeCount; ++i) {
+        const int cc = cfg.drive_select_cc[i];
+        if (cc < 0) continue;
+        if (cc == cfg.expression_cc) {
+            err = std::string("midi.json: drive_select \"") + kDriveTypeNames[i] +
+                  "\" usa lo stesso CC dell'espressione";
+            return false;
+        }
+        for (std::size_t k = 0; k < kMidiActionCount; ++k) {
+            if (cfg.slot_cc[k] == cc) {
+                err = std::string("midi.json: drive_select \"") + kDriveTypeNames[i] +
+                      "\" usa lo stesso CC di " + midi_action_name(static_cast<MidiAction>(k));
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < kModTypeCount; ++k) {
+            if (cfg.mod_select_cc[k] == cc) {
+                err = std::string("midi.json: drive_select \"") + kDriveTypeNames[i] +
+                      "\" usa lo stesso CC di mod_select \"" + kModTypeNames[k] + "\"";
+                return false;
+            }
+        }
+        for (std::size_t k = 0; k < i; ++k) {
+            if (cfg.drive_select_cc[k] == cc) {
+                err = std::string("midi.json: drive_select \"") + kDriveTypeNames[k] +
+                      "\" e \"" + kDriveTypeNames[i] + "\" hanno lo stesso CC";
                 return false;
             }
         }

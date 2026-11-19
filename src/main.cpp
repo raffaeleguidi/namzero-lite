@@ -36,6 +36,7 @@
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
 #include "control/midi_config.h"
+#include "control/drive_types.h"
 #include "control/mod_types.h"
 #include "control/midi_socket.h"
 #include "control/switch_debounce.h"
@@ -140,8 +141,6 @@ constexpr float kModDefaultFeedback[] = {0.0f, 0.0f, 0.0f, 0.35f, 0.20f};
 constexpr int kModCycle[] = {0, 2, 3, 4};  // tremolo, univibe, flanger, phaser
 constexpr int kModCycleCount = static_cast<int>(sizeof(kModCycle) / sizeof(kModCycle[0]));
 
-constexpr const char* kDriveTypeNames[] = {"fuzz", "klon", "tubescreamer"};
-constexpr std::size_t kDriveTypeCount = sizeof(kDriveTypeNames) / sizeof(kDriveTypeNames[0]);
 
 
 namzero::ModSlot::Type mod_type_enum(int idx) {
@@ -154,12 +153,6 @@ namzero::ModSlot::Type mod_type_enum(int idx) {
     }
 }
 
-int drive_type_index(const std::string& name) {
-    for (std::size_t i = 0; i < kDriveTypeCount; ++i) {
-        if (name == kDriveTypeNames[i]) return static_cast<int>(i);
-    }
-    return -1;
-}
 
 namzero::DriveSlot::Type drive_type_enum(int idx) {
     switch (idx) {
@@ -796,7 +789,7 @@ int main(int argc, char** argv) {
 
     // Un tipo scritto male non deve diventare un modello a caso: si torna al
     // default e lo si dice, invece di far suonare qualcosa di inatteso.
-    if (drive_type_index(cfg.drive_type) < 0) {
+    if (namzero::drive_type_index(cfg.drive_type) < 0) {
         std::fprintf(stderr, "drive: tipo \"%s\" sconosciuto, uso fuzz\n",
                      cfg.drive_type.c_str());
         cfg.drive_type = "fuzz";
@@ -879,7 +872,7 @@ int main(int argc, char** argv) {
     {
         auto dr = std::make_unique<namzero::DriveSlot>();
         drive_ptr = dr.get();
-        dr->set_type(drive_type_enum(drive_type_index(cfg.drive_type)));
+        dr->set_type(drive_type_enum(namzero::drive_type_index(cfg.drive_type)));
         dr->set_drive(static_cast<float>(cfg.drive_amount));
         dr->set_tone(static_cast<float>(cfg.drive_tone));
         dr->set_level_db(static_cast<float>(cfg.drive_level_db));
@@ -1169,6 +1162,13 @@ int main(int argc, char** argv) {
         const int cc = midi_cfg.slot_cc[i];
         if (cc >= 0) cc_action[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
     }
+    std::array<int8_t, 128> cc_drive_select{};
+    cc_drive_select.fill(-1);
+    for (std::size_t i = 0; i < namzero::kDriveTypeCount; ++i) {
+        const int cc = midi_cfg.drive_select_cc[i];
+        if (cc >= 0) cc_drive_select[static_cast<std::size_t>(cc)] = static_cast<int8_t>(i);
+    }
+
     std::array<int8_t, 128> cc_mod_select{};
     cc_mod_select.fill(-1);
     for (std::size_t i = 0; i < namzero::kModTypeCount; ++i) {
@@ -1323,9 +1323,9 @@ int main(int argc, char** argv) {
                 case 'k': {
                     if (drive_ptr == nullptr) break;
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    int idx = drive_type_index(cfg.drive_type);
-                    idx = (idx + 1) % static_cast<int>(kDriveTypeCount);
-                    cfg.drive_type = kDriveTypeNames[idx];
+                    int idx = namzero::drive_type_index(cfg.drive_type);
+                    idx = (idx + 1) % static_cast<int>(namzero::kDriveTypeCount);
+                    cfg.drive_type = namzero::kDriveTypeNames[idx];
                     drive_ptr->set_type(drive_type_enum(idx));
                     std::printf("  drive: %s\n", cfg.drive_type.c_str());
                     std::fflush(stdout);
@@ -1571,6 +1571,21 @@ int main(int argc, char** argv) {
                 // Solo il fronte di salita e' una pressione: il rilascio non
                 // deve contare, altrimenti tenere premuto spegne subito il blocco.
                 if (!switches.pressed(e.cc, e.value, now_ms)) continue;
+
+                const int dsel = cc_drive_select[e.cc];
+                if (dsel >= 0) {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    const bool same =
+                        (cfg.drive_type == namzero::kDriveTypeNames[dsel] && cfg.drive_on);
+                    cfg.drive_type = namzero::kDriveTypeNames[dsel];
+                    drive_ptr->set_type(drive_type_enum(dsel));
+                    cfg.drive_on = !same;
+                    if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                    std::printf("  drive: %s %s (CC%d)\n", cfg.drive_type.c_str(),
+                                cfg.drive_on ? "on" : "off", e.cc);
+                    std::fflush(stdout);
+                    continue;
+                }
 
                 const int sel = cc_mod_select[e.cc];
                 if (sel >= 0) {

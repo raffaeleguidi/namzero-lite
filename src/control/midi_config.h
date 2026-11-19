@@ -6,6 +6,7 @@
 
 #include "json.hpp"
 
+#include "control/drive_types.h"
 #include "control/mod_types.h"
 
 namespace namzero {
@@ -69,6 +70,9 @@ struct MidiConfig {
     // CC che SELEZIONANO un tipo di modulazione (un tasto per effetto), indicizzati
     // come kModTypeNames. Il wah (indice 1) non e' ammesso: si usa dal pedale.
     std::array<int, kModTypeCount> mod_select_cc = {-1, -1, -1, -1, -1};
+
+    // Stessa cosa per il drive: un tasto per modello.
+    std::array<int, kDriveTypeCount> drive_select_cc = {-1, -1, -1};
 
     // Percorso della socket del bridge BLE; vuoto = nessun bridge.
     std::string ble_socket;

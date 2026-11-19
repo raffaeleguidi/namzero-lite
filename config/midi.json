@@ -33,5 +33,10 @@
   },
   "ble": {
     "socket": "/tmp/namzero-lite-ble.sock"
+  },
+  "drive_select": {
+    "fuzz": 36,
+    "klon": 37,
+    "tubescreamer": 38
   }
 }
