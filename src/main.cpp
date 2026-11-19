@@ -1370,7 +1370,7 @@ int main(int argc, char** argv) {
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
-    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, wah_armed,
+    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, &current_slot, wah_armed,
                            drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
                            i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
@@ -1680,6 +1680,18 @@ int main(int argc, char** argv) {
                     std::fflush(stdout);
                 }
 
+                if ((e.status & 0xF0) == 0xC0) {
+                    if (e.cc < 10) {
+                        switch_slot.store(e.cc);
+                        current_slot.store(e.cc);
+                        std::printf("  preset: slot %d (PC)\n", e.cc);
+                        std::fflush(stdout);
+                    }
+                    continue;
+                }
+
+                if (!is_cc || is_expr) continue;
+
                 // Gruppo blu dell'XTONE: navigazione preset. 22 = indietro,
                 // 24 = avanti, 25 = primo slot. I CC sono presi prima della
                 // mappa degli slot, cosi' non vengono interpretati due volte.
@@ -1697,17 +1709,7 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                if ((e.status & 0xF0) == 0xC0) {
-                    if (e.cc < 10) {
-                        switch_slot.store(e.cc);
-                        current_slot.store(e.cc);
-                        std::printf("  preset: slot %d (PC)\n", e.cc);
-                        std::fflush(stdout);
-                    }
-                    continue;
-                }
 
-                if (!is_cc || is_expr) continue;
 
                 // Solo il fronte di salita e' una pressione: il rilascio non
                 // deve contare, altrimenti tenere premuto spegne subito il blocco.
