@@ -129,7 +129,21 @@ config vanno tenuti su una partizione separata o sincronizzati a mano.
 |---|---|
 | xrun sporadici | `vcgencmd get_throttled`, alimentazione, hub USB |
 | xrun continui | buffer troppo piccolo, priorità FIFO non attiva |
+| max blocco > periodo | la CPU non sta nel tempo: buffer 128, catena più corta, capability realtime |
+| xrun dopo un po' | swap/zram attivo e nessun `mlockall`: servono le capability (`cap_ipc_lock`) |
 | click allo switch | rampa di bypass, ma anche zeri nei buffer non inizializzati |
 | audio distorto | clipping sul master (`--gain`), fondo scala XTONE |
 | device non trovato | `aplay -l`, numero di scheda cambiato |
 | MIDI assente | `amidi -l`, `aconnect -l`, cavo OTG |
+
+Se gli xrun restano, in ordine di efficacia:
+
+1. `sudo setcap cap_sys_nice,cap_ipc_lock+ep build/namzero-lite` (RT + memoria
+   bloccata: toglie sia la prelazione sia i page fault dello swap);
+2. `"period_frames": 128` nel preset (budget 2.67 ms invece di 1.33, +1.33 ms di
+   latenza);
+3. governor `performance`:
+   `sudo sh -c 'echo performance > /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'`;
+4. meno roba accesa: riverbero/delay fuori, IR con meno tap;
+5. processi pesanti accanto al motore: il bridge BLE (Bun) costa ~9% di CPU e
+   ~60 MB, che su 415 MB con zram si sentono.

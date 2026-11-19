@@ -177,7 +177,7 @@ struct Stats {
 
 void usage() {
     std::puts(
-        "namzero-lite — motore audio realtime per chitarra\n"
+        "namzero-lite - motore audio realtime per chitarra\n"
         "\n"
         "Uso: namzero-lite [--preset file.json] | [opzioni]\n"
         "\n"
