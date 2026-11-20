@@ -95,6 +95,7 @@ struct MidiConfig {
     std::string gboard_device;              // vuoto = nessun LED
     std::array<int, 4> gboard_mod_pc = {-1, -1, -1, -1};    // tremolo/univibe/flanger/phaser
     std::array<int, 3> gboard_drive_pc = {-1, -1, -1};      // fuzz/klon/tubescreamer
+    int gboard_boost_pc = -1;               // PC del tasto boost (on/off)
     int gboard_flash_ms = 150;
 
     // Percorso della socket del bridge BLE; vuoto = nessun bridge.

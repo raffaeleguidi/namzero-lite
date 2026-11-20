@@ -209,6 +209,13 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         if (!read_pcs("drive_pc", cfg.gboard_drive_pc.data(), cfg.gboard_drive_pc.size())) {
             return false;
         }
+        if (gb.contains("boost_pc")) {
+            if (!gb["boost_pc"].is_number_integer() || !in_cc_range(gb["boost_pc"].get<int>())) {
+                err = "midi.json: gboard.boost_pc fuori range";
+                return false;
+            }
+            cfg.gboard_boost_pc = gb["boost_pc"].get<int>();
+        }
         if (gb.contains("flash_ms")) {
             if (!gb["flash_ms"].is_number_integer()) {
                 err = "midi.json: gboard.flash_ms deve essere un intero";

@@ -1420,7 +1420,7 @@ int main(int argc, char** argv) {
             led_out.send_note(0, static_cast<uint8_t>(i),
                               (cfg.drive_on && dt == i) ? 127 : 0);
         }
-        led_out.send_note(0, 3, 0);
+        led_out.send_note(0, 3, boost_on ? 127 : 0);
     };
     apply_leds();
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
@@ -1776,6 +1776,17 @@ int main(int argc, char** argv) {
                         std::printf("  mod: %s %s (PC%d)\n", cfg.mod_type.c_str(),
                                     cfg.mod_on ? "on" : "off", e.cc);
                         std::fflush(stdout);
+                    } else if (midi_cfg.gboard_boost_pc >= 0 &&
+                               e.cc == midi_cfg.gboard_boost_pc) {
+                        std::lock_guard<std::mutex> lk(ctrl_mtx);
+                        boost_on = !boost_on;
+                        const float boost =
+                            boost_on ? 1.0f + static_cast<float>(midi_cfg.boost_percent) / 100.0f
+                                     : 1.0f;
+                        master_gain.store(base_master * boost, std::memory_order_relaxed);
+                        apply_leds();
+                        std::printf("  boost: %s (PC%d)\n", boost_on ? "on" : "off", e.cc);
+                        std::fflush(stdout);
                     } else if (drive_led >= 0) {
                         std::lock_guard<std::mutex> lk(ctrl_mtx);
                         const bool same =
@@ -1825,6 +1836,7 @@ int main(int argc, char** argv) {
                         boost_on ? 1.0f + static_cast<float>(midi_cfg.boost_percent) / 100.0f
                                  : 1.0f;
                     master_gain.store(base_master * boost, std::memory_order_relaxed);
+                    apply_leds();
                     if (boost_on) {
                         std::printf("  boost: on (+%.0f%%)\n", midi_cfg.boost_percent);
                     } else {

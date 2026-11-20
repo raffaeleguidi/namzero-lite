@@ -68,6 +68,7 @@
       1,
       2
     ],
-    "flash_ms": 150
+    "flash_ms": 150,
+    "boost_pc": 3
   }
 }

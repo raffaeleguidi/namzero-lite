@@ -17,7 +17,7 @@ Dal file [`g-board midi settings.imap`](https://raw.githubusercontent.com/raffae
 | 5 | 0 | fuzz | 0 |
 | 6 | 1 | klon | 1 |
 | 7 | 2 | tubescreamer | 2 |
-| 8 | 3 | (libero) | 3 |
+| 8 | 3 | boost on/off | 3 |
 
 Il dispositivo resta con la sua configurazione attuale
 ([`config/g-board.imap`](../config/g-board.imap)); il LED di ogni pulsante e'
@@ -30,6 +30,7 @@ Tutti sul **canale 1**. I PC sono configurati in `midi.json`:
   "device": "hw:V103",
   "mod_pc":   [4, 5, 6, 7],
   "drive_pc": [0, 1, 2],
+  "boost_pc": 3,
   "flash_ms": 150
 }
 ```
