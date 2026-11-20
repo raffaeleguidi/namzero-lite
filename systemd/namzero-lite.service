@@ -1,32 +1,20 @@
 [Unit]
-Description=namzero-lite realtime guitar engine
-After=sound.target
-Wants=sound.target
+Description=namzero-lite guitar engine
+After=sound.target bluetooth.target
+Wants=bluetooth.target
 
 [Service]
-Type=simple
-# Sostituisci "pi" con l'utente reale se diverso.
 User=pi
-Group=audio
 WorkingDirectory=/home/pi/namzero-lite
-
-ExecStart=/usr/local/bin/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
-
-# Thread audio: priorita' FIFO e core dedicato (deve combaciare con isolcpus).
-CPUSchedulingPolicy=fifo
-CPUSchedulingPriority=80
-CPUAffinity=3
-Nice=-10
-
-LimitRTPRIO=95
+ExecStart=/home/pi/namzero-lite/build/namzero-lite
+# Le capability le concede systemd: non serve setcap per il servizio, e
+# sopravvivono alle ricompilazioni.
+AmbientCapabilities=cap_sys_nice cap_ipc_lock
+CapabilityBoundingSet=cap_sys_nice cap_ipc_lock
+LimitRTPRIO=80
 LimitMEMLOCK=infinity
-
-Restart=always
-RestartSec=2
-
-# Log volatile: niente scritture sulla SD.
-StandardOutput=journal
-StandardError=journal
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

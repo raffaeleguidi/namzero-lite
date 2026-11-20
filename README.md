@@ -56,15 +56,15 @@ rsync -a --exclude build --exclude .git ~/Projects/namzero-lite/ pi@namzero-lite
 ```bash
 sudo apt install -y build-essential cmake libasound2-dev
 ./scripts/build.sh        # compila e testa (niente sudo)
-./scripts/permissions.sh  # setcap, governor, unit del bridge (sudo)
+./scripts/install.sh      # capability, governor, servizi (sudo)
 ```
 
-`build.sh` non usa sudo; `permissions.sh` applica `cap_sys_nice,cap_ipc_lock`
+`build.sh` non usa sudo; `install.sh` applica `cap_sys_nice,cap_ipc_lock`
 all'eseguibile (così si suona senza sudo), mette il governor su `performance` e
 installa la unit del bridge BLE. Una build fatta a mano con `cmake` è identica ma
 **perde le capability**: il programma parte lo stesso e avvisa *"priorità
 realtime non disponibile"*, con più probabilità di xrun a buffer piccoli. In quel
-caso basta `./scripts/permissions.sh`.
+caso basta `./scripts/install.sh`.
 
 ## Uso
 
@@ -72,7 +72,7 @@ caso basta `./scripts/permissions.sh`.
 # elenco dispositivi
 aplay -l; arecord -l
 
-# con le capability applicate da scripts/permissions.sh: niente sudo
+# con le capability applicate da scripts/install.sh: niente sudo
 ./build/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
 
 # senza privilegi realtime (solo per test a buffer grandi)

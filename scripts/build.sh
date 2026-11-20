@@ -2,7 +2,7 @@
 # Build + test del motore. NON usa sudo: si puo' lanciare sempre.
 #
 # Dopo una build l'eseguibile perde le capability (realtime + mlockall): per
-# riaverle va lanciato ./scripts/permissions.sh, che e' l'unico che usa sudo.
+# riaverle va lanciato ./scripts/install.sh, che e' l'unico che usa sudo.
 #
 # Uso:  ./scripts/build.sh
 #       JOBS=2 ./scripts/build.sh          (solo se la macchina e' libera)
@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 BIN="build/namzero-lite"
 NAM_DIR="${NAM_DIR:-/home/pi/nam}"
 
-if pgrep -f "namzero-lite -p" >/dev/null 2>&1; then
+if pgrep -x namzero-lite >/dev/null 2>&1; then
   echo "errore: il motore e' gia' in esecuzione. Fermalo (q o Ctrl+C) prima di compilare." >&2
   exit 1
 fi
@@ -32,4 +32,4 @@ echo "== test"
 
 echo
 echo "build ok: $BIN"
-echo "ora esegui ./scripts/permissions.sh per setcap, governor e bridge"
+echo "ora esegui ./scripts/install.sh (capability, governor, servizi)"

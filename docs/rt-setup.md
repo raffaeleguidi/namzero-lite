@@ -142,7 +142,7 @@ Le operazioni sono divise in due, così la build non richiede mai sudo:
 
 ```bash
 ./scripts/build.sh        # compila e testa, nessun sudo
-./scripts/permissions.sh  # setcap, governor, unit del bridge: chiede la password
+./scripts/install.sh      # capability, governor, servizi (chiede la password)
 ```
 
 `build.sh`:
@@ -150,15 +150,19 @@ Le operazioni sono divise in due, così la build non richiede mai sudo:
 1. si rifiuta di compilare se il motore è in esecuzione (`ETXTBSY` e contesa CPU);
 2. compila con **un job** (`-j2` fa uccidere `cc1plus` dall'OOM);
 3. lancia i test;
-4. ricorda di eseguire `permissions.sh` (dopo la build le capability sono perse).
+4. ricorda di eseguire `install.sh` (dopo la build le capability del file sono perse).
 
-`permissions.sh`:
+`install.sh` (idempotente):
 
-1. riapplica `cap_sys_nice,cap_ipc_lock` (SCHED_FIFO + `mlockall`);
+1. riapplica `cap_sys_nice,cap_ipc_lock` per l'uso **manuale**;
 2. mette il governor su `performance` e lo rende persistente (unit `cpu-performance`);
 3. prepara il venv e le dipendenze del bridge (`dbus-fast`);
-4. installa/aggiorna e riavvia la unit del bridge;
-5. verifica capability, governor e connessione al pedale.
+4. installa e abilita le unit **`namzero-lite`** e **`namzero-ble-bridge`**, e le avvia;
+5. verifica capability, governor, stato dei due servizi e log del motore.
+
+Le capability del file **sopravvivono ai riavvii** ma non alle ricompilazioni; il
+servizio non ne ha bisogno perché la unit usa `AmbientCapabilities`. Dopo una
+build rilancia `install.sh` solo se vuoi usare il motore a mano (senza servizio).
 
 Se gli xrun restano, in ordine di efficacia:
 

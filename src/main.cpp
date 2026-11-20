@@ -771,6 +771,7 @@ int main(int argc, char** argv) {
     std::string preset_path;
     std::string err;
     bool saw_flag = false;
+    bool from_slot = false;
     // Slot in uso: serve alla navigazione (prec/succ) e viene tramandato al
     // processo ri-eseguito con NAMZERO_SLOT.
     std::atomic<int> current_slot{0};
@@ -827,7 +828,7 @@ int main(int argc, char** argv) {
         if (!file.empty()) {
             preset_path = file;
             current_slot.store(slot);
-            std::printf("slot: %d -> %s\n", slot, preset_path.c_str());
+            from_slot = true;
         }
     }
 
@@ -852,7 +853,20 @@ int main(int argc, char** argv) {
             cfg.gate_attack_ms = presets_cfg.gate.attack_ms;
             cfg.gate_release_ms = presets_cfg.gate.release_ms;
         }
-        std::printf("preset: %s\n", preset_path.c_str());
+        // Banner del preset: numero (se da slot), file e modello NAM.
+        std::string base = preset_path;
+        const std::size_t slash = base.find_last_of('/');
+        if (slash != std::string::npos) base = base.substr(slash + 1);
+        std::string amp_name = cfg.amp_file;
+        const std::size_t aslash = amp_name.find_last_of('/');
+        if (aslash != std::string::npos) amp_name = amp_name.substr(aslash + 1);
+        if (amp_name.empty()) amp_name = "nessun NAM";
+        if (from_slot) {
+            std::printf("\n[%d] - %s (%s)\n\n", current_slot.load(), base.c_str(),
+                        amp_name.c_str());
+        } else {
+            std::printf("\n[-] - %s (%s)\n\n", base.c_str(), amp_name.c_str());
+        }
     }
 
     // Un tipo scritto male non deve diventare un modello a caso: si torna al
