@@ -1,29 +1,53 @@
 # iCON G-Board
 
 Pedaliera USB MIDI con **8 pulsanti e 8 LED**, vista dal Pi come card
-`hw:V103` (rawmidi `hw:2,0,0`). Arriva come dispositivo MIDI 1.0 full speed.
+`hw:V103` (rawmidi `hw:2,0,0`). E' **opzionale**: se non e' collegata il motore
+parte e suona lo stesso (con due avvisi) e i LED non danno errore.
 
-## Configurazione dei pulsanti
+## Configurazione del dispositivo
 
-Dal file [`g-board midi settings.imap`](https://raw.githubusercontent.com/raffaeleguidi/midico/refs/heads/master/g-board%20midi%20settings.imap)
-(mode `Program`, canale 1):
+Il G-Board resta con la sua configurazione (mode `Program`, canale 1), salvata
+in [`config/g-board.imap`](../config/g-board.imap):
 
-| Pulsante | PC | Effetto | LED |
-|---|---|---|---|
-| 1 | 4 | tremolo | 4 |
-| 2 | 5 | univibe | 5 |
-| 3 | 6 | flanger | 6 |
-| 4 | 7 | phaser | 7 |
-| 5 | 0 | fuzz | 0 |
-| 6 | 1 | klon | 1 |
-| 7 | 2 | tubescreamer | 2 |
-| 8 | 3 | boost on/off | 3 |
+| Pulsante | PC | Funzione | LED (nota) | Config in `midi.json` |
+|---|---|---|---|---|
+| 1 | 4 | tremolo | 4 | `gboard.mod_pc[0]` |
+| 2 | 5 | univibe | 5 | `gboard.mod_pc[1]` |
+| 3 | 6 | flanger | 6 | `gboard.mod_pc[2]` |
+| 4 | 7 | phaser | 7 | `gboard.mod_pc[3]` |
+| 5 | 0 | fuzz | 0 | `gboard.drive_pc[0]` |
+| 6 | 1 | klon | 1 | `gboard.drive_pc[1]` |
+| 7 | 2 | tubescreamer | 2 | `gboard.drive_pc[2]` |
+| 8 | 3 | boost on/off | 3 | `gboard.boost_pc` |
 
-Il dispositivo resta con la sua configurazione attuale
-([`config/g-board.imap`](../config/g-board.imap)); il LED di ogni pulsante e'
-quello con la **stessa nota del PC**.
+Il LED di ogni pulsante e' quello con la **stessa nota del PC** (dal codice
+originale `midico2.js`: `setLights(start, end, on)` manda Note On 0-7 e accende
+la nota uguale a `on`).
 
-Tutti sul **canale 1**. I PC sono configurati in `midi.json`:
+## Mappa MIDI
+
+### Ingresso (G-Board -> motore)
+
+- **Program Change**, canale 1: i 8 pulsanti come da tabella.
+- I PC dei mod e dei drive sono **radio button spegnibili**: premere un tasto
+  diverso cambia effetto e lo accende; ripremere lo stesso lo spegne.
+- Il tasto 8 (PC 3) e' un **interruttore** del boost di fine catena: acceso
+  resta acceso, spento resta spento.
+- I Program Change 4-7 e 0-2 non selezionano preset: quelli si cambiano con i
+  tasti `0`-`9` della tastiera o con la navigazione blu dell'XTONE (CC 22/24/25).
+
+### Uscita (motore -> LED)
+
+- **Note On**, canale 1, **note 0-7**, velocity **127 = acceso / 0 = spento**.
+- Il motore rimanda lo stato completo degli 8 LED:
+  - a ogni caricamento di preset;
+  - a ogni cambio di mod/drive/boost (PC del G-Board, CC, tastiera);
+  - al cambio preset: prima manda `90 <slot> 7F` per `flash_ms` (150 ms), poi
+    il nuovo processo aggiorna tutti i LED allo stato del preset.
+- Solo gli slot 0-7 hanno un LED; il gate, il comp, il delay e il riverbero non
+  hanno LED.
+
+## Configurazione
 
 ```json
 "gboard": {
@@ -35,57 +59,25 @@ Tutti sul **canale 1**. I PC sono configurati in `midi.json`:
 }
 ```
 
-La prima riga e' mod (radio button spegnibili: ripremere lo stesso tasto spegne),
-la seconda e' drive (idem). I preset **non** si cambiano da qui: restano sui tasti
-0-9 della tastiera e sulla navigazione blu dell'XTONE (CC 22/24/25).
+- `device`: porta rawmidi del G-Board (ingresso LED in uscita). Vuoto = niente LED.
+- `mod_pc` / `drive_pc`: PC che selezionano i tipi, nell'ordine
+  tremolo/univibe/flanger/phaser e fuzz/klon/tubescreamer.
+- `boost_pc`: PC dell'interruttore boost (`-1` = nessuno).
+- `flash_ms`: durata del lampeggio del LED dello slot al cambio preset.
 
-Esempio di log:
+Se un giorno cambi la configurazione del dispositivo, aggiorna questi array: la
+coppia `.imap` + `midi.json` deve restare allineata.
+
+## Verifica
+
+Con il motore avviato e `--midi-log`:
 
 ```
+midi: programchange ch1 4
   mod: tremolo on (PC4)
-  mod: tremolo off (PC4)
-  drive: fuzz on (PC0)
+midi: programchange ch1 3
+  boost: on (PC3)
 ```
 
-## LED
-
-I LED si comandano con **Note On sul canale 1**, una nota per LED, velocity
-**127 = acceso** e **0 = spento** (dal codice `midico2.js`, funzione `setLights`):
-
-| LED | Nota | Messaggio per accenderlo |
-|---|---|---|
-| 1 | 0 | `90 00 7F` |
-| 2 | 1 | `90 01 7F` |
-| 3 | 2 | `90 02 7F` |
-| 4 | 3 | `90 03 7F` |
-| 5 | 4 | `90 04 7F` |
-| 6 | 5 | `90 05 7F` |
-| 7 | 6 | `90 06 7F` |
-| 8 | 7 | `90 07 7F` |
-
-Per spegnere: stessa nota con velocity 0 (`90 0N 00`). Il G-Board ascolta come
-dispositivo MIDI (`hw:V103`); per pilotare i LED serve un'**uscita** MIDI dal Pi
-verso quella porta, cosa che il motore oggi non ha.
-
-Esempio con `amidi` (verifica manuale):
-
-```bash
-amidi -p hw:V103 -S "90 00 7F"   # LED 1 acceso
-amidi -p hw:V103 -S "90 00 00"   # LED 1 spento
-```
-
-Nota: nel codice originale `setLights(start, end, on)` manda le note da `start`
-a `end` e accende solo quella uguale a `on`; con note 0-3 accende il LED dello slot
-(0-3), con 4-6 quello della scena, e la nota 7 fa da "home" lampeggiante.
-
-## Collegamento al motore (implementato)
-
-- **Ingresso**: i PC selezionano gli effetti come da tabella; il motore apre
-  `hw:V103` insieme agli altri ingressi di `midi.json`.
-- **Uscita**: `MidiOutput` su `gboard.device`; a ogni cambio di stato il motore
-  manda Note On per tutti gli 8 LED: acceso solo quello dell'effetto selezionato
-  nella riga mod e in quella drive. Al caricamento del preset i LED riflettono
-  subito lo stato.
-- **Cambio preset**: prima di ricaricare, il motore manda `90 <slot> 7F` per
-  `flash_ms` (150 ms) e poi il nuovo processo aggiorna tutti i LED allo stato del
-  preset. Solo gli slot 0-7 hanno un LED.
+Se un tasto non produce nessuna riga, la config del dispositivo non e' quella
+del `.imap` (o il G-Board non e' la porta `hw:V103`).
