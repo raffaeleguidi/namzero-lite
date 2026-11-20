@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- G-Board: pulsante N -> Program Change N-1 (canale 1).
+     Riga 1 (1-4): tremolo, univibe, flanger, phaser.
+     Riga 2 (5-7): fuzz, klon, tubescreamer. 8 libero. -->
+<map mode="Program" name="Program">
+  <controls>
+    <control id="1" kind="button" chan="1" value="0"/>
+    <control id="2" kind="button" chan="1" value="1"/>
+    <control id="3" kind="button" chan="1" value="2"/>
+    <control id="4" kind="button" chan="1" value="3"/>
+    <control id="5" kind="button" chan="1" value="4"/>
+    <control id="6" kind="button" chan="1" value="5"/>
+    <control id="7" kind="button" chan="1" value="6"/>
+    <control id="8" kind="button" chan="1" value="7"/>
+  </controls>
+</map>

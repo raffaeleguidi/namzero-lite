@@ -1412,15 +1412,15 @@ int main(int argc, char** argv) {
         static const int mod_led_type[4] = {0, 2, 3, 4};  // tremolo/univibe/flanger/phaser
         const int mt = namzero::mod_type_index(cfg.mod_type);
         for (int i = 0; i < 4; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(4 + i),
+            led_out.send_note(0, static_cast<uint8_t>(i),
                               (cfg.mod_on && mt == mod_led_type[i]) ? 127 : 0);
         }
         const int dt = namzero::drive_type_index(cfg.drive_type);
         for (int i = 0; i < 3; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(i),
+            led_out.send_note(0, static_cast<uint8_t>(4 + i),
                               (cfg.drive_on && dt == i) ? 127 : 0);
         }
-        led_out.send_note(0, 3, 0);
+        led_out.send_note(0, 7, 0);
     };
     apply_leds();
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
@@ -1498,6 +1498,7 @@ int main(int argc, char** argv) {
                     idx = (idx + 1) % static_cast<int>(namzero::kDriveTypeCount);
                     cfg.drive_type = namzero::kDriveTypeNames[idx];
                     drive_ptr->set_type(drive_type_enum(idx));
+                    apply_leds();
                     std::printf("  drive: %s\n", cfg.drive_type.c_str());
                     std::fflush(stdout);
                     break;
@@ -1606,6 +1607,7 @@ int main(int argc, char** argv) {
                     mod_ptr->set_type(mod_type_enum(next));
                     mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
                     mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
+                    apply_leds();
                     std::printf("  mod: %s (rate %.1f Hz)\n", cfg.mod_type.c_str(),
                                 cfg.mod_rate_hz);
                     std::fflush(stdout);

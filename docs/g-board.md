@@ -10,22 +10,25 @@ Dal file [`g-board midi settings.imap`](https://raw.githubusercontent.com/raffae
 
 | Pulsante | PC | Effetto | LED |
 |---|---|---|---|
-| 1 | 4 | tremolo | 0 |
-| 2 | 5 | univibe | 1 |
-| 3 | 6 | flanger | 2 |
-| 4 | 7 | phaser | 3 |
-| 5 | 0 | fuzz | 4 |
-| 6 | 1 | klon | 5 |
-| 7 | 2 | tubescreamer | 6 |
-| 8 | 3 | (libero) | 7 |
+| 1 | 0 | tremolo | 0 |
+| 2 | 1 | univibe | 1 |
+| 3 | 2 | flanger | 2 |
+| 4 | 3 | phaser | 3 |
+| 5 | 4 | fuzz | 4 |
+| 6 | 5 | klon | 5 |
+| 7 | 6 | tubescreamer | 6 |
+| 8 | 7 | (libero) | 7 |
+
+La configurazione da caricare sul G-Board e' in
+[`config/g-board.imap`](../config/g-board.imap): pulsante N -> PC N-1.
 
 Tutti sul **canale 1**. I PC sono configurati in `midi.json`:
 
 ```json
 "gboard": {
   "device": "hw:V103",
-  "mod_pc":   [4, 5, 6, 7],
-  "drive_pc": [0, 1, 2],
+  "mod_pc":   [0, 1, 2, 3],
+  "drive_pc": [4, 5, 6],
   "flash_ms": 150
 }
 ```
