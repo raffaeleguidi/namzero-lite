@@ -40,6 +40,7 @@
 #include "control/drive_types.h"
 #include "control/mod_types.h"
 #include "control/presets_config.h"
+#include "control/midi_output.h"
 #include "control/midi_socket.h"
 #include "control/switch_debounce.h"
 #include "control/wah_autoengage.h"
@@ -1229,6 +1230,17 @@ int main(int argc, char** argv) {
             }
         }
     }
+    // LED del G-Board: Note On ch1, una nota per LED (0-7), 127 acceso.
+    namzero::MidiOutput led_out;
+    if (!midi_cfg.gboard_device.empty()) {
+        std::string lerr;
+        if (led_out.open(midi_cfg.gboard_device, lerr)) {
+            std::printf("led: %s (Note On ch1, note 0-7)\n", midi_cfg.gboard_device.c_str());
+        } else {
+            std::fprintf(stderr, "led: %s (si prosegue senza)\n", lerr.c_str());
+        }
+    }
+
     // Bridge BLE: il motore fa da server, il bridge si connette e scrive byte
     // MIDI. Se la socket non si apre si prosegue: il pedale USB funziona lo stesso.
     namzero::MidiSocket ble;
@@ -1393,6 +1405,24 @@ int main(int argc, char** argv) {
     // stdin e' in modalita' raw, quindi i tasti arrivano senza Invio.
     // Il mutex serializza tastiera e MIDI: scrivono entrambi lo stesso stato.
     std::mutex ctrl_mtx;
+    // Stato dei LED: riga 1 = mod (note 0-3), riga 2 = drive (note 4-6),
+    // nota 7 libera. Il LED acceso e' quello dell'effetto selezionato.
+    auto apply_leds = [&]() {
+        if (!led_out.is_open()) return;
+        static const int mod_led_type[4] = {0, 2, 3, 4};  // tremolo/univibe/flanger/phaser
+        const int mt = namzero::mod_type_index(cfg.mod_type);
+        for (int i = 0; i < 4; ++i) {
+            led_out.send_note(0, static_cast<uint8_t>(i),
+                              (cfg.mod_on && mt == mod_led_type[i]) ? 127 : 0);
+        }
+        const int dt = namzero::drive_type_index(cfg.drive_type);
+        for (int i = 0; i < 3; ++i) {
+            led_out.send_note(0, static_cast<uint8_t>(4 + i),
+                              (cfg.drive_on && dt == i) ? 127 : 0);
+        }
+        led_out.send_note(0, 7, 0);
+    };
+    apply_leds();
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
@@ -1710,10 +1740,46 @@ int main(int argc, char** argv) {
                 }
 
                 if ((e.status & 0xF0) == 0xC0) {
-                    if (e.cc < 10) {
-                        switch_slot.store(e.cc);
-                        current_slot.store(e.cc);
-                        std::printf("  preset: slot %d (PC)\n", e.cc);
+                    // G-Board: i pulsanti mandano Program Change.
+                    // Riga 1 (PC 4-7) = mod, riga 2 (PC 0-2) = drive.
+                    int mod_led = -1;
+                    int drive_led = -1;
+                    for (int i = 0; i < 4; ++i) {
+                        if (midi_cfg.gboard_mod_pc[i] == e.cc) mod_led = i;
+                    }
+                    for (int i = 0; i < 3; ++i) {
+                        if (midi_cfg.gboard_drive_pc[i] == e.cc) drive_led = i;
+                    }
+                    static const int mod_led_type[4] = {0, 2, 3, 4};
+                    if (mod_led >= 0) {
+                        std::lock_guard<std::mutex> lk(ctrl_mtx);
+                        const int type_idx = mod_led_type[mod_led];
+                        const bool same =
+                            (cfg.mod_type == namzero::kModTypeNames[type_idx] && cfg.mod_on);
+                        cfg.mod_type = namzero::kModTypeNames[type_idx];
+                        cfg.mod_rate_hz = kModDefaultRate[type_idx];
+                        cfg.mod_feedback = kModDefaultFeedback[type_idx];
+                        mod_ptr->set_type(mod_type_enum(type_idx));
+                        mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+                        mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
+                        cfg.mod_on = !same;
+                        if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                        apply_leds();
+                        std::printf("  mod: %s %s (PC%d)\n", cfg.mod_type.c_str(),
+                                    cfg.mod_on ? "on" : "off", e.cc);
+                        std::fflush(stdout);
+                    } else if (drive_led >= 0) {
+                        std::lock_guard<std::mutex> lk(ctrl_mtx);
+                        const bool same =
+                            (cfg.drive_type == namzero::kDriveTypeNames[drive_led] &&
+                             cfg.drive_on);
+                        cfg.drive_type = namzero::kDriveTypeNames[drive_led];
+                        drive_ptr->set_type(drive_type_enum(drive_led));
+                        cfg.drive_on = !same;
+                        if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                        apply_leds();
+                        std::printf("  drive: %s %s (PC%d)\n", cfg.drive_type.c_str(),
+                                    cfg.drive_on ? "on" : "off", e.cc);
                         std::fflush(stdout);
                     }
                     continue;
@@ -1769,6 +1835,7 @@ int main(int argc, char** argv) {
                     drive_ptr->set_type(drive_type_enum(dsel));
                     cfg.drive_on = !same;
                     if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                    apply_leds();
                     std::printf("  drive: %s %s (CC%d)\n", cfg.drive_type.c_str(),
                                 cfg.drive_on ? "on" : "off", e.cc);
                     std::fflush(stdout);
@@ -1805,6 +1872,7 @@ int main(int argc, char** argv) {
                     mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
                     cfg.mod_on = !same;
                     if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                    apply_leds();
                     std::printf("  mod: %s %s (CC%d)\n", cfg.mod_type.c_str(),
                                 cfg.mod_on ? "on" : "off", e.cc);
                     std::fflush(stdout);
@@ -1943,6 +2011,11 @@ int main(int argc, char** argv) {
     if (wanted >= 0 && g_running.load()) {
         const std::string file = slot_file(wanted);
         if (!file.empty()) {
+            if (led_out.is_open()) {
+                led_out.send_note(0, static_cast<uint8_t>(wanted), 127);
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(midi_cfg.gboard_flash_ms));
+            }
             write_last_slot(wanted);
             setenv("NAMZERO_SLOT", std::to_string(wanted).c_str(), 1);
             std::printf("slot %d: %s\n", wanted, file.c_str());

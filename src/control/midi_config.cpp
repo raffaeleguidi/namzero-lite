@@ -155,6 +155,55 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         }
     }
 
+    if (j.contains("gboard")) {
+        const auto& gb = j["gboard"];
+        if (!gb.is_object()) {
+            err = "midi.json: \"gboard\" deve essere un oggetto";
+            return false;
+        }
+        if (gb.contains("device")) {
+            if (!gb["device"].is_string()) {
+                err = "midi.json: gboard.device deve essere una stringa";
+                return false;
+            }
+            cfg.gboard_device = gb["device"].get<std::string>();
+        }
+        auto read_pcs = [&](const char* key, int* out, std::size_t count) -> bool {
+            if (!gb.contains(key)) return true;
+            const auto& arr = gb[key];
+            if (!arr.is_array() || arr.size() != count) {
+                err = std::string("midi.json: gboard.") + key + " deve avere " +
+                      std::to_string(count) + " CC";
+                return false;
+            }
+            for (std::size_t i = 0; i < count; ++i) {
+                if (!arr[i].is_number_integer() || !in_cc_range(arr[i].get<int>())) {
+                    err = std::string("midi.json: gboard.") + key + " fuori range";
+                    return false;
+                }
+                out[i] = arr[i].get<int>();
+            }
+            return true;
+        };
+        if (!read_pcs("mod_pc", cfg.gboard_mod_pc.data(), cfg.gboard_mod_pc.size())) {
+            return false;
+        }
+        if (!read_pcs("drive_pc", cfg.gboard_drive_pc.data(), cfg.gboard_drive_pc.size())) {
+            return false;
+        }
+        if (gb.contains("flash_ms")) {
+            if (!gb["flash_ms"].is_number_integer()) {
+                err = "midi.json: gboard.flash_ms deve essere un intero";
+                return false;
+            }
+            cfg.gboard_flash_ms = gb["flash_ms"].get<int>();
+            if (cfg.gboard_flash_ms < 0 || cfg.gboard_flash_ms > 2000) {
+                err = "midi.json: gboard.flash_ms deve stare fra 0 e 2000";
+                return false;
+            }
+        }
+    }
+
     if (j.contains("boost")) {
         const auto& b = j["boost"];
         if (!b.is_object()) {

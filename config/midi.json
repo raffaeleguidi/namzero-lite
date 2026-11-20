@@ -50,5 +50,20 @@
   "devices": [
     "hw:XTONE",
     "hw:V103"
-  ]
+  ],
+  "gboard": {
+    "device": "hw:V103",
+    "mod_pc": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "drive_pc": [
+      0,
+      1,
+      2
+    ],
+    "flash_ms": 150
+  }
 }

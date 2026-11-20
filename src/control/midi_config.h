@@ -87,6 +87,13 @@ struct MidiConfig {
     int boost_cc = -1;
     double boost_percent = 20.0;
 
+    // G-Board: i suoi pulsanti mandano Program Change; qui si dice quale PC
+    // seleziona quale effetto e su quale device pilotare i LED (Note On).
+    std::string gboard_device;              // vuoto = nessun LED
+    std::array<int, 4> gboard_mod_pc = {-1, -1, -1, -1};    // tremolo/univibe/flanger/phaser
+    std::array<int, 3> gboard_drive_pc = {-1, -1, -1};      // fuzz/klon/tubescreamer
+    int gboard_flash_ms = 150;
+
     // Percorso della socket del bridge BLE; vuoto = nessun bridge.
     std::string ble_socket;
 };
