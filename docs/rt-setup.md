@@ -145,6 +145,13 @@ Le operazioni sono divise in due, così la build non richiede mai sudo:
 ./scripts/install.sh      # capability, governor, servizi (chiede la password)
 ```
 
+Oppure, senza compilare sul Pi (più veloce e senza OOM da LTO):
+
+```bash
+./scripts/cross-build.sh  # sul Mac, container aarch64 -> build-arm64/namzero-lite
+./scripts/deploy.sh       # copia il binario sul Pi e applica setcap
+```
+
 `build.sh`:
 
 1. si rifiuta di compilare se il motore è in esecuzione (`ETXTBSY` e contesa CPU);

@@ -2,10 +2,14 @@
   "enabled": true,
   "switches": "any",
   "expression": {
-    "cc": 7,
     "min_raw": 0,
     "max_raw": 127,
-    "invert": false
+    "invert": false,
+    "ccs": [
+      7,
+      4,
+      1
+    ]
   },
   "wah_autoengage": {
     "threshold": 0.1,

@@ -48,14 +48,14 @@ if(NAM_DIR)
   # Percorso veloce dedicato ai modelli A2 (a2_fast.cpp): senza questa define
   # i modelli A2 passano dal WaveNet generico e costano ~6x di piu'.
   target_compile_definitions(nam_core PRIVATE NAM_ENABLE_A2_FAST)
-  target_compile_options(nam_core PRIVATE -Ofast -flto=auto)
-  target_link_options(nam_core PRIVATE -flto=auto)
+  target_compile_options(nam_core PRIVATE -Ofast -flto=1)
+  target_link_options(nam_core PRIVATE -flto=1)
   # I parser del core si registrano con inizializzatori statici: in una libreria
   # statica gli oggetti non referenziati non vengono estratti e il registro
   # resterebbe vuoto ("No config parser registered"). Serve il whole-archive.
   target_link_libraries(namzero-lite PRIVATE
     -Wl,--whole-archive nam_core -Wl,--no-whole-archive)
-  target_link_options(namzero-lite PRIVATE -flto=auto)
+  target_link_options(namzero-lite PRIVATE -flto=1)
   target_compile_definitions(namzero-lite PRIVATE NAMZERO_HAVE_NAM=1)
   target_include_directories(namzero-lite PRIVATE "${NAM_DIR}")
   # Solo lo slot amp parla C++20 (Eigen + core NAM).
@@ -64,7 +64,7 @@ if(NAM_DIR)
   target_include_directories(bench_nam_slot PRIVATE src "${NAM_DIR}")
   target_link_libraries(bench_nam_slot PRIVATE
     -Wl,--whole-archive nam_core -Wl,--no-whole-archive Threads::Threads)
-  target_link_options(bench_nam_slot PRIVATE -flto=auto)
+  target_link_options(bench_nam_slot PRIVATE -flto=1)
   target_compile_definitions(bench_nam_slot PRIVATE NAMZERO_HAVE_NAM=1)
   target_compile_features(bench_nam_slot PRIVATE cxx_std_20)
   message(STATUS "NAM abilitato da ${NAM_DIR}")

@@ -28,3 +28,6 @@ ble-bridge/node_modules/
 ble-bridge/dist/
 ble-bridge/.tmp/
 ble-bridge/.bun-cache/
+.nam/
+build-arm64/
+.docker/

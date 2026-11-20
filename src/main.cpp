@@ -1200,7 +1200,7 @@ int main(int argc, char** argv) {
             }
         }
         if (!midis.empty()) {
-            std::printf("midi: espressione CC%d | switch %s\n", midi_cfg.expression_cc,
+            std::printf("midi: espressione CC (multipli) | switch %s\n",
                         midi_cfg.switches.c_str());
             for (std::size_t i = 0; i < namzero::kMidiActionCount; ++i) {
                 const int cc = midi_cfg.slot_cc[i];
@@ -1412,21 +1412,21 @@ int main(int argc, char** argv) {
         static const int mod_led_type[4] = {0, 2, 3, 4};  // tremolo/univibe/flanger/phaser
         const int mt = namzero::mod_type_index(cfg.mod_type);
         for (int i = 0; i < 4; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(i),
+            led_out.send_note(0, static_cast<uint8_t>(4 + i),
                               (cfg.mod_on && mt == mod_led_type[i]) ? 127 : 0);
         }
         const int dt = namzero::drive_type_index(cfg.drive_type);
         for (int i = 0; i < 3; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(4 + i),
+            led_out.send_note(0, static_cast<uint8_t>(i),
                               (cfg.drive_on && dt == i) ? 127 : 0);
         }
-        led_out.send_note(0, 7, 0);
+        led_out.send_note(0, 3, 0);
     };
     apply_leds();
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
-    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, &current_slot, wah_armed,
+    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, &current_slot, &apply_leds, wah_armed,
                            drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
                            i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
@@ -1455,6 +1455,7 @@ int main(int argc, char** argv) {
             }
             flag = !flag;
             chain.set_enabled(idx, flag);
+            apply_leds();
             std::printf("  %s: %s%s\n", label, flag ? "on" : "off",
                         preset_path.empty() ? "" : "   (s per salvare)");
             std::fflush(stdout);
@@ -1711,7 +1712,12 @@ int main(int argc, char** argv) {
             for (const auto& e : events) {
                 const uint8_t type = e.status & 0xF0;
                 const bool is_cc = (type == 0xB0);
-                const bool is_expr = is_cc && (e.cc == midi_cfg.expression_cc);
+                bool is_expr = false;
+                if (is_cc) {
+                    for (int c : midi_cfg.expression_ccs) {
+                        if (c == e.cc) is_expr = true;
+                    }
+                }
                 if (is_expr) {
                     const float lo = static_cast<float>(midi_cfg.expression_min_raw);
                     const float hi = static_cast<float>(midi_cfg.expression_max_raw);
@@ -1901,6 +1907,7 @@ int main(int argc, char** argv) {
                     }
                     cfg.mod_on = !cfg.mod_on;
                     if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                    apply_leds();
                     std::printf("  mod: %s (%s, CC%d)\n", cfg.mod_on ? "on" : "off",
                                 cfg.mod_type.c_str(), e.cc);
                     std::fflush(stdout);
@@ -1925,6 +1932,7 @@ int main(int argc, char** argv) {
                     bool& flag = *slot_flag[action];
                     flag = !flag;
                     chain.set_enabled(idx, flag);
+                    apply_leds();
                     if (act == namzero::MidiAction::kDrive) {
                         std::printf("  drive: %s (CC%d, %s)\n", flag ? "on" : "off", e.cc,
                                     cfg.drive_type.c_str());

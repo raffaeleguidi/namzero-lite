@@ -52,6 +52,9 @@ struct MidiConfig {
     // Ingressi da aprire: se vuoto si usa `device`. Con piu' pedali USB si
     // elencano tutti qui.
     std::vector<std::string> devices;
+    // L'XTONE manda l'espressione su CC diversi a seconda del gruppo (7 verde,
+    // 4 blu, 1 rosso): si ascoltano tutti.
+    std::vector<int> expression_ccs = {7};
     // I footswitch dell'XTONE sono "a stato" (un messaggio per pressione, valore
     // che alterna 127/0). "edge" serve ai controller momentanei.
     std::string switches = "any";

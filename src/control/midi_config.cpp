@@ -69,7 +69,25 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             err = "midi.json: \"expression\" deve essere un oggetto";
             return false;
         }
-        if (!get_int(e, "cc", cfg.expression_cc, err)) return false;
+        if (e.contains("ccs")) {
+            if (!e["ccs"].is_array() || e["ccs"].empty() || e["ccs"].size() > 4) {
+                err = "midi.json: expression.ccs deve essere un array di 1-4 CC";
+                return false;
+            }
+            cfg.expression_ccs.clear();
+            for (const auto& v : e["ccs"]) {
+                if (!v.is_number_integer() || !in_cc_range(v.get<int>())) {
+                    err = "midi.json: expression.ccs fuori range";
+                    return false;
+                }
+                cfg.expression_ccs.push_back(v.get<int>());
+            }
+            cfg.expression_cc = cfg.expression_ccs.front();
+        } else if (!get_int(e, "cc", cfg.expression_cc, err)) {
+            return false;
+        } else {
+            cfg.expression_ccs = {cfg.expression_cc};
+        }
         if (!get_int(e, "min_raw", cfg.expression_min_raw, err)) return false;
         if (!get_int(e, "max_raw", cfg.expression_max_raw, err)) return false;
         get_bool(e, "invert", cfg.expression_invert);
@@ -287,10 +305,19 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
 
     // Vincoli che rendono il file usabile: un CC duplicato accenderebbe due
     // blocchi insieme, e l'espressione non puo' coincidere con un footswitch.
-    if (!in_cc_range(cfg.expression_cc)) {
-        err = "midi.json: expression.cc deve stare fra 0 e 127";
-        return false;
+    if (cfg.expression_ccs.empty()) cfg.expression_ccs.push_back(cfg.expression_cc);
+    for (int c : cfg.expression_ccs) {
+        if (!in_cc_range(c)) {
+            err = "midi.json: expression.cc deve stare fra 0 e 127";
+            return false;
+        }
     }
+    auto is_expr_cc = [&](int cc) {
+        for (int c : cfg.expression_ccs) {
+            if (c == cc) return true;
+        }
+        return false;
+    };
     for (std::size_t i = 0; i < kMidiActionCount; ++i) {
         const int cc = cfg.slot_cc[i];
         if (cc < 0) continue;
@@ -299,7 +326,7 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
                   midi_action_name(static_cast<MidiAction>(i));
             return false;
         }
-        if (cc == cfg.expression_cc) {
+        if (is_expr_cc(cc)) {
             err = std::string("midi.json: ") + midi_action_name(static_cast<MidiAction>(i)) +
                   " usa lo stesso CC dell'espressione";
             return false;
@@ -317,7 +344,7 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
     for (std::size_t i = 0; i < kModTypeCount; ++i) {
         const int cc = cfg.mod_select_cc[i];
         if (cc < 0) continue;
-        if (cc == cfg.expression_cc) {
+        if (is_expr_cc(cc)) {
             err = std::string("midi.json: mod_select \"") + kModTypeNames[i] +
                   "\" usa lo stesso CC dell'espressione";
             return false;
@@ -341,7 +368,7 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
     for (std::size_t i = 0; i < kDriveTypeCount; ++i) {
         const int cc = cfg.drive_select_cc[i];
         if (cc < 0) continue;
-        if (cc == cfg.expression_cc) {
+        if (is_expr_cc(cc)) {
             err = std::string("midi.json: drive_select \"") + kDriveTypeNames[i] +
                   "\" usa lo stesso CC dell'espressione";
             return false;
@@ -372,7 +399,7 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
     for (std::size_t i = 0; i < kDelayModeCount; ++i) {
         const int cc = cfg.delay_select_cc[i];
         if (cc < 0) continue;
-        if (cc == cfg.expression_cc) {
+        if (is_expr_cc(cc)) {
             err = std::string("midi.json: delay_select \"") + kDelayModeNames[i] +
                   "\" usa lo stesso CC dell'espressione";
             return false;
@@ -416,7 +443,7 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             err = "midi.json: boost.percent deve stare fra 0 e 200";
             return false;
         }
-        if (cfg.boost_cc == cfg.expression_cc) {
+        if (is_expr_cc(cfg.boost_cc)) {
             err = "midi.json: boost usa lo stesso CC dell'espressione";
             return false;
         }
