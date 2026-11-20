@@ -36,19 +36,39 @@ slot 5: config/presets/vox_ac30_edge.json
 
 ## LED
 
-I LED si accendono e si spengono ricevendo **specifiche note MIDI** (comportamento
-del firmware del G-Board). Il file `.imap` qui sopra descrive solo i messaggi dei
-pulsanti: la mappa delle note per i LED **non è inclusa**.
+I LED si comandano con **Note On sul canale 1**, una nota per LED, velocity
+**127 = acceso** e **0 = spento** (dal codice `midico2.js`, funzione `setLights`):
 
-Per ricavarla, con il G-Board collegato:
+| LED | Nota | Messaggio per accenderlo |
+|---|---|---|
+| 1 | 0 | `90 00 7F` |
+| 2 | 1 | `90 01 7F` |
+| 3 | 2 | `90 02 7F` |
+| 4 | 3 | `90 03 7F` |
+| 5 | 4 | `90 04 7F` |
+| 6 | 5 | `90 05 7F` |
+| 7 | 6 | `90 06 7F` |
+| 8 | 7 | `90 07 7F` |
+
+Per spegnere: stessa nota con velocity 0 (`90 0N 00`). Il G-Board ascolta come
+dispositivo MIDI (`hw:V103`); per pilotare i LED serve un'**uscita** MIDI dal Pi
+verso quella porta, cosa che il motore oggi non ha.
+
+Esempio con `amidi` (verifica manuale):
 
 ```bash
-amidi -l                       # individuare hw:V103
-amidi -p hw:V103 -S "90 00 7F" # Note On canale 1, nota 0, velocity 127
-amidi -p hw:V103 -S "80 00 7F" # Note Off della stessa nota
+amidi -p hw:V103 -S "90 00 7F"   # LED 1 acceso
+amidi -p hw:V103 -S "90 00 00"   # LED 1 spento
 ```
 
-e osservare quale LED cambia, ripetendo con note diverse. Una volta nota la
-mappa, il motore può accendere il LED dello slot attivo (o degli effetti accesi):
-serve però un'**uscita MIDI** verso `hw:V103`, che oggi non c'è — il motore è
-solo in ingresso. È il passo naturale dopo la mappa degli ingressi.
+Nota: nel codice originale `setLights(start, end, on)` manda le note da `start`
+a `end` e accende solo quella uguale a `on`; con note 0-3 accende il LED dello slot
+(0-3), con 4-6 quello della scena, e la nota 7 fa da "home" lampeggiante.
+
+## Collegamento al motore
+
+- **Ingresso**: i pulsanti mandano Program Change 0-7, gia' interpretati come
+  selezione slot (vedi sopra).
+- **Uscita (da fare)**: un `MidiOutput` verso `hw:V103` che mandi
+  `90 <slot> 7F` accendendo il LED dello slot attivo, e velocity 0 sugli altri,
+  piu' i LED degli effetti accesi se si vuole.
