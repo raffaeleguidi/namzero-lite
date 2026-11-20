@@ -1412,15 +1412,15 @@ int main(int argc, char** argv) {
         static const int mod_led_type[4] = {0, 2, 3, 4};  // tremolo/univibe/flanger/phaser
         const int mt = namzero::mod_type_index(cfg.mod_type);
         for (int i = 0; i < 4; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(i),
+            led_out.send_note(0, static_cast<uint8_t>(4 + i),
                               (cfg.mod_on && mt == mod_led_type[i]) ? 127 : 0);
         }
         const int dt = namzero::drive_type_index(cfg.drive_type);
         for (int i = 0; i < 3; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(4 + i),
+            led_out.send_note(0, static_cast<uint8_t>(i),
                               (cfg.drive_on && dt == i) ? 127 : 0);
         }
-        led_out.send_note(0, 7, 0);
+        led_out.send_note(0, 3, 0);
     };
     apply_leds();
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
