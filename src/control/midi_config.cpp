@@ -191,6 +191,25 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         }
     }
 
+    if (j.contains("devices")) {
+        if (!j["devices"].is_array()) {
+            err = "midi.json: \"devices\" deve essere un array di nomi ALSA";
+            return false;
+        }
+        cfg.devices.clear();
+        for (const auto& d : j["devices"]) {
+            if (!d.is_string() || d.get<std::string>().empty()) {
+                err = "midi.json: ogni ingresso deve essere un nome non vuoto";
+                return false;
+            }
+            cfg.devices.push_back(d.get<std::string>());
+        }
+        if (cfg.devices.size() > 4) {
+            err = "midi.json: troppi ingressi (massimo 4)";
+            return false;
+        }
+    }
+
     if (j.contains("cc")) {
         const auto& cc = j["cc"];
         if (!cc.is_object()) {

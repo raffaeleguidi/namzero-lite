@@ -1,6 +1,5 @@
 {
   "enabled": true,
-  "device": "hw:XTONE",
   "switches": "any",
   "expression": {
     "cc": 7,
@@ -47,5 +46,9 @@
     "stereo": 45,
     "ping_pong": 46,
     "ping_pong_stereo": 47
-  }
+  },
+  "devices": [
+    "hw:XTONE",
+    "hw:V103"
+  ]
 }

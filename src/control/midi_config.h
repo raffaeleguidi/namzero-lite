@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <vector>
 #include <cstddef>
 #include <string>
 
@@ -48,6 +49,9 @@ inline const char* midi_action_name(MidiAction a) {
 struct MidiConfig {
     bool enabled = true;
     std::string device = "hw:XTONE";
+    // Ingressi da aprire: se vuoto si usa `device`. Con piu' pedali USB si
+    // elencano tutti qui.
+    std::vector<std::string> devices;
     // I footswitch dell'XTONE sono "a stato" (un messaggio per pressione, valore
     // che alterna 127/0). "edge" serve ai controller momentanei.
     std::string switches = "any";

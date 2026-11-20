@@ -917,7 +917,10 @@ int main(int argc, char** argv) {
             }
         }
     }
-    if (midi_cli.device_set) midi_cfg.device = midi_cli.device;
+    if (midi_cli.device_set) {
+        midi_cfg.device = midi_cli.device;
+        midi_cfg.devices = {midi_cli.device};
+    }
     if (midi_cli.no_midi) midi_cfg.enabled = false;
     if (midi_cli.expr_invert) midi_cfg.expression_invert = true;
     if (midi_cli.wah_invert) midi_cfg.wah_invert = true;
@@ -1181,12 +1184,23 @@ int main(int argc, char** argv) {
 
     // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
     // l'auto-engage prende il comando dello slot mod fin dall'avvio.
-    namzero::MidiInput midi;
+    std::vector<std::unique_ptr<namzero::MidiInput>> midis;
     if (midi_cfg.enabled) {
-        std::string merr;
-        if (midi.open(midi_cfg.device, merr)) {
-            std::printf("midi: %s | espressione CC%d | switch %s\n", midi_cfg.device.c_str(),
-                        midi_cfg.expression_cc, midi_cfg.switches.c_str());
+        std::vector<std::string> devs = midi_cfg.devices;
+        if (devs.empty()) devs.push_back(midi_cfg.device);
+        for (const auto& dev : devs) {
+            auto in = std::make_unique<namzero::MidiInput>();
+            std::string merr;
+            if (in->open(dev, merr)) {
+                std::printf("midi: %s\n", dev.c_str());
+                midis.push_back(std::move(in));
+            } else {
+                std::fprintf(stderr, "midi: %s: %s (salto)\n", dev.c_str(), merr.c_str());
+            }
+        }
+        if (!midis.empty()) {
+            std::printf("midi: espressione CC%d | switch %s\n", midi_cfg.expression_cc,
+                        midi_cfg.switches.c_str());
             for (std::size_t i = 0; i < namzero::kMidiActionCount; ++i) {
                 const int cc = midi_cfg.slot_cc[i];
                 if (cc >= 0) {
@@ -1209,13 +1223,10 @@ int main(int argc, char** argv) {
             print_select("mod", midi_cfg.mod_select_cc.data(), namzero::kModTypeCount);
             print_select("drive", midi_cfg.drive_select_cc.data(), namzero::kDriveTypeCount);
             print_select("delay", midi_cfg.delay_select_cc.data(), namzero::kDelayModeCount);
-
             if (midi_cfg.boost_cc >= 0) {
                 std::printf("  %-6s CC%d (+%.0f%%)\n", "boost", midi_cfg.boost_cc,
                             midi_cfg.boost_percent);
             }
-        } else {
-            std::fprintf(stderr, "midi: %s (si prosegue senza)\n", merr.c_str());
         }
     }
     // Bridge BLE: il motore fa da server, il bridge si connette e scrive byte
@@ -1230,7 +1241,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    const bool wah_armed = midi.is_open();
+    const bool wah_armed = !midis.empty();
 
     // Regola: il wah non parte mai acceso, lo accende solo il pedale. Se il
     // MIDI non c'e' (o e' disattivato) resta il controllo manuale, altrimenti
@@ -1613,7 +1624,7 @@ int main(int argc, char** argv) {
 
     // MIDI: assegnazioni fisse, uguali in ogni preset.
     std::thread midi_thread([&]() {
-        if (!midi.is_open() && !ble.is_open()) return;
+        if (midis.empty() && !ble.is_open()) return;
 
         std::vector<namzero::MidiEvent> events;
         // I footswitch mandano 127 alla pressione e 0 al rilascio: conta il
@@ -1648,13 +1659,16 @@ int main(int argc, char** argv) {
 
         while (g_running.load()) {
             events.clear();
-            if (midi.is_open()) {
-                midi.poll(2, events);
+            if (!midis.empty()) {
+                midis[0]->poll(2, events);
+                for (std::size_t i = 1; i < midis.size(); ++i) {
+                    midis[i]->poll(0, events);
+                }
             }
             if (ble.is_open()) {
                 ble.poll(events);
             }
-            if (!midi.is_open() && events.empty()) {
+            if (midis.empty() && events.empty()) {
                 // Solo BLE: senza il poll del rawmidi non c'e' attesa, quindi
                 // si dorme qui per non bruciare la CPU.
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -1947,7 +1961,7 @@ int main(int argc, char** argv) {
     if (stats_thread.joinable()) stats_thread.join();
     if (kb_thread.joinable()) kb_thread.join();
     if (midi_thread.joinable()) midi_thread.join();
-    midi.close();
+    for (auto& m : midis) m->close();
 
     io.close();
 
