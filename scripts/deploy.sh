@@ -13,6 +13,9 @@ PI="${PI:-pi@namzero-lite}"
 echo "== fermo il motore sul Pi (se attivo)"
 ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'sudo -n systemctl stop namzero-lite 2>/dev/null || true; pkill -x namzero-lite 2>/dev/null || true'
 
+echo "== sincronizzo config/ (midi.json, presets.json, preset)"
+rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" config/ "$PI:~/namzero-lite/config/"
+
 echo "== copio il binario"
 scp -i "$SSH_KEY" -o BatchMode=yes "$BIN" "$PI:~/namzero-lite/build/namzero-lite"
 ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'sudo -n setcap cap_sys_nice,cap_ipc_lock+ep ~/namzero-lite/build/namzero-lite && echo setcap ok'
