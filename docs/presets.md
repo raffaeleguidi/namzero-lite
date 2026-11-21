@@ -175,3 +175,17 @@ audio e non prende il lock: si puo' lanciare anche mentre si suona.
 Per aggiungere un effetto nuovo: getter sullo slot, riga nella stampa di
 `--print-config`, riga nella `MAPPING` dello script. Cosi' il controllo resta
 automatico invece di essere un'ispezione a occhio.
+
+## Sorgente di verità della config
+
+Da quando la web UI salva i preset, **la config viva è quella sul Pi**: lui è la
+sorgente di verità, il repo si allinea al Pi e non il contrario.
+
+- `scripts/deploy.sh` **non sovrascrive** `config/` (preset, `presets.json`,
+  `midi.json`): aggiunge solo i file nuovi. Il flag `PUSH_CONFIG=1` esiste ma si
+  usa **solo su richiesta esplicita**.
+- Gli allineamenti dovuti a cambi di struttura (nuovi campi, migrazioni) si fanno
+  **puntualmente**, con modifiche mirate a entrambi i lati.
+- Per riportare nel repo la config del Pi (senza i segreti WiFi/TONE3000):
+  `rsync pi@<pi>:~/namzero-lite/config/presets.json config/` , `presets/` e
+  `midi.json`. `config/wifi.json` e `config/tone3000.json` restano solo sul Pi.
