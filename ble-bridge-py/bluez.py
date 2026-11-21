@@ -54,17 +54,19 @@ async def _find_adapter(bus: MessageBus) -> str:
     raise RuntimeError("nessun adapter Bluetooth: il servizio bluetooth e' attivo?")
 
 
-async def _resolve_address(bus: MessageBus, device: str, log) -> str:
-    """MAC diretto, oppure nome risolto dalla cache di BlueZ (niente scansione).
+_LAST_ADDRESS: str | None = None
 
-    Il pedale accoppiato resta nella lista dei device di BlueZ anche quando non
-    si annuncia: il nome basta a trovare l'indirizzo.
-    """
+
+def _known(objects: dict, device: str) -> str | None:
+    """Indirizzo se BlueZ conosce gia' il device (per MAC o per nome)."""
     if MAC.match(device):
-        return device.upper()
-
+        suffix = "dev_" + device.replace(":", "_").upper()
+        for path in objects:
+            if path.endswith(suffix):
+                return device.upper()
+        return None
     needle = device.lower()
-    for _path, interfaces in (await _managed_objects(bus)).items():
+    for _path, interfaces in objects.items():
         dev = interfaces.get("org.bluez.Device1")
         if dev is None:
             continue
@@ -74,13 +76,50 @@ async def _resolve_address(bus: MessageBus, device: str, log) -> str:
             if value is not None:
                 names.append(str(value.value).lower())
         if any(needle in name for name in names):
-            address = str(dev["Address"].value).upper()
-            log(f'"{device}" -> {address}')
-            return address
+            return str(dev["Address"].value).upper()
+    return None
 
-    raise RuntimeError(
-        f'BlueZ non conosce "{device}": accoppia il pedale una volta con bluetoothctl'
-    )
+
+async def _resolve_address(bus: MessageBus, device: str, log) -> str:
+    """Indirizzo del pedale, con discovery se BlueZ non lo conosce.
+
+    Il caso che conta: pedale spento all'avvio e acceso dopo. BlueZ non ha il
+    device nella cache, quindi si fa una discovery di 12 s; appena compare si
+    collega. Una volta trovato per nome, l'indirizzo resta in memoria.
+    """
+    global _LAST_ADDRESS
+    if not MAC.match(device) and _LAST_ADDRESS is not None:
+        return _LAST_ADDRESS
+
+    address = _known(await _managed_objects(bus), device)
+    if address is not None:
+        if not MAC.match(device):
+            _LAST_ADDRESS = address
+            log(f'"{device}" -> {address}')
+        return address
+
+    adapter_path = await _find_adapter(bus)
+    adapter = await _interface(bus, adapter_path, "org.bluez.Adapter1")
+    try:
+        await adapter.call_start_discovery()
+        log("discovery BLE (il pedale non era nella cache)")
+    except Exception as exc:
+        log(f"discovery: {exc}")
+    try:
+        for _ in range(24):  # 12 s
+            address = _known(await _managed_objects(bus), device)
+            if address is not None:
+                if not MAC.match(device):
+                    _LAST_ADDRESS = address
+                log(f'"{device}" -> {address} (trovato)')
+                return address
+            await asyncio.sleep(0.5)
+    finally:
+        try:
+            await adapter.call_stop_discovery()
+        except Exception:
+            pass
+    raise RuntimeError(f'nessun dispositivo BLE con "{device}" (12 s di discovery)')
 
 
 async def _connect_device(bus: MessageBus, path: str, log) -> None:

@@ -436,18 +436,51 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     j["version"] = 1;
     if (!j.contains("slots") || !j["slots"].is_object()) j["slots"] = nlohmann::json::object();
 
+    // Salvataggio completo: tutto lo stato live, non solo gli on/off. La UI
+    // modifica i parametri dal vivo (socket di controllo) e poi salva qui.
     auto& slots = j["slots"];
     slots["gate"]["on"] = cfg.gate_on;
     slots["comp"]["on"] = cfg.comp_on;
+    slots["comp"]["threshold_db"] = cfg.comp_threshold_db;
+    slots["comp"]["ratio"] = cfg.comp_ratio;
+    slots["comp"]["attack_ms"] = cfg.comp_attack_ms;
+    slots["comp"]["release_ms"] = cfg.comp_release_ms;
+    slots["comp"]["makeup_db"] = cfg.comp_makeup_db;
     slots["drive"]["on"] = cfg.drive_on;
+    slots["drive"]["type"] = cfg.drive_type;
+    slots["drive"]["blend"] = cfg.drive_blend;
+    slots["drive"]["amount"] = cfg.drive_amount;
+    slots["drive"]["tone"] = cfg.drive_tone;
+    slots["drive"]["level_db"] = cfg.drive_level_db;
+    slots["drive"]["mid_db"] = cfg.drive_mid_db;
+    slots["drive"]["low_db"] = cfg.drive_low_db;
     slots["mod"]["on"] = cfg.mod_on;
+    slots["mod"]["type"] = cfg.mod_type;
+    slots["mod"]["rate_hz"] = cfg.mod_rate_hz;
+    slots["mod"]["depth"] = cfg.mod_depth;
+    slots["mod"]["position"] = cfg.mod_position;
+    slots["mod"]["q"] = cfg.mod_q;
+    slots["mod"]["mix"] = cfg.mod_mix;
+    slots["mod"]["low_hz"] = cfg.mod_low_hz;
+    slots["mod"]["high_hz"] = cfg.mod_high_hz;
+    slots["mod"]["fx_mix"] = cfg.mod_fx_mix;
+    slots["mod"]["feedback"] = cfg.mod_feedback;
     slots["amp"]["on"] = cfg.amp_on;
-    // Il trim si regola dal vivo con + e -: se non lo salvassimo, il volume
-    // tornerebbe quello del file a ogni riavvio.
+    slots["amp"]["file"] = cfg.amp_file;
+    slots["amp"]["slim"] = cfg.amp_slim;
     slots["amp"]["trim_db"] = cfg.amp_trim_db;
     slots["ir"]["on"] = cfg.ir_on;
+    slots["ir"]["file"] = cfg.ir_file;
     slots["delay"]["on"] = cfg.delay_on;
+    slots["delay"]["time_ms"] = cfg.delay_time_ms;
+    slots["delay"]["feedback"] = cfg.delay_feedback;
+    slots["delay"]["mix"] = cfg.delay_mix;
+    slots["delay"]["tone"] = cfg.delay_tone;
+    slots["delay"]["mode"] = cfg.delay_mode;
     slots["reverb"]["on"] = cfg.reverb_on;
+    slots["reverb"]["mix"] = cfg.reverb_mix;
+    slots["reverb"]["size"] = cfg.reverb_size;
+    slots["reverb"]["damp"] = cfg.reverb_damp;
 
     std::ofstream out(path);
     if (!out) {
@@ -1186,16 +1219,20 @@ int main(int argc, char** argv) {
 
     // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
     // l'auto-engage prende il comando dello slot mod fin dall'avvio.
+    std::vector<std::string> midi_dev_names;
+    std::vector<std::string> midi_open_names;
     std::vector<std::unique_ptr<namzero::MidiInput>> midis;
     if (midi_cfg.enabled) {
         std::vector<std::string> devs = midi_cfg.devices;
         if (devs.empty()) devs.push_back(midi_cfg.device);
+        midi_dev_names = devs;
         for (const auto& dev : devs) {
             auto in = std::make_unique<namzero::MidiInput>();
             std::string merr;
             if (in->open(dev, merr)) {
                 std::printf("midi: %s\n", dev.c_str());
                 midis.push_back(std::move(in));
+                midi_open_names.push_back(dev);
             } else {
                 std::fprintf(stderr, "midi: %s: %s (salto)\n", dev.c_str(), merr.c_str());
             }
@@ -1869,6 +1906,37 @@ int main(int argc, char** argv) {
         };
 
         while (g_running.load()) {
+            // Hotplug: un pedale USB collegato dopo l'avvio viene aperto qui.
+            static std::int64_t last_retry = 0;
+            const auto now_retry = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::steady_clock::now().time_since_epoch())
+                                       .count();
+            if (now_retry - last_retry > 2000) {
+                last_retry = now_retry;
+                for (const auto& dev : midi_dev_names) {
+                    bool already = false;
+                    for (const auto& n : midi_open_names) {
+                        if (n == dev) already = true;
+                    }
+                    if (already) continue;
+                    auto in = std::make_unique<namzero::MidiInput>();
+                    std::string e;
+                    if (in->open(dev, e)) {
+                        std::printf("midi: %s (collegato a caldo)\n", dev.c_str());
+                        std::fflush(stdout);
+                        midis.push_back(std::move(in));
+                        midi_open_names.push_back(dev);
+                    }
+                }
+                if (!led_out.is_open() && !midi_cfg.gboard_device.empty()) {
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    std::string e;
+                    if (led_out.open(midi_cfg.gboard_device, e)) {
+                        apply_leds();
+                    }
+                }
+            }
+
             events.clear();
             if (!midis.empty()) {
                 midis[0]->poll(2, events);
