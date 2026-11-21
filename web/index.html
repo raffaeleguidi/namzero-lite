@@ -10,7 +10,7 @@
 body { margin:0; font:14px/1.35 -apple-system,system-ui,sans-serif; background:var(--bg); color:var(--txt); }
 header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
 h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
-#status { color:var(--dim); font-size:12px; min-width:200px; font-variant-numeric:tabular-nums; }
+#status { color:var(--dim); font-size:12px; min-width:240px; font-variant-numeric:tabular-nums; }
 #slots { display:flex; gap:6px; }
 #slots button { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; width:30px; height:30px; cursor:pointer; }
 #slots button.cur { border-color:var(--acc); color:var(--acc); }
@@ -67,7 +67,7 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 <body>
 <header>
   <h1>namzero-lite</h1>
-  <span id="status"><span id="statustext">…</span><input id="presetname" title="nome preset (invio per rinominare)" style="background:transparent;border:none;color:var(--dim);font-size:12px;width:110px;outline:none"></span>
+  <span id="status"><span id="statustext">…</span><input id="presetname" title="nome preset (invio per rinominare)" style="background:transparent;border:none;color:#fff;font-size:18px;font-weight:600;width:190px;outline:none"></span>
   <div id="slots"></div>
   <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
   <button class="act primary" id="save">Salva preset</button>
@@ -257,7 +257,7 @@ undoBtn.onclick = () => {
 function render(st) {
   last = st;
   const statustext = document.getElementById("statustext");
-  if (statustext) statustext.textContent = `slot ${st.slot} · boost ${st.boost ? "on" : "off"} · `;
+  if (statustext) statustext.textContent = `[${st.slot}] `;
   const pn = document.getElementById("presetname");
   if (pn && document.activeElement !== pn) {
     const nm = (st.preset || "").split("/").pop().replace(/\.json$/, "");
