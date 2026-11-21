@@ -8,8 +8,9 @@ Il piano di progetto completo è in [PLAN.md](PLAN.md). Dettagli su
 [preset e parametri](docs/presets.md), [controllo MIDI](docs/midi.md),
 [bridge BLE MIDI](docs/ble.md), [G-Board](docs/g-board.md) e [tuning del sistema](docs/rt-setup.md).
 
-**Stato**: catena completa e suonabile sul Pi (M2). Gli effetti ci sono tutti; il MIDI è
-sulla mappa fissa dei CC, non sul learn.
+**Stato**: catena completa e suonabile sul Pi, preset a slot, XTONE + G-Board
+(PC e LED) + Chocolate via BLE. Il MIDI è su mappa fissa in `midi.json` (il
+learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 
 ## Cosa c'è già
 
