@@ -2031,6 +2031,20 @@ int main(int argc, char** argv) {
                         std::string e;
                         if (save_preset(preset_path, cfg, e)) {
                             std::printf("  preset salvato: %s\n", preset_path.c_str());
+                // Il gate e' globale: persiste anche in presets.json, altrimenti
+                // al reload le sue manopole tornano ai valori del file.
+                try {
+                    std::ifstream gin("config/presets.json");
+                    nlohmann::json gj;
+                    gin >> gj;
+                    gj["gate"]["threshold_db"] = cfg.gate_threshold_db;
+                    gj["gate"]["attack_ms"] = cfg.gate_attack_ms;
+                    gj["gate"]["release_ms"] = cfg.gate_release_ms;
+                    std::ofstream gout("config/presets.json");
+                    gout << gj.dump(2) << '\n';
+                } catch (...) {
+                    std::printf("  save: presets.json non aggiornato\n");
+                }
                         } else {
                             std::printf("  errore: %s\n", e.c_str());
                         }
