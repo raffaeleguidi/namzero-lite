@@ -1478,6 +1478,7 @@ int main(int argc, char** argv) {
         s["slot"] = current_slot.load();
         s["preset"] = preset_path;
         s["boost"] = boost_on;
+        s["boost_db"] = midi_cfg.boost_db;
         auto& sl = s["slots"];
         sl["gate"]["on"] = cfg.gate_on;
         sl["gate"]["threshold"] = cfg.gate_threshold_db;
@@ -1487,16 +1488,27 @@ int main(int argc, char** argv) {
         sl["comp"]["threshold"] = cfg.comp_threshold_db;
         sl["comp"]["ratio"] = cfg.comp_ratio;
         sl["comp"]["makeup"] = cfg.comp_makeup_db;
+        sl["comp"]["attack"] = cfg.comp_attack_ms;
+        sl["comp"]["release"] = cfg.comp_release_ms;
         sl["drive"]["on"] = cfg.drive_on;
         sl["drive"]["type"] = cfg.drive_type;
         sl["drive"]["amount"] = cfg.drive_amount;
         sl["drive"]["tone"] = cfg.drive_tone;
         sl["drive"]["blend"] = cfg.drive_blend;
+        sl["drive"]["level"] = cfg.drive_level_db;
+        sl["drive"]["mid"] = cfg.drive_mid_db;
+        sl["drive"]["low"] = cfg.drive_low_db;
         sl["mod"]["on"] = cfg.mod_on;
         sl["mod"]["type"] = cfg.mod_type;
         sl["mod"]["rate"] = cfg.mod_rate_hz;
         sl["mod"]["depth"] = cfg.mod_depth;
         sl["mod"]["feedback"] = cfg.mod_feedback;
+        sl["mod"]["fx_mix"] = cfg.mod_fx_mix;
+        sl["mod"]["q"] = cfg.mod_q;
+        sl["mod"]["mix"] = cfg.mod_mix;
+        sl["mod"]["low_hz"] = cfg.mod_low_hz;
+        sl["mod"]["high_hz"] = cfg.mod_high_hz;
+        sl["mod"]["position"] = cfg.mod_position;
         sl["amp"]["on"] = cfg.amp_on;
         sl["amp"]["file"] = cfg.amp_file;
         sl["amp"]["trim"] = cfg.amp_trim_db;
@@ -1507,6 +1519,7 @@ int main(int argc, char** argv) {
         sl["delay"]["time"] = cfg.delay_time_ms;
         sl["delay"]["feedback"] = cfg.delay_feedback;
         sl["delay"]["mix"] = cfg.delay_mix;
+        sl["delay"]["tone"] = cfg.delay_tone;
         sl["reverb"]["on"] = cfg.reverb_on;
         sl["reverb"]["mix"] = cfg.reverb_mix;
         sl["reverb"]["size"] = cfg.reverb_size;
@@ -1632,20 +1645,32 @@ int main(int argc, char** argv) {
                 if (key == "threshold") { cfg.comp_threshold_db = v; comp_ptr->set_threshold_db(static_cast<float>(v)); }
                 else if (key == "ratio") { cfg.comp_ratio = v; comp_ptr->set_ratio(static_cast<float>(v)); }
                 else if (key == "makeup") { cfg.comp_makeup_db = v; comp_ptr->set_makeup_db(static_cast<float>(v)); }
+                else if (key == "attack") { cfg.comp_attack_ms = v; comp_ptr->set_attack_ms(static_cast<float>(v)); }
+                else if (key == "release") { cfg.comp_release_ms = v; comp_ptr->set_release_ms(static_cast<float>(v)); }
             } else if (slot == "drive") {
                 if (key == "amount") { cfg.drive_amount = v; drive_ptr->set_drive(static_cast<float>(v)); }
                 else if (key == "tone") { cfg.drive_tone = v; drive_ptr->set_tone(static_cast<float>(v)); }
                 else if (key == "blend") { cfg.drive_blend = v; drive_ptr->set_blend(static_cast<float>(v)); }
+                else if (key == "level") { cfg.drive_level_db = v; drive_ptr->set_level_db(static_cast<float>(v)); }
+                else if (key == "mid") { cfg.drive_mid_db = v; drive_ptr->set_mid_db(static_cast<float>(v)); }
+                else if (key == "low") { cfg.drive_low_db = v; drive_ptr->set_low_db(static_cast<float>(v)); }
             } else if (slot == "mod") {
                 if (key == "rate") { cfg.mod_rate_hz = v; mod_ptr->set_rate_hz(static_cast<float>(v)); }
                 else if (key == "depth") { cfg.mod_depth = v; mod_ptr->set_depth(static_cast<float>(v)); }
                 else if (key == "feedback") { cfg.mod_feedback = v; mod_ptr->set_feedback(static_cast<float>(v)); }
+                else if (key == "fx_mix") { cfg.mod_fx_mix = v; mod_ptr->set_fx_mix(static_cast<float>(v)); }
+                else if (key == "q") { cfg.mod_q = v; mod_ptr->set_wah_q(static_cast<float>(v)); }
+                else if (key == "mix") { cfg.mod_mix = v; mod_ptr->set_wah_mix(static_cast<float>(v)); }
+                else if (key == "low_hz") { cfg.mod_low_hz = v; mod_ptr->set_wah_low_hz(static_cast<float>(v)); }
+                else if (key == "high_hz") { cfg.mod_high_hz = v; mod_ptr->set_wah_high_hz(static_cast<float>(v)); }
+                else if (key == "position") { cfg.mod_position = v; mod_ptr->set_position(static_cast<float>(v)); }
             } else if (slot == "amp") {
                 if (key == "trim") { cfg.amp_trim_db = v; amp_ptr->set_trim_db(v); }
             } else if (slot == "delay") {
                 if (key == "time") { cfg.delay_time_ms = v; delay_slot->set_time_ms(static_cast<float>(v)); }
                 else if (key == "feedback") { cfg.delay_feedback = v; delay_slot->set_feedback(static_cast<float>(v)); }
                 else if (key == "mix") { cfg.delay_mix = v; delay_slot->set_mix(static_cast<float>(v)); }
+                else if (key == "tone") { cfg.delay_tone = v; delay_slot->set_tone(static_cast<float>(v)); }
             } else if (slot == "reverb") {
                 if (key == "mix") { cfg.reverb_mix = v; reverb_ptr->set_wet(static_cast<float>(v)); }
                 else if (key == "size") { cfg.reverb_size = v; reverb_ptr->set_room_size(static_cast<float>(v)); }

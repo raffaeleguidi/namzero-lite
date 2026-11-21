@@ -43,21 +43,23 @@ button.act.primary { border-color:var(--acc); color:var(--acc); }
 
 <script>
 const SLOTS = [
- {id:"gate", name:"Gate", knobs:[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]]},
- {id:"comp", name:"Comp", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["makeup","Makeup",0,12,0.5,"dB"]]},
- {id:"drive", name:"Drive", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""]]},
- {id:"mod", name:"Mod", types:["tremolo","univibe","flanger","phaser","wah"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""]]},
- {id:"amp", name:"Amp", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
- {id:"ir", name:"IR", knobs:[]},
- {id:"delay", name:"Delay", modes:["stereo","ping_pong","ping_pong_stereo"], knobs:[["time","Time",20,1200,5,"ms"],["feedback","Fdbk",0,0.9,0.01,""],["mix","Mix",0,1,0.01,""]]},
- {id:"reverb", name:"Reverb", knobs:[["mix","Mix",0,1,0.01,""],["size","Size",0,1,0.01,""],["damp","Damp",0,1,0.01,""]]},
+ {id:"gate", name:"Gate", color:"#7fb3d5", knobs:[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]]},
+ {id:"comp", name:"Comp", color:"#a3c9a8", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["attack","Attack",0,50,1,"ms"],["release","Release",20,1000,10,"ms"],["makeup","Makeup",0,12,0.5,"dB"]]},
+ {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"]]},
+ {id:"mod", name:"Mod", color:"#c5b3e6", types:["tremolo","univibe","flanger","phaser","wah"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""],["fx_mix","FX mix",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""]]},
+ {id:"amp", name:"Amp", color:"#f2d5a8", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
+ {id:"ir", name:"IR", color:"#b8d8d0", knobs:[]},
+ {id:"delay", name:"Delay", color:"#a9c7e8", modes:["stereo","ping_pong","ping_pong_stereo"], knobs:[["time","Time",20,1200,5,"ms"],["feedback","Fdbk",0,0.9,0.01,""],["mix","Mix",0,1,0.01,""],["tone","Tone",0,1,0.01,""]]},
+ {id:"reverb", name:"Reverb", color:"#d8b8d8", knobs:[["mix","Mix",0,1,0.01,""],["size","Size",0,1,0.01,""],["damp","Damp",0,1,0.01,""]]},
 ];
 const el = (t, a={}, ...c) => { const n = document.createElement(t); Object.assign(n, a); c.forEach(x => n.append(x)); return n; };
 const board = document.getElementById("board");
 const knobs = [];
 SLOTS.forEach(s => {
   const card = el("div", {className:"pedal"});
-  const head = el("h2"); head.append(s.name);
+  card.style.borderTop = "3px solid " + s.color;
+  card._color = s.color;
+  const head = el("h2"); head.append(s.name); head.style.color = s.color;
   const power = el("button", {className:"power", textContent:"⏻"});
   power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
   head.append(power); card.append(head);
@@ -92,7 +94,13 @@ const boostCard = el("div", {className:"pedal"});
 const bh = el("h2"); bh.append("Boost");
 const bpower = el("button", {className:"power", textContent:"⏻"});
 bpower.onclick = () => send({cmd:"boost", on:!last?.boost});
-bh.append(bpower); boostCard.append(bh); boostCard._power = bpower; boostCard._id = "boost";
+bh.append(bpower); bh.style.color = "#e6d3a3"; boostCard.style.borderTop = "3px solid #e6d3a3";
+boostCard.append(bh);
+const bw = el("div", {className:"knob"}); bw.append(el("span", {textContent:"Boost"}));
+const bout = el("output"), binp = el("input", {type:"range", min:0, max:24, step:0.5});
+let bt = null; binp.oninput = () => { bout.textContent = (+binp.value).toFixed(1) + "dB"; clearTimeout(bt); bt = setTimeout(() => send({cmd:"param", slot:"boost", key:"db", value:+binp.value}), 60); };
+bw.append(bout, binp); boostCard.append(bw);
+boostCard._power = bpower; boostCard._id = "boost"; boostCard._knob = binp; boostCard._out = bout;
 board.append(boostCard);
 
 let last = null;
@@ -108,7 +116,11 @@ function render(st) {
   board.children && [...board.children].forEach(card => {
     const id = card._id;
     const s = id === "boost" ? null : st.slots[id];
-    if (id === "boost") { card._power.classList.toggle("on", !!st.boost); return; }
+    if (id === "boost") {
+      card._power.classList.toggle("on", !!st.boost);
+      if (card._knob && st.boost_db !== undefined) { if (document.activeElement !== card._knob) card._knob.value = st.boost_db; card._out.textContent = (+st.boost_db).toFixed(1) + "dB"; }
+      return;
+    }
     if (!s) return;
     card._power.classList.toggle("on", !!s.on);
     if (card._select && s.type) card._select.value = s.type;
