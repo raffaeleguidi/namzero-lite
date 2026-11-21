@@ -28,12 +28,15 @@ else {
     (j.models||[]).forEach(m => {
       const c = document.createElement("div"); c.className = "card";
       const h = document.createElement("h3"); h.textContent = m.name || ("model " + m.id);
-      const p = document.createElement("p"); p.textContent = (m.format || m.model_url || "").toString();
+      const p = document.createElement("p");
+      const ext = (m.model_url || "").split(".").pop().toLowerCase();
+      const kind = ext === "wav" ? "IR" : "NAM";
+      p.textContent = `${kind} A${m.architecture_version ?? "?"} · ${ext || "?"}`;
       const b = document.createElement("button"); b.textContent = "Importa";
       b.onclick = () => {
         b.disabled = true; msg("scarico " + (m.name||m.id) + "…");
         fetch("/api/t3k/import", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({model_id:m.id})})
-          .then(r=>r.json()).then(r=>{ if (r.error) { msg(r.error); b.disabled=false; } else { msg(`importato in ${r.kind}/${r.name}`); } })
+          .then(r=>r.json()).then(r=>{ if (r.error) { msg(r.error); b.disabled=false; } else { msg(`importato in ${r.kind}/${r.name}`); b.textContent = "Importato"; } })
           .catch(e=>{ msg(String(e)); b.disabled=false; });
       };
       c.append(h,p,b); list.append(c);
