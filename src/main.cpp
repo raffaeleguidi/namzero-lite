@@ -1582,6 +1582,113 @@ int main(int argc, char** argv) {
             }
             save_preset(preset_path, cfg, e);  // persiste la scelta solo se valida
             switch_slot.store(current_slot.load());  // ricarica con il nuovo file
+        } else if (cmd == "defaults") {
+            const std::string slot = j.value("slot", "");
+            Config d;  // default compilati
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            if (slot == "gate") {
+                cfg.gate_on = d.gate_on;
+                cfg.gate_threshold_db = d.gate_threshold_db;
+                cfg.gate_attack_ms = d.gate_attack_ms;
+                cfg.gate_release_ms = d.gate_release_ms;
+                gate_ptr->set_threshold_db(static_cast<float>(cfg.gate_threshold_db));
+                gate_ptr->set_attack_ms(static_cast<float>(cfg.gate_attack_ms));
+                gate_ptr->set_release_ms(static_cast<float>(cfg.gate_release_ms));
+                if (i_gate != kNoSlot) chain.set_enabled(i_gate, cfg.gate_on);
+            } else if (slot == "comp") {
+                cfg.comp_on = d.comp_on;
+                cfg.comp_threshold_db = d.comp_threshold_db;
+                cfg.comp_ratio = d.comp_ratio;
+                cfg.comp_attack_ms = d.comp_attack_ms;
+                cfg.comp_release_ms = d.comp_release_ms;
+                cfg.comp_makeup_db = d.comp_makeup_db;
+                comp_ptr->set_threshold_db(static_cast<float>(cfg.comp_threshold_db));
+                comp_ptr->set_ratio(static_cast<float>(cfg.comp_ratio));
+                comp_ptr->set_attack_ms(static_cast<float>(cfg.comp_attack_ms));
+                comp_ptr->set_release_ms(static_cast<float>(cfg.comp_release_ms));
+                comp_ptr->set_makeup_db(static_cast<float>(cfg.comp_makeup_db));
+                if (i_comp != kNoSlot) chain.set_enabled(i_comp, cfg.comp_on);
+            } else if (slot == "drive") {
+                cfg.drive_on = d.drive_on;
+                cfg.drive_type = d.drive_type;
+                cfg.drive_amount = d.drive_amount;
+                cfg.drive_tone = d.drive_tone;
+                cfg.drive_blend = d.drive_blend;
+                cfg.drive_level_db = d.drive_level_db;
+                cfg.drive_mid_db = d.drive_mid_db;
+                cfg.drive_low_db = d.drive_low_db;
+                drive_ptr->set_type(drive_type_enum(namzero::drive_type_index(cfg.drive_type)));
+                drive_ptr->set_drive(static_cast<float>(cfg.drive_amount));
+                drive_ptr->set_tone(static_cast<float>(cfg.drive_tone));
+                drive_ptr->set_blend(static_cast<float>(cfg.drive_blend));
+                drive_ptr->set_level_db(static_cast<float>(cfg.drive_level_db));
+                drive_ptr->set_mid_db(static_cast<float>(cfg.drive_mid_db));
+                drive_ptr->set_low_db(static_cast<float>(cfg.drive_low_db));
+                if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                apply_leds();
+            } else if (slot == "mod") {
+                cfg.mod_on = d.mod_on;
+                cfg.mod_type = d.mod_type;
+                cfg.mod_rate_hz = d.mod_rate_hz;
+                cfg.mod_depth = d.mod_depth;
+                cfg.mod_feedback = d.mod_feedback;
+                cfg.mod_fx_mix = d.mod_fx_mix;
+                cfg.mod_q = d.mod_q;
+                cfg.mod_mix = d.mod_mix;
+                cfg.mod_low_hz = d.mod_low_hz;
+                cfg.mod_high_hz = d.mod_high_hz;
+                cfg.mod_position = d.mod_position;
+                mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
+                mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+                mod_ptr->set_depth(static_cast<float>(cfg.mod_depth));
+                mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
+                mod_ptr->set_fx_mix(static_cast<float>(cfg.mod_fx_mix));
+                mod_ptr->set_wah_q(static_cast<float>(cfg.mod_q));
+                mod_ptr->set_wah_mix(static_cast<float>(cfg.mod_mix));
+                mod_ptr->set_wah_low_hz(static_cast<float>(cfg.mod_low_hz));
+                mod_ptr->set_wah_high_hz(static_cast<float>(cfg.mod_high_hz));
+                mod_ptr->set_position(static_cast<float>(cfg.mod_position));
+                if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                apply_leds();
+            } else if (slot == "amp") {
+                cfg.amp_on = d.amp_on;
+                cfg.amp_trim_db = d.amp_trim_db;
+                if (amp_ptr != nullptr) amp_ptr->set_trim_db(cfg.amp_trim_db);
+                if (i_amp != kNoSlot) chain.set_enabled(i_amp, cfg.amp_on);
+            } else if (slot == "ir") {
+                cfg.ir_on = d.ir_on;
+                if (i_ir != kNoSlot) chain.set_enabled(i_ir, cfg.ir_on);
+            } else if (slot == "delay") {
+                cfg.delay_on = d.delay_on;
+                cfg.delay_time_ms = d.delay_time_ms;
+                cfg.delay_feedback = d.delay_feedback;
+                cfg.delay_mix = d.delay_mix;
+                cfg.delay_tone = d.delay_tone;
+                cfg.delay_mode = d.delay_mode;
+                delay_slot->set_time_ms(static_cast<float>(cfg.delay_time_ms));
+                delay_slot->set_feedback(static_cast<float>(cfg.delay_feedback));
+                delay_slot->set_mix(static_cast<float>(cfg.delay_mix));
+                delay_slot->set_tone(static_cast<float>(cfg.delay_tone));
+                delay_slot->set_mode(delay_mode_enum(namzero::delay_mode_index(cfg.delay_mode)));
+                if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
+            } else if (slot == "reverb") {
+                cfg.reverb_on = d.reverb_on;
+                cfg.reverb_mix = d.reverb_mix;
+                cfg.reverb_size = d.reverb_size;
+                cfg.reverb_damp = d.reverb_damp;
+                reverb_ptr->set_wet(static_cast<float>(cfg.reverb_mix));
+                reverb_ptr->set_room_size(static_cast<float>(cfg.reverb_size));
+                reverb_ptr->set_damp(static_cast<float>(cfg.reverb_damp));
+                if (i_reverb != kNoSlot) chain.set_enabled(i_reverb, cfg.reverb_on);
+            } else if (slot == "boost") {
+                namzero::MidiConfig dm;
+                midi_cfg.boost_db = dm.boost_db;
+                if (boost_on) {
+                    master_gain.store(
+                        base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)),
+                        std::memory_order_relaxed);
+                }
+            }
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             boost_on = j.value("on", boost_on);

@@ -41,6 +41,7 @@ button.act.primary { border-color:var(--acc); color:var(--acc); }
   <span id="status">…</span>
   <div id="slots"></div>
   <a href="settings.html" style="color:var(--acc);text-decoration:none">settings</a>
+  <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
   <button class="act primary" id="save">Salva preset</button>
 </header>
 <main id="board"></main>
@@ -66,7 +67,9 @@ SLOTS.forEach(s => {
   const head = el("h2"); head.append(s.name);
   const power = el("button", {className:"power", textContent:"⏻"});
   power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
-  head.append(power); card.append(head);
+  const reset = el("button", {className:"power", textContent:"↺", title:"ripristina default dello slot"});
+  reset.onclick = () => send({cmd:"defaults", slot:s.id});
+  head.append(reset, power); card.append(head);
   let select = null;
   if (s.types || s.modes) {
     select = el("select");
@@ -98,7 +101,9 @@ const boostCard = el("div", {className:"pedal"});
 const bh = el("h2"); bh.append("Boost");
 const bpower = el("button", {className:"power", textContent:"⏻"});
 bpower.onclick = () => send({cmd:"boost", on:!last?.boost});
-bh.append(bpower); boostCard.style.background = "#e6d3a3";
+const breset = el("button", {className:"power", textContent:"↺", title:"ripristina default"});
+breset.onclick = () => send({cmd:"defaults", slot:"boost"});
+bh.append(breset, bpower); boostCard.style.background = "#e6d3a3";
 boostCard.append(bh);
 const bw = el("div", {className:"knob"}); bw.append(el("span", {textContent:"Boost"}));
 const bout = el("output"), binp = el("input", {type:"range", min:0, max:24, step:0.5});
@@ -108,10 +113,42 @@ boostCard._power = bpower; boostCard._id = "boost"; boostCard._knob = binp; boos
 board.append(boostCard);
 
 let last = null;
-function send(cmd) {
+const undoBtn = document.getElementById("undo");
+let undoStack = [];
+function inverseOf(cmd) {
+  if (!last) return null;
+  if (cmd.cmd === "param") {
+    const v = last.slots?.[cmd.slot]?.[cmd.key];
+    return v === undefined ? null : {cmd:"param", slot:cmd.slot, key:cmd.key, value:v};
+  }
+  if (cmd.cmd === "set") {
+    const sl = last.slots?.[cmd.slot];
+    if (!sl) return null;
+    const inv = {cmd:"set", slot:cmd.slot, on:sl.on};
+    if (cmd.type !== undefined) inv.type = sl.type;
+    if (cmd.mode !== undefined) inv.mode = sl.mode;
+    return inv;
+  }
+  if (cmd.cmd === "boost") return {cmd:"boost", on:!!last.boost};
+  if (cmd.cmd === "file") {
+    const f = last.slots?.[cmd.slot]?.file;
+    return f ? {cmd:"file", slot:cmd.slot, file:f} : null;
+  }
+  return null;
+}
+function send(cmd, record = true) {
+  if (record) {
+    const inv = inverseOf(cmd);
+    if (inv) { undoStack.push(inv); if (undoStack.length > 20) undoStack.shift(); undoBtn.disabled = false; }
+  }
   fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cmd)})
     .then(r => r.json()).then(j => { if (j && !j.error) render(j); }).catch(()=>{});
 }
+undoBtn.onclick = () => {
+  const inv = undoStack.pop();
+  undoBtn.disabled = undoStack.length === 0;
+  if (inv) send(inv, false);
+};
 function render(st) {
   last = st;
   const status = document.getElementById("status");
