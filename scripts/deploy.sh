@@ -21,6 +21,9 @@ rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" \
     --exclude 'tone3000.json' \
     config/ "$PI:~/namzero-lite/config/"
 
+echo "== sincronizzo la web UI"
+rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" web/ "$PI:~/namzero-lite/web/"
+
 echo "== copio il binario (rename: se il motore e' in esecuzione non da' ETXTBSY)"
 scp -i "$SSH_KEY" -o BatchMode=yes "$BIN" "$PI:~/namzero-lite/build/namzero-lite.new"
 ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'mv -f ~/namzero-lite/build/namzero-lite.new ~/namzero-lite/build/namzero-lite'
