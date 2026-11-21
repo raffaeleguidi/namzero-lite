@@ -18,8 +18,8 @@ del wah. Ora un preset non può più influenzare il MIDI: se ne contiene ancora 
   "expression": { "cc": 7, "min_raw": 0, "max_raw": 127, "invert": false },
   "wah_autoengage": { "threshold": 0.10, "release_threshold": 0.05,
                       "engage_ms": 100, "release_ms": 500, "invert": true },
-  "cc": { "gate": 25, "comp": 22, "drive": 20, "mod": 10,
-          "amp": 23, "ir": 30, "delay": 11, "reverb": 24 }
+  "cc": { "gate": -1, "comp": -1, "drive": 20, "mod": 10,
+          "amp": 23, "ir": 30, "delay": 11, "reverb": -1 }
 }
 ```
 
@@ -52,14 +52,14 @@ Gli slot della catena, nell'ordine in cui vengono comandati:
 
 | Azione | CC nel file di esempio | Note |
 |--------|------------------------|------|
-| `gate` | 25 | banco B dell'XTONE |
-| `comp` | 22 | banco B |
+| `gate` | -1 (nessuno) | il CC 25 è usato dalla navigazione (primo slot) |
+| `comp` | -1 (nessuno) | il CC 22 è usato dalla navigazione (slot precedente) |
 | `drive` | 20 | banco A (fs2) |
 | `mod` | 10 | banco A (fs1): tremolo; se il wah è in mano al pedale il tasto è ignorato |
 | `amp` | 23 | non mappato dall'XTONE, libero |
 | `ir` | 30 | banco C |
 | `delay` | 11 | banco A (fs3) |
-| `reverb` | 24 | banco B |
+| `reverb` | -1 (nessuno) | il CC 24 è usato dalla navigazione (slot successivo) |
 | espressione | 7 | pedale, banco A |
 | `mod_select` | 32/33/34/35 | **seleziona** tremolo/univibe/flanger/phaser (un tasto per effetto); non e' un CC di slot |
 | `drive_select` | 36/37/38 | **seleziona** fuzz/klon/tubescreamer (radio button) |
@@ -87,7 +87,7 @@ Con la mappa attuale di `config/midi.json`:
 | Gruppo | FS A | FS B | FS C | EXP |
 |---|---|---|---|---|
 | A (verde) | mod | drive | delay | espressione ✔ |
-| B (blu) | comp | reverb | gate | **CC 4: non mappato** |
+| B (blu) | slot precedente (22) | slot successivo (24) | primo slot (25) | **CC 4: non mappato** |
 | C (rosso) | ir | libero (43) | libero (42) | **CC 1: non mappato** |
 
 Il **gruppo blu** e' usato per la navigazione dei preset: **CC 22 = slot

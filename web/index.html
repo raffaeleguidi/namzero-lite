@@ -15,14 +15,14 @@ h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
 #slots button { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; width:30px; height:30px; cursor:pointer; }
 #slots button.cur { border-color:var(--acc); color:var(--acc); }
 main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-start; }
-.pedal { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; width:190px; flex:0 0 auto; }
-.pedal h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:0 0 8px; color:var(--dim); display:flex; justify-content:space-between; align-items:center; }
-.power { width:26px; height:26px; border-radius:50%; border:1px solid var(--line); background:#12151b; color:var(--dim); cursor:pointer; font-size:12px; }
-.power.on { background:var(--on); color:#1a1c22; border-color:var(--on); box-shadow:0 0 10px #f6c45355; }
-select { width:100%; background:#12151b; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:4px; margin:6px 0; }
-.knob { display:grid; grid-template-columns:1fr auto; gap:2px 6px; margin-top:6px; font-size:11px; color:var(--dim); }
-.knob output { color:var(--txt); font-variant-numeric:tabular-nums; }
-.knob input { grid-column:1 / -1; width:100%; accent-color:var(--acc); }
+.pedal { background:var(--card); border:1px solid rgba(0,0,0,.18); border-radius:12px; padding:10px; width:190px; flex:0 0 auto; color:#16181d; box-shadow:0 2px 10px rgba(0,0,0,.35); }
+.pedal h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:0 0 8px; color:#16181d; display:flex; justify-content:space-between; align-items:center; }
+.power { width:26px; height:26px; border-radius:50%; border:1px solid rgba(0,0,0,.25); background:rgba(255,255,255,.45); color:#16181d; cursor:pointer; font-size:12px; }
+.power.on { background:#16181d; color:#fff; border-color:#16181d; box-shadow:0 0 10px rgba(0,0,0,.35); }
+.pedal select { width:100%; background:rgba(255,255,255,.55); color:#16181d; border:1px solid rgba(0,0,0,.2); border-radius:6px; padding:4px; margin:6px 0; }
+.pedal .knob { display:grid; grid-template-columns:1fr auto; gap:2px 6px; margin-top:6px; font-size:11px; color:rgba(0,0,0,.62); }
+.pedal .knob output { color:#16181d; font-variant-numeric:tabular-nums; }
+.pedal .knob input { grid-column:1 / -1; width:100%; accent-color:#16181d; }
 #files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
@@ -57,9 +57,9 @@ const board = document.getElementById("board");
 const knobs = [];
 SLOTS.forEach(s => {
   const card = el("div", {className:"pedal"});
-  card.style.borderTop = "3px solid " + s.color;
+  card.style.background = s.color;
   card._color = s.color;
-  const head = el("h2"); head.append(s.name); head.style.color = s.color;
+  const head = el("h2"); head.append(s.name);
   const power = el("button", {className:"power", textContent:"⏻"});
   power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
   head.append(power); card.append(head);
@@ -94,7 +94,7 @@ const boostCard = el("div", {className:"pedal"});
 const bh = el("h2"); bh.append("Boost");
 const bpower = el("button", {className:"power", textContent:"⏻"});
 bpower.onclick = () => send({cmd:"boost", on:!last?.boost});
-bh.append(bpower); bh.style.color = "#e6d3a3"; boostCard.style.borderTop = "3px solid #e6d3a3";
+bh.append(bpower); boostCard.style.background = "#e6d3a3";
 boostCard.append(bh);
 const bw = el("div", {className:"knob"}); bw.append(el("span", {textContent:"Boost"}));
 const bout = el("output"), binp = el("input", {type:"range", min:0, max:24, step:0.5});
