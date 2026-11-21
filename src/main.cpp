@@ -1679,6 +1679,31 @@ int main(int argc, char** argv) {
             }
         } else if (cmd == "reload") {
             switch_slot.store(current_slot.load());
+        } else if (cmd == "save_options") {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            try {
+                std::ifstream gin("config/presets.json");
+                if (!gin) throw std::runtime_error("presets.json non leggibile");
+                nlohmann::json gj;
+                gin >> gj;
+                gj["gate"]["threshold_db"] = cfg.gate_threshold_db;
+                gj["gate"]["attack_ms"] = cfg.gate_attack_ms;
+                gj["gate"]["release_ms"] = cfg.gate_release_ms;
+                gj["autoengage"]["threshold"] = g_midi->wah_threshold;
+                gj["autoengage"]["release_threshold"] = g_midi->wah_release_threshold;
+                gj["autoengage"]["engage_ms"] = g_midi->wah_engage_ms;
+                gj["autoengage"]["release_ms"] = g_midi->wah_release_ms;
+                gj["boost"]["on"] = g_boost_on;
+                gj["boost"]["db"] = g_midi->boost_db;
+                std::ofstream gout("config/presets.json");
+                if (!gout) throw std::runtime_error("presets.json non scrivibile");
+                gout << gj.dump(2) << '\n';
+                if (!gout) throw std::runtime_error("scrittura fallita");
+                std::printf("  opzioni generali salvate\n");
+            } catch (const std::exception& e) {
+                std::printf("  opzioni: %s\n", e.what());
+            }
+            std::fflush(stdout);
         } else if (cmd == "save") {
             std::string e;
             if (save_preset(preset_path, cfg, e)) {

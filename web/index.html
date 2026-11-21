@@ -32,7 +32,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .pedal .foot { display:flex; justify-content:flex-start; margin-top:8px; }
 #rack { margin:0 16px 16px; background:linear-gradient(#2b303b,#22262f); border:1px solid #3a4150; border-radius:10px; padding:10px 16px 14px; box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
-.rack-title { font-size:11px; letter-spacing:2px; color:#8b93a7; text-transform:uppercase; margin-bottom:8px; }
+.rack-title { display:flex; align-items:center; font-size:11px; letter-spacing:2px; color:#8b93a7; text-transform:uppercase; margin-bottom:8px; }
 #rack-units { display:flex; gap:32px; flex-wrap:wrap; align-items:flex-start; }
 .unit { min-width:230px; padding:0 0 0 16px; border-left:1px solid #3a4150; }
 .unit:first-child { border-left:none; padding-left:0; }
@@ -76,7 +76,7 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 </header>
 <main id="board"></main>
 <section id="rack">
-  <div class="rack-title">Opzioni generali</div>
+  <div class="rack-title">Opzioni generali <button class="act" id="save-options" style="margin-left:auto;padding:2px 10px;font-size:12px">Salva opzioni</button></div>
   <div id="rack-units"></div>
 </section>
 
@@ -201,6 +201,17 @@ const aeFields = [];
   aeFields.push({key, inp, scale});
 });
 rackUnits.append(aeUnit);
+const soBtn = document.getElementById("save-options");
+if (soBtn) soBtn.onclick = () => {
+  soBtn.textContent = "…";
+  fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cmd:"save_options"})})
+    .then(r=>r.json()).then(j=>{
+      const ok = j && !j.error;
+      soBtn.textContent = ok ? "Salvato ✓" : "Errore";
+      soBtn.classList.toggle("saved", ok);
+      setTimeout(()=>{ soBtn.textContent = "Salva opzioni"; soBtn.classList.remove("saved"); }, 1200);
+    }).catch(()=>{ soBtn.textContent = "Errore"; setTimeout(()=>{ soBtn.textContent = "Salva opzioni"; }, 1200); });
+};
 
 // Looper compatto nel rack.
 const loopSection = el("div", {className:"unit"}); loopSection.id = "looper";
