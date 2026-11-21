@@ -48,6 +48,10 @@ def ctl(payload):
     if payload is not None:
         f.write((json.dumps(payload) + "\n").encode())
         f.flush()
+        if payload.get("cmd") == "looper":
+            # il looper applica il comando nel thread audio al blocco dopo:
+            # si aspetta un attimo prima di leggere lo stato.
+            time.sleep(0.09)
     f.write(b'{"cmd":"state"}\n')
     f.flush()
     line = f.readline()
@@ -57,10 +61,12 @@ def ctl(payload):
     # Il motore manda uno snapshot all'apertura: la risposta allo state e' la
     # riga successiva. Si legge quella e si chiude SUBITO (il server del motore
     # serve una connessione alla volta: non va tenuta aperta).
-    s.settimeout(0.5)
+    s.settimeout(0.03)
     try:
-        nxt = f.readline()
-        if nxt:
+        while True:
+            nxt = f.readline()
+            if not nxt:
+                break
             line = nxt
     except (socket.timeout, OSError):
         pass
