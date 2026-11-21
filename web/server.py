@@ -54,12 +54,13 @@ def ctl(payload):
     # L'engine manda anche uno snapshot all'apertura della connessione: il
     # primo messaggio puo' essere quello (stato PRIMA del comando). Busco
     # l'ultimo disponibile, che e' la risposta allo state post-comando.
-    s.settimeout(0.15)
+    # Il motore manda uno snapshot all'apertura: la risposta allo state e' la
+    # riga successiva. Si legge quella e si chiude SUBITO (il server del motore
+    # serve una connessione alla volta: non va tenuta aperta).
+    s.settimeout(0.5)
     try:
-        while True:
-            nxt = f.readline()
-            if not nxt:
-                break
+        nxt = f.readline()
+        if nxt:
             line = nxt
     except (socket.timeout, OSError):
         pass
