@@ -1542,17 +1542,32 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
         } else if (cmd == "file") {
             const std::string fslot = j.value("slot", "");
-            const std::string file = j.value("file", "");
+            std::string file = j.value("file", "");
+            if (file.empty()) return;
             std::lock_guard<std::mutex> lk(ctrl_mtx);
+            std::string e;
             if (fslot == "amp") {
+                if (file.find('/') == std::string::npos) file = "models/" + file;
+                namzero::NamSlot probe;  // valida PRIMA di salvare
+                if (!probe.load(file, cfg.amp_slim, e)) {
+                    std::printf("  file amp: %s\n", e.c_str());
+                    std::fflush(stdout);
+                    return;
+                }
                 cfg.amp_file = file;
             } else if (fslot == "ir") {
+                if (file.find('/') == std::string::npos) file = "irs/" + file;
+                namzero::IrSlot probe;
+                if (!probe.load(file, cfg.ir_taps, e)) {
+                    std::printf("  file ir: %s\n", e.c_str());
+                    std::fflush(stdout);
+                    return;
+                }
                 cfg.ir_file = file;
             } else {
                 return;
             }
-            std::string e;
-            save_preset(preset_path, cfg, e);  // persiste la scelta
+            save_preset(preset_path, cfg, e);  // persiste la scelta solo se valida
             switch_slot.store(current_slot.load());  // ricarica con il nuovo file
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -2318,10 +2333,17 @@ int main(int argc, char** argv) {
             std::printf("slot %d: %s\n", wanted, file.c_str());
             std::fflush(stdout);
             io.close();
-            const std::string exe = "/proc/self/exe";
             char* args[] = {argv[0], const_cast<char*>("-p"), const_cast<char*>(file.c_str()),
                             nullptr};
-            execv(exe.c_str(), args);
+            // Eseguire "/proc/self/exe" cambierebbe il nome del processo in
+            // "exe": pgrep/pkill del servizio non lo troverebbero piu'.
+            char real[4096];
+            const ssize_t n = ::readlink("/proc/self/exe", real, sizeof(real) - 1);
+            if (n > 0) {
+                real[n] = '\0';
+                execv(real, args);
+            }
+            execv(argv[0], args);
             std::perror("execv");
         }
     }
