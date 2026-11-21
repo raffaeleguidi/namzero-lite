@@ -19,9 +19,12 @@ for n in sorted(nets, key=lambda x: -int(x.get("priority", 0))):
     ssid = n.get("ssid", "")
     if not ssid or ssid not in seen:
         continue
-    subprocess.run(["nmcli", "connection", "add", "type", "wifi", "con-name", ssid,
-                    "ifname", "wlan0", "ssid", ssid, "wifi-sec.key-mgmt", "wpa-psk",
-                    "wifi-sec.psk", n.get("password", "")], capture_output=True)
+    existing = subprocess.run(["nmcli", "-t", "-f", "NAME", "connection", "show"],
+                              capture_output=True, text=True).stdout
+    if ssid not in existing.splitlines():
+        subprocess.run(["nmcli", "connection", "add", "type", "wifi", "con-name", ssid,
+                        "ifname", "wlan0", "ssid", ssid, "wifi-sec.key-mgmt", "wpa-psk",
+                        "wifi-sec.psk", n.get("password", "")], capture_output=True)
     r = subprocess.run(["nmcli", "connection", "up", ssid], capture_output=True)
     print("wifi:", ssid, "->", "ok" if r.returncode == 0 else "fallita", flush=True)
     break

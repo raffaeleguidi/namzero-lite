@@ -95,6 +95,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                   "priority": int(n.get("priority", 0))})
                 with open(WIFI, "w") as f:
                     json.dump({"networks": clean}, f, indent=2)
+                os.chmod(WIFI, 0o600)  # contiene le password
                 self._json({"ok": True, "networks": clean})
                 return
             if self.path.startswith("/api/upload"):
