@@ -1,0 +1,13 @@
+[Unit]
+Description=namzero-lite web UI
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/namzero-lite
+ExecStart=/usr/bin/python3 /home/pi/namzero-lite/web/server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

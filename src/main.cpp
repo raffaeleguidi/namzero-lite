@@ -1567,6 +1567,21 @@ int main(int argc, char** argv) {
                 cfg.drive_on = j.value("on", cfg.drive_on);
                 if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
                 apply_leds();
+            } else if (slot == "gate") {
+                cfg.gate_on = j.value("on", cfg.gate_on);
+                if (i_gate != kNoSlot) chain.set_enabled(i_gate, cfg.gate_on);
+            } else if (slot == "comp") {
+                cfg.comp_on = j.value("on", cfg.comp_on);
+                if (i_comp != kNoSlot) chain.set_enabled(i_comp, cfg.comp_on);
+            } else if (slot == "amp") {
+                cfg.amp_on = j.value("on", cfg.amp_on);
+                if (i_amp != kNoSlot) chain.set_enabled(i_amp, cfg.amp_on);
+            } else if (slot == "ir") {
+                cfg.ir_on = j.value("on", cfg.ir_on);
+                if (i_ir != kNoSlot) chain.set_enabled(i_ir, cfg.ir_on);
+            } else if (slot == "reverb") {
+                cfg.reverb_on = j.value("on", cfg.reverb_on);
+                if (i_reverb != kNoSlot) chain.set_enabled(i_reverb, cfg.reverb_on);
             } else if (slot == "delay") {
                 if (j.contains("mode")) {
                     cfg.delay_mode = j["mode"].get<std::string>();

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>namzero-lite</title>
+<style>
+:root { --bg:#15171c; --card:#1e222b; --line:#2c3240; --txt:#e6e9ef; --dim:#8b93a7; --acc:#4fd1c5; --on:#f6c453; }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.35 -apple-system,system-ui,sans-serif; background:var(--bg); color:var(--txt); }
+header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
+h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
+#status { color:var(--dim); font-size:12px; }
+#slots { display:flex; gap:6px; }
+#slots button { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; width:30px; height:30px; cursor:pointer; }
+#slots button.cur { border-color:var(--acc); color:var(--acc); }
+main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-start; }
+.pedal { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; width:190px; flex:0 0 auto; }
+.pedal h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:0 0 8px; color:var(--dim); display:flex; justify-content:space-between; align-items:center; }
+.power { width:26px; height:26px; border-radius:50%; border:1px solid var(--line); background:#12151b; color:var(--dim); cursor:pointer; font-size:12px; }
+.power.on { background:var(--on); color:#1a1c22; border-color:var(--on); box-shadow:0 0 10px #f6c45355; }
+select { width:100%; background:#12151b; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:4px; margin:6px 0; }
+.knob { display:grid; grid-template-columns:1fr auto; gap:2px 6px; margin-top:6px; font-size:11px; color:var(--dim); }
+.knob output { color:var(--txt); font-variant-numeric:tabular-nums; }
+.knob input { grid-column:1 / -1; width:100%; accent-color:var(--acc); }
+#files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
+#files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
+#files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
+#files code { color:var(--acc); font-size:12px; }
+button.act { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
+button.act.primary { border-color:var(--acc); color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>namzero-lite</h1>
+  <span id="status">…</span>
+  <div id="slots"></div>
+  <button class="act primary" id="save">Salva preset</button>
+</header>
+<main id="board"></main>
+<div id="files">
+  <section><h3>Modelli NAM</h3><input type="file" id="up-models"><ul id="list-models"></ul></section>
+  <section><h3>IR</h3><input type="file" id="up-irs"><ul id="list-irs"></ul></section>
+</div>
+<script>
+const SLOTS = [
+ {id:"gate", name:"Gate", knobs:[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]]},
+ {id:"comp", name:"Comp", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["makeup","Makeup",0,12,0.5,"dB"]]},
+ {id:"drive", name:"Drive", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""]]},
+ {id:"mod", name:"Mod", types:["tremolo","univibe","flanger","phaser","wah"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""]]},
+ {id:"amp", name:"Amp", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
+ {id:"ir", name:"IR", knobs:[]},
+ {id:"delay", name:"Delay", modes:["stereo","ping_pong","ping_pong_stereo"], knobs:[["time","Time",20,1200,5,"ms"],["feedback","Fdbk",0,0.9,0.01,""],["mix","Mix",0,1,0.01,""]]},
+ {id:"reverb", name:"Reverb", knobs:[["mix","Mix",0,1,0.01,""],["size","Size",0,1,0.01,""],["damp","Damp",0,1,0.01,""]]},
+];
+const el = (t, a={}, ...c) => { const n = document.createElement(t); Object.assign(n, a); c.forEach(x => n.append(x)); return n; };
+const board = document.getElementById("board");
+const knobs = [];
+SLOTS.forEach(s => {
+  const card = el("div", {className:"pedal"});
+  const head = el("h2"); head.append(s.name);
+  const power = el("button", {className:"power", textContent:"⏻"});
+  power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
+  head.append(power); card.append(head);
+  let select = null;
+  if (s.types || s.modes) {
+    select = el("select");
+    (s.types || s.modes).forEach(v => select.append(el("option", {value:v, textContent:v})));
+    select.onchange = () => send({cmd:"set", slot:s.id, ...(s.types ? {type:select.value} : {mode:select.value})});
+    card.append(select);
+  }
+  s.knobs.forEach(([key,label,min,max,step,unit]) => {
+    const wrap = el("div", {className:"knob"});
+    const lab = el("span", {textContent:label});
+    const out = el("output");
+    const inp = el("input", {type:"range", min, max, step});
+    let t = null;
+    inp.oninput = () => { out.textContent = (+inp.value).toFixed(step < 0.1 ? 2 : 1) + unit;
+      clearTimeout(t); t = setTimeout(() => send({cmd:"param", slot:s.id, key, value:+inp.value}), 60); };
+    wrap.append(lab, out, inp); card.append(wrap);
+    knobs.push({slot:s.id, key, inp, out, step, unit});
+  });
+  card._power = power; card._select = select; card._id = s.id;
+  board.append(card);
+});
+// boost
+const boostCard = el("div", {className:"pedal"});
+const bh = el("h2"); bh.append("Boost");
+const bpower = el("button", {className:"power", textContent:"⏻"});
+bpower.onclick = () => send({cmd:"boost", on:!last?.boost});
+bh.append(bpower); boostCard.append(bh); boostCard._power = bpower; boostCard._id = "boost";
+board.append(boostCard);
+
+let last = null;
+function send(cmd) {
+  fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cmd)})
+    .then(r => r.json()).then(j => { if (j && !j.error) render(j); }).catch(()=>{});
+}
+function render(st) {
+  last = st;
+  const status = document.getElementById("status");
+  status.textContent = `slot ${st.slot} · ${(st.preset||"").split("/").pop()} · boost ${st.boost ? "on" : "off"}`;
+  document.querySelectorAll("#slots button").forEach((b,i) => b.classList.toggle("cur", i === st.slot));
+  board.children && [...board.children].forEach(card => {
+    const id = card._id;
+    const s = id === "boost" ? null : st.slots[id];
+    if (id === "boost") { card._power.classList.toggle("on", !!st.boost); return; }
+    if (!s) return;
+    card._power.classList.toggle("on", !!s.on);
+    if (card._select && s.type) card._select.value = s.type;
+    if (card._select && s.mode) card._select.value = s.mode;
+  });
+  knobs.forEach(k => {
+    const v = st.slots[k.slot] ? st.slots[k.slot][k.key] : undefined;
+    if (v === undefined) return;
+    if (document.activeElement !== k.inp) k.inp.value = v;
+    k.out.textContent = (+v).toFixed(k.step < 0.1 ? 2 : 1) + k.unit;
+  });
+}
+function refresh() {
+  fetch("/api/state").then(r => r.json()).then(j => { if (j && !j.error) render(j); else document.getElementById("status").textContent = "motore non raggiungibile"; }).catch(()=>{});
+}
+const slotBar = document.getElementById("slots");
+for (let i = 0; i < 10; i++) { const b = el("button", {textContent:i}); b.onclick = () => send({cmd:"slot", n:i}); slotBar.append(b); }
+document.getElementById("save").onclick = () => fetch("/api/save", {method:"POST"}).then(r=>r.json()).then(j=>{ if (j && !j.error) render(j); });
+function upload(kind, inp) {
+  const f = inp.files[0]; if (!f) return;
+  fetch(`/api/upload?kind=${kind}`, {method:"POST", headers:{"X-Filename":f.name}, body:f})
+    .then(r=>r.json()).then(()=>{ inp.value=""; loadFiles(); });
+}
+function loadFiles() {
+  ["models","irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r=>r.json()).then(j=>{
+    const ul = document.getElementById("list-"+kind); ul.innerHTML = "";
+    (j.files||[]).forEach(f => ul.append(el("li", {}, el("code", {textContent:f}))));
+  }).catch(()=>{}));
+}
+document.getElementById("up-models").onchange = e => upload("models", e.target);
+document.getElementById("up-irs").onchange = e => upload("irs", e.target);
+loadFiles(); refresh(); setInterval(refresh, 400);
+</script>
+</body>
+</html>

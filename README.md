@@ -47,7 +47,9 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Tutta la mappa in `config/midi.json`, modificabile senza ricompilare
 
 **Sistema**
-- Servizi systemd per motore e bridge, governor persistente, capability
+- **Web UI** locale (porta 8080): pedaliera con manopole live, stato
+  bidirezionale, salvataggio preset e upload NAM/IR ([docs/web.md](docs/web.md))
+- Servizi systemd per motore, bridge e web UI, governor persistente, capability
   (`install.sh`); G-Board e bridge sono opzionali
 - Build sul Pi (`build.sh`) o **cross-compilazione dal Mac** in container
   (`cross-build.sh` + `deploy.sh`)
