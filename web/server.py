@@ -7,6 +7,7 @@ gestisce file, reti WiFi conosciute e l'import da TONE3000.
 import base64
 import hashlib
 import http.server
+import ipaddress
 import json
 import os
 import secrets
@@ -23,6 +24,18 @@ T3K_API = "https://www.tone3000.com"
 T3K_CFG = os.path.join(ROOT, "config/tone3000.json")
 PORT = int(os.environ.get("NAMZERO_WEB_PORT", "8080"))
 _pending = {}  # state -> {verifier, redirect_uri}
+
+
+def _lan_ip():
+    """IP dell'interfaccia usata per uscire, non il 127.0.1.1 dell'hostname."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 # ── motore ──────────────────────────────────────────────────────────────────
@@ -169,8 +182,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             gear = (q.get("gear", ["amp"])[0] or "amp").lower()
-            host = self.headers.get("Host", "")
-            redirect_uri = "http://%s/t3k/callback" % host
+            host_hdr = self.headers.get("Host", "")
+            host, _, port = host_hdr.partition(":")
+            port = port or "80"
+            h = host.strip("[]").lower()
+            ok = h in ("localhost", "127.0.0.1", "::1") or h.endswith(".local")
+            if not ok:
+                try:
+                    ok = ipaddress.ip_address(h).version == 4
+                except ValueError:
+                    ok = False
+            if not ok:
+                # TONE3000 accetta http solo per IP letterale/.local: se l'utente
+                # ha aperto il Pi per nome, si usa l'IP risolto.
+                h = _lan_ip()
+            redirect_uri = "http://%s:%s/t3k/callback" % (h, port)
             verifier = _b64u(secrets.token_bytes(32))
             challenge = _b64u(hashlib.sha256(verifier.encode()).digest())
             state = _b64u(secrets.token_bytes(16))
