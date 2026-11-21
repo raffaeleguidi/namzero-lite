@@ -1031,6 +1031,18 @@ int main(int argc, char** argv) {
     const float base_master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
     std::atomic<float> master_gain{base_master};
     bool boost_on = false;
+    // Il boost e' un'opzione generale: si ripristina da presets.json.
+    {
+        std::ifstream bst("config/presets.json");
+        nlohmann::json bj;
+        if (bst && (bst >> bj) && bj.contains("boost")) {
+            boost_on = bj["boost"].value("on", false);
+            midi_cfg.boost_db = bj["boost"].value("db", midi_cfg.boost_db);
+            if (boost_on) {
+                master_gain.store(base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)));
+            }
+        }
+    }
     // Slot richiesto da tasto o Program Change: il loop audio esce e main
     // ri-esegue il processo con il nuovo preset (buco ~300 ms).
     std::atomic<int> switch_slot{-1};
@@ -2228,6 +2240,8 @@ int main(int argc, char** argv) {
                     gj["autoengage"]["release_threshold"] = g_midi->wah_release_threshold;
                     gj["autoengage"]["engage_ms"] = g_midi->wah_engage_ms;
                     gj["autoengage"]["release_ms"] = g_midi->wah_release_ms;
+                    gj["boost"]["on"] = boost_on;
+                    gj["boost"]["db"] = g_midi->boost_db;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {

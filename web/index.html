@@ -71,7 +71,7 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <span id="status"><span id="statustext">…</span><input id="presetname" title="nome preset (invio per rinominare)" style="background:transparent;border:none;color:#fff;font-size:18px;font-weight:600;width:190px;outline:none"></span>
   <div id="slots"></div>
   <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
-  <button class="act primary" id="save">Salva preset</button>
+  <button class="act primary" id="save">Salva</button>
   <a href="settings.html" style="margin-left:auto;color:var(--acc);text-decoration:none">settings</a>
 </header>
 <main id="board"></main>
@@ -336,7 +336,7 @@ saveBtn.onclick = () => {
   const done = (ok) => {
     saveBtn.textContent = ok ? "Salvato ✓" : "Errore";
     saveBtn.classList.add(ok ? "saved" : "err");
-    setTimeout(() => { saveBtn.textContent = "Salva preset"; saveBtn.classList.remove("saved", "err"); }, 1200);
+    setTimeout(() => { saveBtn.textContent = "Salva"; saveBtn.classList.remove("saved", "err"); }, 1200);
   };
   fetch("/api/save", {method:"POST"}).then(r=>r.json()).then(j=>{
     if (j && !j.error) { render(j); done(true); } else { done(false); }
