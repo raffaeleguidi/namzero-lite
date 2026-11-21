@@ -13,27 +13,44 @@ sulla mappa fissa dei CC, non sul learn.
 
 ## Cosa c'è già
 
-- I/O ALSA full-duplex, periodo configurabile (default 64 frame @ 48 kHz)
-- Thread realtime: `SCHED_FIFO`, `mlockall`, nessuna allocazione nel loop
-- Framework a slot con bypass e **crossfade di 5 ms** (anti-click)
-- Slot: gate, comp, drive, mod, amp NAM, IR, delay, riverbero
-- Drive con tre modelli: `fuzz` (storico), `klon` (trasparente, blend col pulito) e
-  `tubescreamer` (medi in avanti, basse strette)
-- Mod: tremolo, univibe, flanger, phaser (ciclabili con `w`) e wah; il wah è spento
-  finché non lo accende il pedale (auto-engage)
-- Delay con tre modi (stereo, ping-pong, ping-pong stereo), ciclabili con `p`
-- Tasti `+`/`-` per il volume dell'ampli; boost di volume a fine catena via MIDI
-- Selezioni radio via CC per modulazioni, drive e delay (un tasto per scelta,
-  ripremendo lo stesso si spegne)
-- Preset JSON (`-p`) e salvataggio dello stato con `s`
-- MIDI da XTONE: mappa in [config/midi.json](config/midi.json) — CC di ogni slot,
-  espressione e auto-engage — uguale per tutti i preset, modificabile senza ricompilare
-  ([dettagli](docs/midi.md))
-- Contatore xrun con recupero automatico e statistiche periodiche
+**Audio**
+- I/O ALSA full-duplex su XTONE, periodo configurabile (default 64 frame @ 48 kHz)
+- Thread realtime: `SCHED_FIFO`, `mlockall`, nessuna allocazione nel loop; recupero
+  automatico dagli xrun e statistiche
+- Catena a slot fissi con bypass in crossfade di 5 ms (anti-click)
+- Gate e comp applicati davvero dai parametri; **gate globale** in `presets.json`
+  (soglia bassa e release lungo, per non tagliare le code)
+- Drive: `fuzz`, `klon` (blend col pulito), `tubescreamer`
+- Mod: tremolo, univibe, flanger, phaser e wah (auto-engage dal pedale)
+- Delay a tre modi (stereo, ping-pong, ping-pong stereo) e riverbero
+- Boost di volume a fine catena (CC 44 o tasto 8 del G-Board)
+- Tasti `+`/`-` per il volume dell'ampli (salvato nel preset con `s`)
 
-## Cosa manca (roadmap in PLAN.md)
+**Preset**
+- `config/presets.json`: 10 slot (0-9) verso i file, gate globale, `start_slot`
+- Tasti `0`-`9` e navigazione blu dell'XTONE per cambiare slot; banner
+  `[N] - file.json (modello.nam)` a ogni caricamento
+- Salvataggio con `s` (on/off e trim dell'ampli), altri parametri intatti
+- Verifica dei preset con `--print-config` e `scripts/verify_presets.py`
 
-Scelta dei preset dal vivo, MIDI learn, UI. Vedi PLAN.md per il dettaglio.
+**MIDI**
+- XTONE: tre gruppi (A verde, B blu, C rosso) con CC diversi; espressione
+  ascoltata su **CC 7/4/1** (tutti i gruppi); navigazione preset su CC 22/24/25
+- **iCON G-Board**: 8 pulsanti e 8 LED; pulsanti 1-4 mod, 5-7 drive, 8 boost;
+  LED aggiornati in tempo reale e lampeggio dello slot al cambio preset
+  ([mappa completa](docs/g-board.md))
+- Selezioni radio spegnibili per mod, drive e delay (via CC o PC)
+- **M-Vave Chocolate via BLE**: bridge Python separato (systemd) che scrive sulla
+  socket del motore ([docs/ble.md](docs/ble.md))
+- Ingressi multipli configurabili (`midi.json` → `devices`)
+- Tutta la mappa in `config/midi.json`, modificabile senza ricompilare
+
+**Sistema**
+- Servizi systemd per motore e bridge, governor persistente, capability
+  (`install.sh`); G-Board e bridge sono opzionali
+- Build sul Pi (`build.sh`) o **cross-compilazione dal Mac** in container
+  (`cross-build.sh` + `deploy.sh`)
+- Test: C++ (ctest), decoder bridge Python, verifica preset
 
 ## Connessione al Pi
 
@@ -51,12 +68,21 @@ Copia del progetto dal Mac:
 rsync -a --exclude build --exclude .git ~/Projects/namzero-lite/ pi@namzero-lite:~/namzero-lite/
 ```
 
-## Build (sul Pi)
+## Build
+
+Sul Pi:
 
 ```bash
 sudo apt install -y build-essential cmake libasound2-dev
 ./scripts/build.sh        # compila e testa (niente sudo)
 ./scripts/install.sh      # capability, governor, servizi (sudo)
+```
+
+Dal Mac (cross-compilazione aarch64 in container, più veloce e senza OOM):
+
+```bash
+./scripts/cross-build.sh  # -> build-arm64/namzero-lite
+./scripts/deploy.sh       # copia binario + config e riapplica setcap
 ```
 
 `build.sh` non usa sudo; `install.sh` applica `cap_sys_nice,cap_ipc_lock`
@@ -72,11 +98,17 @@ caso basta `./scripts/install.sh`.
 # elenco dispositivi
 aplay -l; arecord -l
 
-# con le capability applicate da scripts/install.sh: niente sudo
-./build/namzero-lite --device hw:XTONE --buffer 64 --rate 48000
+# slot mode: parte dall'ultimo slot usato (config/.last_slot)
+./build/namzero-lite
+
+# un preset specifico
+./build/namzero-lite -p config/presets/vox_wah.json
+
+# vedere i messaggi MIDI mentre si prova
+./build/namzero-lite --midi-log
 
 # senza privilegi realtime (solo per test a buffer grandi)
-./build/namzero-lite --device hw:XTONE --buffer 256 --no-rt
+./build/namzero-lite --no-rt --buffer 256
 ```
 
 Statistiche ogni 5 secondi: blocchi elaborati, xrun, tempo massimo di
@@ -93,6 +125,9 @@ elaborazione del blocco.
 | `--gain` | `0.0` | dB sul master |
 | `--prio` | `80` | priorità FIFO del thread audio |
 | `--no-rt` | off | non impostare priorità realtime |
+| `-p, --preset` | — | carica un preset (altrimenti slot mode) |
+| `--midi-log` | off | stampa ogni messaggio MIDI ricevuto |
+| `--print-config` | off | stampa i valori effettivi e esce (verifica) |
 
 ## Tuning del sistema
 

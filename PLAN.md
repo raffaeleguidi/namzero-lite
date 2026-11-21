@@ -664,3 +664,20 @@ Tutte a 64 frame (budget 1,33 ms), senza sudo grazie alle capability
 **M0**: accendere il Pi, installare l'OS 64-bit, collegare l'XTONE e raccogliere l'output dei comandi di verifica della sezione 9. Senza quel report non si può né dimensionare la catena né scrivere il codice MIDI.
 
 **Poi M1**: build del benchmark sul core C++ e decisione go/no-go.
+
+
+## 16. Roadmap: GUI per preset e NAM/IR
+
+Obiettivo: gestire i preset senza editare JSON a mano.
+
+- **Web UI locale** servita dal Pi (rete di casa, porta dedicata): elenco degli
+  slot di `presets.json`, editor dei parametri, salvataggio, upload di modelli
+  **NAM** (in `models/`) e file **IR** (in `irs/`), scelta del modello per slot.
+- Backend: piccolo servizio (Python/FastAPI o Bun) che legge/scrive
+  `config/presets.json` e i file; il motore ricarica al prossimo avvio o su
+  richiesta (ricarica a caldo in prospettiva).
+- Alternative: app desktop (Tauri/Qt) che parla con lo stesso backend locale.
+- Sicurezza: solo rete locale, nessuna esposizione su Internet; upload limitato
+  a estensioni note.
+- Dipendenze: dopo il servizio systemd e la gestione a slot (fatti), prima del
+  MIDI learn.
