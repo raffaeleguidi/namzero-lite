@@ -241,6 +241,18 @@ saveBtn.onclick = () => {
   if (!card || !card._file) return;
   (j.files||[]).forEach(f => card._file.append(el("option", {value:f, textContent:f})));
 }).catch(()=>{}));
+const pnEl = document.getElementById("presetname");
+let lastName = "";
+function commitName() {
+  const n = pnEl.value.trim();
+  if (!n || n === lastName) return;
+  lastName = n;
+  send({cmd:"rename", name:n});
+}
+pnEl.onchange = commitName;
+pnEl.onkeydown = (e) => { if (e.key === "Enter") { commitName(); pnEl.blur(); } };
+pnEl.onblur = () => { if (last) pnEl.value = (last.preset || "").split("/").pop().replace(/\.json$/, ""); };
+
 refresh(); setInterval(refresh, 400);
 </script>
 </body>
