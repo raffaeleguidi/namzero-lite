@@ -970,6 +970,7 @@ int main(int argc, char** argv) {
     // --- mappa MIDI: file globale, non preset ------------------------------
     // Precedenza: default compilati < midi.json < flag da riga di comando.
     namzero::MidiConfig midi_cfg;
+    g_midi = &midi_cfg;
     {
         std::string midi_path;
         if (midi_cli.config_set) {
