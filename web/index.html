@@ -320,8 +320,12 @@ function render(st) {
     k.out.textContent = (+v).toFixed(k.step < 0.1 ? 2 : 1) + k.unit;
   });
 }
+let failCount = 0;
 function refresh() {
-  fetch("/api/state").then(r => r.json()).then(j => { if (j && !j.error) render(j); else document.getElementById("status").textContent = "motore non raggiungibile"; }).catch(()=>{});
+  fetch("/api/state").then(r => r.json()).then(j => {
+    if (j && !j.error) { failCount = 0; render(j); }
+    else if (++failCount > 4) document.getElementById("statustext").textContent = "motore non raggiungibile";
+  }).catch(() => { if (++failCount > 4) document.getElementById("statustext").textContent = "motore non raggiungibile"; });
 }
 const slotBar = document.getElementById("slots");
 for (let i = 0; i < 8; i++) { const b = el("button", {textContent:i}); b.onclick = () => send({cmd:"slot", n:i}); slotBar.append(b); }

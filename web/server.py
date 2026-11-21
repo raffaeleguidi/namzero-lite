@@ -41,9 +41,24 @@ def _lan_ip():
 # ── motore ──────────────────────────────────────────────────────────────────
 
 def ctl(payload):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(2.5)
-    s.connect(CTL)
+    # Il cambio preset rilancia il motore (~300 ms): il socket sparisce e
+    # ricompare, quindi si ritenta per ~1 s invece di rispondere 503.
+    s = None
+    last = None
+    for attempt in range(8):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(2.5)
+        try:
+            s.connect(CTL)
+            break
+        except OSError as exc:
+            s.close()
+            s = None
+            last = exc
+            if attempt < 7:
+                time.sleep(0.15)
+    if s is None:
+        raise last
     f = s.makefile("rwb")
     if payload is not None:
         f.write((json.dumps(payload) + "\n").encode())
