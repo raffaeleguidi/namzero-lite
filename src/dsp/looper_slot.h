@@ -101,11 +101,18 @@ private:
     void apply(Command c) {
         State st = state();
         if (c == Command::kStop) {
-            // STOP durante REC chiude il loop: la lunghezza diventa la
-            // posizione raggiunta, cosi' il toggle successivo fa PLAY.
-            if (st == State::kRecording && pos_ > 0) loop_len_ = pos_;
-            pos_ = 0;
-            state_.store(static_cast<int>(State::kIdle));
+            // FS B: stop/riprendi SEMPRE. Se e' fermo con un loop riparte,
+            // altrimenti ferma (finalizzando l'eventuale registrazione).
+            if (st == State::kIdle) {
+                if (loop_len_ > 0) {
+                    pos_ = 0;
+                    state_.store(static_cast<int>(State::kPlaying));
+                }
+            } else {
+                if (st == State::kRecording && pos_ > 0) loop_len_ = pos_;
+                pos_ = 0;
+                state_.store(static_cast<int>(State::kIdle));
+            }
         } else if (c == Command::kClear) {
             pos_ = 0;
             loop_len_ = 0;
@@ -114,7 +121,7 @@ private:
             if (st == State::kIdle) {
                 pos_ = 0;
                 if (loop_len_ > 0) {
-                    state_.store(static_cast<int>(State::kPlaying));  // riprende
+                    state_.store(static_cast<int>(State::kOverdub));  // sovraincide
                 } else {
                     loop_len_ = 0;
                     state_.store(static_cast<int>(State::kRecording));
