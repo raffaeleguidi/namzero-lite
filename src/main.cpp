@@ -838,7 +838,7 @@ void store_max(std::atomic<uint64_t>& target, uint64_t value) {
 // Puntatore globale alla config MIDI: serve a lambda con capture list esplicita
 // (es. save) per le opzioni globali (auto-engage).
 static namzero::MidiConfig* g_midi = nullptr;
-static bool g_g_boost_on = false;
+static bool g_boost_on = false;
 
 int main(int argc, char** argv) {
     Config cfg;
