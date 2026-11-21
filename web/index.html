@@ -36,13 +36,11 @@ button.act.primary { border-color:var(--acc); color:var(--acc); }
   <h1>namzero-lite</h1>
   <span id="status">…</span>
   <div id="slots"></div>
+  <a class="act" href="settings.html">Settings</a>
   <button class="act primary" id="save">Salva preset</button>
 </header>
 <main id="board"></main>
-<div id="files">
-  <section><h3>Modelli NAM</h3><input type="file" id="up-models"><ul id="list-models"></ul></section>
-  <section><h3>IR</h3><input type="file" id="up-irs"><ul id="list-irs"></ul></section>
-</div>
+
 <script>
 const SLOTS = [
  {id:"gate", name:"Gate", knobs:[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]]},
@@ -81,6 +79,11 @@ SLOTS.forEach(s => {
     wrap.append(lab, out, inp); card.append(wrap);
     knobs.push({slot:s.id, key, inp, out, step, unit});
   });
+  if (s.id === "amp" || s.id === "ir") {
+    const fsel = el("select");
+    fsel.onchange = () => send({cmd:"file", slot:s.id, file:fsel.value});
+    card.append(fsel); card._file = fsel;
+  }
   card._power = power; card._select = select; card._id = s.id;
   board.append(card);
 });
@@ -110,6 +113,13 @@ function render(st) {
     card._power.classList.toggle("on", !!s.on);
     if (card._select && s.type) card._select.value = s.type;
     if (card._select && s.mode) card._select.value = s.mode;
+    if (card._file && s.file) {
+      const base = s.file.split("/").pop();
+      if (![...card._file.options].some(o => o.value === base)) {
+        card._file.append(el("option", {value:base, textContent:base}));
+      }
+      card._file.value = base;
+    }
   });
   knobs.forEach(k => {
     const v = st.slots[k.slot] ? st.slots[k.slot][k.key] : undefined;
@@ -124,20 +134,13 @@ function refresh() {
 const slotBar = document.getElementById("slots");
 for (let i = 0; i < 10; i++) { const b = el("button", {textContent:i}); b.onclick = () => send({cmd:"slot", n:i}); slotBar.append(b); }
 document.getElementById("save").onclick = () => fetch("/api/save", {method:"POST"}).then(r=>r.json()).then(j=>{ if (j && !j.error) render(j); });
-function upload(kind, inp) {
-  const f = inp.files[0]; if (!f) return;
-  fetch(`/api/upload?kind=${kind}`, {method:"POST", headers:{"X-Filename":f.name}, body:f})
-    .then(r=>r.json()).then(()=>{ inp.value=""; loadFiles(); });
-}
-function loadFiles() {
-  ["models","irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r=>r.json()).then(j=>{
-    const ul = document.getElementById("list-"+kind); ul.innerHTML = "";
-    (j.files||[]).forEach(f => ul.append(el("li", {}, el("code", {textContent:f}))));
-  }).catch(()=>{}));
-}
-document.getElementById("up-models").onchange = e => upload("models", e.target);
-document.getElementById("up-irs").onchange = e => upload("irs", e.target);
-loadFiles(); refresh(); setInterval(refresh, 400);
+["models","irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r=>r.json()).then(j=>{
+  const slotId = kind === "models" ? "amp" : "ir";
+  const card = [...board.children].find(c => c._id === slotId);
+  if (!card || !card._file) return;
+  (j.files||[]).forEach(f => card._file.append(el("option", {value:f, textContent:f})));
+}).catch(()=>{}));
+refresh(); setInterval(refresh, 400);
 </script>
 </body>
 </html>

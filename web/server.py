@@ -58,7 +58,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             kind = q.get("kind", ["models"])[0]
             d = os.path.join(ROOT, "models" if kind == "models" else "irs")
-            files = sorted(os.listdir(d)) if os.path.isdir(d) else []
+            ext = ".nam" if kind == "models" else ".wav"
+            files = sorted(f for f in os.listdir(d) if f.lower().endswith(ext)) if os.path.isdir(d) else []
             self._json({"files": files})
             return
         return super().do_GET()
@@ -77,8 +78,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 name = os.path.basename(self.headers.get("X-Filename", ""))
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 kind = q.get("kind", ["models"])[0]
-                if not name or ".." in name:
-                    self._json({"error": "nome non valido"}, 400)
+                ext = ".nam" if kind == "models" else ".wav"
+                if not name or ".." in name or not name.lower().endswith(ext):
+                    self._json({"error": f"serve un file {ext}"}, 400)
                     return
                 d = os.path.join(ROOT, "models" if kind == "models" else "irs")
                 os.makedirs(d, exist_ok=True)

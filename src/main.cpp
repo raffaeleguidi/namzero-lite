@@ -1540,6 +1540,20 @@ int main(int argc, char** argv) {
                 std::printf("  save: %s\\n", e.c_str());
             }
             std::fflush(stdout);
+        } else if (cmd == "file") {
+            const std::string fslot = j.value("slot", "");
+            const std::string file = j.value("file", "");
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            if (fslot == "amp") {
+                cfg.amp_file = file;
+            } else if (fslot == "ir") {
+                cfg.ir_file = file;
+            } else {
+                return;
+            }
+            std::string e;
+            save_preset(preset_path, cfg, e);  // persiste la scelta
+            switch_slot.store(current_slot.load());  // ricarica con il nuovo file
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             boost_on = j.value("on", boost_on);
