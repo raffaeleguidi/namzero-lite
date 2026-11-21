@@ -28,6 +28,13 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .pedal .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
 .pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .pedal .foot { display:flex; justify-content:flex-start; margin-top:8px; }
+#looper { margin:0 16px 24px; border:1px solid #2c3240; border-radius:12px; padding:12px; background:#1b1f27; transition:box-shadow .2s, border-color .2s; }
+#looper.active { border-color:#4fd1c5; box-shadow:0 0 14px rgba(79,209,197,.25); }
+#loop-bar { height:22px; background:#262b35; border-radius:8px; overflow:hidden; }
+#loop-fill { height:100%; width:0%; background:#4a5568; transition:width .1s linear, background .2s; }
+#looper.active #loop-fill { background:#4fd1c5; }
+#loop-row { display:flex; align-items:center; gap:10px; margin-top:10px; }
+#loop-state { color:#8b93a7; font-size:12px; min-width:150px; font-variant-numeric:tabular-nums; }
 #files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
@@ -49,6 +56,15 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <a href="settings.html" style="margin-left:auto;color:var(--acc);text-decoration:none">settings</a>
 </header>
 <main id="board"></main>
+<section id="looper">
+  <div id="loop-bar"><div id="loop-fill"></div></div>
+  <div id="loop-row">
+    <span id="loop-state">idle · 0.0s / 0.0s</span>
+    <button class="act" id="loop-rec" title="rec/play/dub">● rec</button>
+    <button class="act" id="loop-stop" title="stop">■ stop</button>
+    <button class="act" id="loop-clear" title="clear">⌫ clear</button>
+  </div>
+</section>
 
 <script>
 const SLOTS = [
@@ -118,23 +134,13 @@ const bfoot = el("div", {className:"foot"}); bfoot.append(breset); boostCard.app
 boostCard._power = bpower; boostCard._id = "boost"; boostCard._knob = binp; boostCard._out = bout;
 board.append(boostCard);
 
-// Looper: stato, barra e comandi (stessi del socket/MIDI).
-const loopCard = el("div", {className:"pedal"});
-loopCard.style.background = "#b8c6db";
-const lh = el("h2"); lh.append("Looper"); loopCard.append(lh);
-const lstate = el("div", {style:"font-size:12px;color:rgba(0,0,0,.7);white-space:nowrap", textContent:"idle"});
-const lbar = el("div", {style:"height:5px;background:#9a9a9a;border-radius:3px;margin:6px 0;overflow:hidden"});
-const lfill = el("div", {style:"height:5px;background:#2563eb;width:0%"});
-lbar.append(lfill); loopCard.append(lstate, lbar);
-const lrow = el("div", {style:"display:flex;gap:6px;margin-top:6px"});
-const lrec = el("button", {className:"power", textContent:"●", title:"rec/play/dub"});
-lrec.onclick = () => send({cmd:"looper", action:"toggle"});
-const lstop = el("button", {className:"power", textContent:"■", title:"stop"});
-lstop.onclick = () => send({cmd:"looper", action:"stop"});
-const lclr = el("button", {className:"power", textContent:"⌫", title:"clear"});
-lclr.onclick = () => send({cmd:"looper", action:"clear"});
-lrow.append(lrec, lstop, lclr); loopCard.append(lrow);
-loopCard._id = "looper"; board.append(loopCard);
+// Looper: barra larga sotto la pedaliera.
+const loopSection = document.getElementById("looper");
+const loopStateEl = document.getElementById("loop-state");
+const loopFillEl = document.getElementById("loop-fill");
+document.getElementById("loop-rec").onclick = () => send({cmd:"looper", action:"toggle"});
+document.getElementById("loop-stop").onclick = () => send({cmd:"looper", action:"stop"});
+document.getElementById("loop-clear").onclick = () => send({cmd:"looper", action:"clear"});
 
 let last = null;
 const undoBtn = document.getElementById("undo");
@@ -206,9 +212,9 @@ function render(st) {
   });
   if (st.looper) {
     const L = st.looper;
-    lstate.textContent = `${L.state} · ${(+L.pos).toFixed(1)}s / ${(+L.len).toFixed(1)}s`;
-    lfill.style.width = (L.len > 0 ? Math.min(100, 100 * L.pos / L.len) : 0) + "%";
-    lrec.classList.toggle("on", L.state === "rec" || L.state === "dub");
+    loopStateEl.textContent = `${L.state} · ${(+L.pos).toFixed(1)}s / ${(+L.len).toFixed(1)}s`;
+    loopFillEl.style.width = (L.len > 0 ? Math.min(100, 100 * L.pos / L.len) : 0) + "%";
+    loopSection.classList.toggle("active", L.state !== "idle");
   }
   knobs.forEach(k => {
     const v = st.slots[k.slot] ? st.slots[k.slot][k.key] : undefined;
