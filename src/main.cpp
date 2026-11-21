@@ -1568,6 +1568,58 @@ int main(int argc, char** argv) {
                 std::printf("  save: %s\\n", e.c_str());
             }
             std::fflush(stdout);
+        } else if (cmd == "rename") {
+            std::string name = j.value("name", "");
+            std::string clean;
+            for (char ch : name) {
+                if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                    (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+                    clean += ch;
+                } else if (ch == ' ') {
+                    clean += '_';
+                }
+            }
+            if (clean.empty() || preset_path.empty()) {
+                std::printf("  rename: nome non valido\n");
+                std::fflush(stdout);
+                return;
+            }
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            const std::string old_path = preset_path;
+            const std::string old_name = old_path.substr(old_path.find_last_of('/') + 1);
+            const std::string new_path = "config/presets/" + clean + ".json";
+            std::ifstream exists(new_path);
+            if (exists.good()) {
+                std::printf("  rename: %s esiste gia'\n", new_path.c_str());
+                std::fflush(stdout);
+                return;
+            }
+            if (std::rename(old_path.c_str(), new_path.c_str()) != 0) {
+                std::printf("  rename: errore nel rinominare il file\n");
+                std::fflush(stdout);
+                return;
+            }
+            preset_path = new_path;
+            try {
+                std::ifstream gin("config/presets.json");
+                nlohmann::json pj;
+                gin >> pj;
+                for (auto& slot : pj["slots"]) {
+                    if (slot.is_string()) {
+                        const std::string v = slot.get<std::string>();
+                        if (v.size() >= old_name.size() &&
+                            v.compare(v.size() - old_name.size(), old_name.size(), old_name) == 0) {
+                            slot = "presets/" + clean + ".json";
+                        }
+                    }
+                }
+                std::ofstream gout("config/presets.json");
+                gout << pj.dump(2) << '\n';
+            } catch (...) {
+                std::printf("  rename: presets.json non aggiornato\n");
+            }
+            std::printf("  rename: %s -> %s\n", old_path.c_str(), new_path.c_str());
+            std::fflush(stdout);
         } else if (cmd == "file") {
             const std::string fslot = j.value("slot", "");
             std::string file = j.value("file", "");

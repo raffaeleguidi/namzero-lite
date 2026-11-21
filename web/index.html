@@ -45,8 +45,8 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <div id="slots"></div>
   <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
   <button class="act primary" id="save">Salva preset</button>
-  <span id="presetname" style="color:var(--dim);font-size:12px"></span>
-  <a href="settings.html" style="color:var(--acc);text-decoration:none">settings</a>
+  <input id="presetname" title="nome preset (invio per rinominare)" style="background:transparent;border:none;color:#fff;font-size:16px;font-weight:600;width:150px;outline:none">
+  <a href="settings.html" style="margin-left:auto;color:var(--acc);text-decoration:none">settings</a>
 </header>
 <main id="board"></main>
 
@@ -178,7 +178,7 @@ function render(st) {
   const status = document.getElementById("status");
   status.textContent = `slot ${st.slot} · boost ${st.boost ? "on" : "off"}`;
   const pn = document.getElementById("presetname");
-  if (pn) pn.textContent = (st.preset || "").split("/").pop().replace(/\.json$/, "");
+  if (pn && document.activeElement !== pn) pn.value = (st.preset || "").split("/").pop().replace(/\.json$/, "");
   document.querySelectorAll("#slots button").forEach((b,i) => b.classList.toggle("cur", i === st.slot));
   board.children && [...board.children].forEach(card => {
     const id = card._id;
