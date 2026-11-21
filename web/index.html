@@ -192,13 +192,13 @@ rackUnits.append(boostCard);
 const aeUnit = el("div", {className:"unit"});
 const aeh = el("h3"); aeh.append("Auto-engage"); aeUnit.append(aeh);
 const aeFields = [];
-[["engage_ms","Engage ms",0,3000,10],["release_ms","Release ms",0,5000,10],
- ["threshold","Soglia on",0,1,0.01],["release_threshold","Soglia off",0,1,0.01]].forEach(([key,label,min,max,step]) => {
+[["engage_ms","Engage ms",0,3000,10,1],["release_ms","Release ms",0,5000,10,1],
+ ["threshold","Soglia on %",0,100,1,100],["release_threshold","Soglia off %",0,100,1,100]].forEach(([key,label,min,max,step,scale]) => {
   const row = el("div", {className:"ae-row"});
   const inp = el("input", {type:"number", min, max, step});
-  inp.onchange = () => send({cmd:"autoengage", key, value:+inp.value});
+  inp.onchange = () => send({cmd:"autoengage", key, value:+inp.value / scale});
   row.append(el("span", {textContent:label}), inp); aeUnit.append(row);
-  aeFields.push({key, inp});
+  aeFields.push({key, inp, scale});
 });
 rackUnits.append(aeUnit);
 
@@ -298,7 +298,7 @@ function render(st) {
   if (st.autoengage) {
     aeFields.forEach(f => {
       const v = st.autoengage[f.key];
-      if (v !== undefined && document.activeElement !== f.inp) f.inp.value = v;
+      if (v !== undefined && document.activeElement !== f.inp) f.inp.value = (+v * (f.scale || 1)).toFixed(0);
     });
   }
   if (st.looper) {
