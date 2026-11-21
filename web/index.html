@@ -228,6 +228,12 @@ lrec.onclick = () => send({cmd:"looper", action:"toggle"});
 lstop.onclick = () => send({cmd:"looper", action:"stop"});
 lclr.onclick = () => send({cmd:"looper", action:"clear"});
 
+// Il mod si sposta nella fila in base alla posizione scelta.
+const modCard = [...board.children].find(c => c._id === "mod");
+const ampCard = [...board.children].find(c => c._id === "amp");
+const delayCard = [...board.children].find(c => c._id === "delay");
+let lastModPos = "";
+
 let last = null;
 const undoBtn = document.getElementById("undo");
 let undoStack = [];
@@ -304,6 +310,14 @@ function render(st) {
     if (boostCard._knob && st.boost_db !== undefined) {
       if (document.activeElement !== boostCard._knob) boostCard._knob.value = st.boost_db;
       boostCard._out.textContent = (+st.boost_db).toFixed(1) + "dB";
+    }
+  }
+  if (modCard && st.slots && st.slots.mod) {
+    const pos = st.slots.mod.position || "pre_amp";
+    if (pos !== lastModPos) {
+      lastModPos = pos;
+      if (pos === "post_ir" && delayCard) board.insertBefore(modCard, delayCard);
+      else if (ampCard) board.insertBefore(modCard, ampCard);
     }
   }
   if (st.autoengage) {
