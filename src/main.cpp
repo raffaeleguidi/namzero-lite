@@ -835,6 +835,10 @@ void store_max(std::atomic<uint64_t>& target, uint64_t value) {
 
 }  // namespace
 
+// Puntatore globale alla config MIDI: serve a lambda con capture list esplicita
+// (es. save) per le opzioni globali (auto-engage).
+static namzero::MidiConfig* g_midi = nullptr;
+
 int main(int argc, char** argv) {
     Config cfg;
     MidiCli midi_cli;
@@ -1877,10 +1881,10 @@ int main(int argc, char** argv) {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             const std::string key = j.value("key", "");
             const double v = j.value("value", 0.0);
-            if (key == "threshold") midi_cfg.wah_threshold = v;
-            else if (key == "release_threshold") midi_cfg.wah_release_threshold = v;
-            else if (key == "engage_ms") midi_cfg.wah_engage_ms = static_cast<int>(v);
-            else if (key == "release_ms") midi_cfg.wah_release_ms = static_cast<int>(v);
+            if (key == "threshold") g_midi->wah_threshold = v;
+            else if (key == "release_threshold") g_midi->wah_release_threshold = v;
+            else if (key == "engage_ms") g_midi->wah_engage_ms = static_cast<int>(v);
+            else if (key == "release_ms") g_midi->wah_release_ms = static_cast<int>(v);
             ae_rev.fetch_add(1, std::memory_order_relaxed);
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -2220,10 +2224,10 @@ int main(int argc, char** argv) {
                     gj["gate"]["threshold_db"] = cfg.gate_threshold_db;
                     gj["gate"]["attack_ms"] = cfg.gate_attack_ms;
                     gj["gate"]["release_ms"] = cfg.gate_release_ms;
-                    gj["autoengage"]["threshold"] = midi_cfg.wah_threshold;
-                    gj["autoengage"]["release_threshold"] = midi_cfg.wah_release_threshold;
-                    gj["autoengage"]["engage_ms"] = midi_cfg.wah_engage_ms;
-                    gj["autoengage"]["release_ms"] = midi_cfg.wah_release_ms;
+                    gj["autoengage"]["threshold"] = g_midi->wah_threshold;
+                    gj["autoengage"]["release_threshold"] = g_midi->wah_release_threshold;
+                    gj["autoengage"]["engage_ms"] = g_midi->wah_engage_ms;
+                    gj["autoengage"]["release_ms"] = g_midi->wah_release_ms;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {

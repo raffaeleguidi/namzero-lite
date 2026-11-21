@@ -45,7 +45,7 @@ def ctl(payload):
     # ricompare, quindi si ritenta per ~1 s invece di rispondere 503.
     s = None
     last = None
-    for attempt in range(8):
+    for attempt in range(3):
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(2.5)
         try:
@@ -55,7 +55,7 @@ def ctl(payload):
             s.close()
             s = None
             last = exc
-            if attempt < 7:
+            if attempt < 2:
                 time.sleep(0.15)
     if s is None:
         raise last
