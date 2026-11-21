@@ -27,6 +27,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .pedal .knob input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .pedal .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
 .pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
+.pedal .foot { display:flex; justify-content:flex-start; margin-top:8px; }
 #files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
@@ -69,7 +70,7 @@ SLOTS.forEach(s => {
   power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
   const reset = el("button", {className:"power", textContent:"↺", title:"ripristina default dello slot"});
   reset.onclick = () => send({cmd:"defaults", slot:s.id});
-  head.append(reset, power); card.append(head);
+  head.append(power); card.append(head);
   let select = null;
   if (s.types || s.modes) {
     select = el("select");
@@ -88,6 +89,7 @@ SLOTS.forEach(s => {
     wrap.append(lab, out, inp); card.append(wrap);
     knobs.push({slot:s.id, key, inp, out, step, unit});
   });
+  const foot = el("div", {className:"foot"}); foot.append(reset); card.append(foot);
   if (s.id === "amp" || s.id === "ir") {
     const fsel = el("select");
     fsel.onchange = () => send({cmd:"file", slot:s.id, file:fsel.value});
@@ -103,12 +105,13 @@ const bpower = el("button", {className:"power", textContent:"⏻"});
 bpower.onclick = () => send({cmd:"boost", on:!last?.boost});
 const breset = el("button", {className:"power", textContent:"↺", title:"ripristina default"});
 breset.onclick = () => send({cmd:"defaults", slot:"boost"});
-bh.append(breset, bpower); boostCard.style.background = "#e6d3a3";
+bh.append(bpower); boostCard.style.background = "#e6d3a3";
 boostCard.append(bh);
 const bw = el("div", {className:"knob"}); bw.append(el("span", {textContent:"Boost"}));
 const bout = el("output"), binp = el("input", {type:"range", min:0, max:24, step:0.5});
 let bt = null; binp.oninput = () => { bout.textContent = (+binp.value).toFixed(1) + "dB"; clearTimeout(bt); bt = setTimeout(() => send({cmd:"param", slot:"boost", key:"db", value:+binp.value}), 60); };
 bw.append(bout, binp); boostCard.append(bw);
+const bfoot = el("div", {className:"foot"}); bfoot.append(breset); boostCard.append(bfoot);
 boostCard._power = bpower; boostCard._id = "boost"; boostCard._knob = binp; boostCard._out = bout;
 board.append(boostCard);
 

@@ -33,6 +33,7 @@
 #include "dsp/ir_slot.h"
 #include "dsp/nam_slot.h"
 #include "dsp/delay_slot.h"
+#include "dsp/looper_slot.h"
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
 #include "control/midi_config.h"
@@ -1100,6 +1101,15 @@ int main(int argc, char** argv) {
         chain.add(std::move(rv));
     }
 
+    // Looper a fine catena: buffer preallocato all'avvio (60 s stereo).
+    const std::size_t i_looper = chain.size();
+    namzero::LooperSlot* looper_ptr = nullptr;
+    {
+        auto lp = std::make_unique<namzero::LooperSlot>(60.0);
+        looper_ptr = lp.get();
+        chain.add(std::move(lp));
+    }
+
 
     // --print-config: valori letti DAGLI SLOT, non dal Config. E' la verifica
     // che il preset sia arrivato fino in fondo (lettura + applicazione); il
@@ -1479,6 +1489,12 @@ int main(int argc, char** argv) {
         s["preset"] = preset_path;
         s["boost"] = boost_on;
         s["boost_db"] = midi_cfg.boost_db;
+        if (looper_ptr != nullptr) {
+            s["looper"]["state"] = namzero::LooperSlot::state_name(looper_ptr->state());
+            s["looper"]["pos"] = looper_ptr->position_seconds();
+            s["looper"]["len"] = looper_ptr->length_seconds();
+            s["looper"]["max"] = looper_ptr->max_seconds();
+        }
         auto& sl = s["slots"];
         sl["gate"]["on"] = cfg.gate_on;
         sl["gate"]["threshold"] = cfg.gate_threshold_db;
@@ -1688,6 +1704,13 @@ int main(int argc, char** argv) {
                         base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)),
                         std::memory_order_relaxed);
                 }
+            }
+        } else if (cmd == "looper") {
+            const std::string action = j.value("action", "");
+            if (looper_ptr != nullptr) {
+                if (action == "toggle") looper_ptr->command(namzero::LooperSlot::Command::kToggle);
+                else if (action == "stop") looper_ptr->command(namzero::LooperSlot::Command::kStop);
+                else if (action == "clear") looper_ptr->command(namzero::LooperSlot::Command::kClear);
             }
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -1909,6 +1932,15 @@ int main(int argc, char** argv) {
                     std::fflush(stdout);
                     break;
                 }
+                case 'l':
+                    if (looper_ptr != nullptr) looper_ptr->command(namzero::LooperSlot::Command::kToggle);
+                    break;
+                case ';':
+                    if (looper_ptr != nullptr) looper_ptr->command(namzero::LooperSlot::Command::kStop);
+                    break;
+                case 'L':
+                    if (looper_ptr != nullptr) looper_ptr->command(namzero::LooperSlot::Command::kClear);
+                    break;
                 case 'd': toggle("delay", i_delay, cfg.delay_on); break;
                 case 't': {
                     if (delay_slot == nullptr) break;
