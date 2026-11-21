@@ -45,7 +45,7 @@ def ctl(payload):
     # ricompare, quindi si ritenta per ~1 s invece di rispondere 503.
     s = None
     last = None
-    for attempt in range(3):
+    for attempt in range(5):
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(2.5)
         try:
@@ -55,8 +55,8 @@ def ctl(payload):
             s.close()
             s = None
             last = exc
-            if attempt < 2:
-                time.sleep(0.15)
+            if attempt < 4:
+                time.sleep(0.25)
     if s is None:
         raise last
     f = s.makefile("rwb")
@@ -78,7 +78,7 @@ def ctl(payload):
                 try:
                     return ctl(None)
                 except Exception:
-                    time.sleep(0.15)
+                    time.sleep(0.25)
             raise RuntimeError("motore non raggiungibile dopo il reload")
     f.write(b'{"cmd":"state"}\n')
     f.flush()
