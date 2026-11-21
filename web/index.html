@@ -215,7 +215,8 @@ function render(st) {
     // Niente corsa della posizione (il poll non la segue): si colora la
     // lunghezza del loop rispetto al massimo.
     const label = (L.state === "idle" && L.len > 0) ? "stop" : L.state;
-    loopStateEl.textContent = `${label} · ${(+L.len).toFixed(1)} s / ${(+L.max).toFixed(0)} s`;
+    const armed = (L.state === "play" && L.armed) ? " · armed" : "";
+    loopStateEl.textContent = `${label}${armed} · ${(+L.len).toFixed(1)} s / ${(+L.max).toFixed(0)} s`;
     loopFillEl.style.width = (L.max > 0 ? Math.min(100, 100 * L.len / L.max) : 0) + "%";
     loopSection.classList.toggle("active", L.state !== "idle");
   }

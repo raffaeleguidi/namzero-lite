@@ -44,6 +44,7 @@ public:
     void command(Command c) { cmd_.store(static_cast<int>(c)); }
 
     State state() const { return static_cast<State>(state_.load()); }
+    bool armed() const { return armed_; }
     double position_seconds() const { return static_cast<double>(pos_shared_.load()) / rate_; }
     double length_seconds() const { return static_cast<double>(len_shared_.load()) / rate_; }
     double max_seconds() const { return max_seconds_; }
@@ -79,6 +80,12 @@ public:
                 l += buf_[2 * pos_];
                 r += buf_[2 * pos_ + 1];
                 pos_ = (pos_ + 1) % loop_len_;
+                if (pos_ == 0 && armed_) {
+                    // overdub armato: parte al confine del loop (quantizzato).
+                    armed_ = false;
+                    st = State::kOverdub;
+                    state_.store(static_cast<int>(st));
+                }
             } else if (st == State::kOverdub && loop_len_ > 0) {
                 const float old_l = buf_[2 * pos_];
                 const float old_r = buf_[2 * pos_ + 1];
@@ -110,18 +117,22 @@ private:
                 }
             } else {
                 if (st == State::kRecording && pos_ > 0) loop_len_ = pos_;
+                armed_ = false;
                 pos_ = 0;
                 state_.store(static_cast<int>(State::kIdle));
             }
         } else if (c == Command::kClear) {
+            armed_ = false;
             pos_ = 0;
             loop_len_ = 0;
             state_.store(static_cast<int>(State::kIdle));
         } else if (c == Command::kToggle) {
             if (st == State::kIdle) {
                 pos_ = 0;
+                armed_ = false;
                 if (loop_len_ > 0) {
-                    state_.store(static_cast<int>(State::kOverdub));  // sovraincide
+                    state_.store(static_cast<int>(State::kPlaying));
+                    armed_ = true;  // riprende e arma l'overdub al confine
                 } else {
                     loop_len_ = 0;
                     state_.store(static_cast<int>(State::kRecording));
@@ -131,11 +142,9 @@ private:
                 pos_ = 0;
                 state_.store(static_cast<int>(State::kPlaying));
             } else if (st == State::kPlaying) {
-                pos_ = 0;
-                state_.store(static_cast<int>(State::kOverdub));
+                armed_ = true;  // arma: parte al prossimo giro del loop
             } else {
-                pos_ = 0;
-                state_.store(static_cast<int>(State::kPlaying));
+                state_.store(static_cast<int>(State::kPlaying));  // chiude il dub
             }
         }
     }
@@ -144,6 +153,7 @@ private:
     std::size_t frames_total_ = 0;
     std::size_t pos_ = 0;
     std::size_t loop_len_ = 0;
+    bool armed_ = false;
     double rate_ = 48000.0;
     double max_seconds_ = 60.0;
     std::atomic<int> state_{0};

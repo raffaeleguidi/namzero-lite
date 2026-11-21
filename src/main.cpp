@@ -1493,6 +1493,7 @@ int main(int argc, char** argv) {
             s["looper"]["pos"] = looper_ptr->position_seconds();
             s["looper"]["len"] = looper_ptr->length_seconds();
             s["looper"]["max"] = looper_ptr->max_seconds();
+            s["looper"]["armed"] = looper_ptr->armed();
         }
         auto& sl = s["slots"];
         sl["gate"]["on"] = cfg.gate_on;
