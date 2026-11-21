@@ -5,7 +5,7 @@ Wants=bluetooth.target
 
 [Service]
 User=pi
-Environment=NAMZERO_BLE_DEVICE=77:CD:E5:29:2A:4F
+Environment=NAMZERO_BLE_DEVICE=FootCtrl
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
 # Versione Python (default): bastano ~26 MB. La unit usa il venv perche' bleak
 # non e' nei pacchetti di sistema.

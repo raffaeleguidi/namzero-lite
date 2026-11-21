@@ -39,8 +39,8 @@ bluetoothctl
 [bluetooth]# agent NoInputNoOutput
 [bluetooth]# default-agent
 [bluetooth]# scan on                 # attendere che compaia FootCtrl
-[bluetooth]# pair 77:CD:E5:29:2A:4F
-[bluetooth]# trust 77:CD:E5:29:2A:4F
+[bluetooth]# pair AA:BB:CC:DD:EE:FF
+[bluetooth]# trust AA:BB:CC:DD:EE:FF
 [bluetooth]# quit
 ```
 
@@ -67,7 +67,7 @@ Variabili:
 
 | Variabile | Default | Note |
 |-----------|---------|------|
-| `NAMZERO_BLE_DEVICE` | `77:CD:E5:29:2A:4F` | **MAC** del pedale (obbligatorio: la ricerca per nome non funziona quando e' connesso) |
+| `NAMZERO_BLE_DEVICE` | `FootCtrl` | nome o MAC del pedale; il nome viene risolto dalla cache di BlueZ |
 | `NAMZERO_BLE_SOCKET` | `/tmp/namzero-lite-ble.sock` | deve combaciare con `midi.ble.socket` in `config/midi.json` |
 | `NAMZERO_BLE_DEBUG` | `0` | `1` stampa ogni messaggio decodificato |
 | `BLE_PYTHON` | `~/ble-venv/bin/python` | interprete usato da `run.sh` |
@@ -75,9 +75,9 @@ Variabili:
 Output atteso in debug:
 
 ```
-20:43:00.337 bridge BLE MIDI: cerco "77:CD:E5:29:2A:4F", scrivo su /tmp/namzero-lite-ble.sock
-20:43:00.900 connessione a 77:CD:E5:29:2A:4F
-20:43:01.226 connesso a 77:CD:E5:29:2A:4F
+20:43:00.337 bridge BLE MIDI: cerco "FootCtrl", scrivo su /tmp/namzero-lite-ble.sock
+20:43:00.900 connessione a AA:BB:CC:DD:EE:FF
+20:43:01.226 connesso a AA:BB:CC:DD:EE:FF
 20:43:01.227 notifiche BLE MIDI attive
 20:43:05.881 midi: cc ch1 32 0  [b0 20 00]
 ```
@@ -101,7 +101,7 @@ Wants=bluetooth.target
 
 [Service]
 User=pi
-Environment=NAMZERO_BLE_DEVICE=77:CD:E5:29:2A:4F
+Environment=NAMZERO_BLE_DEVICE=FootCtrl
 Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
 ExecStart=/home/pi/ble-venv/bin/python /home/pi/namzero-lite/ble-bridge-py/main.py
 Restart=always

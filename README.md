@@ -64,22 +64,6 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 
 Dettaglio e milestone in [PLAN.md](PLAN.md).
 
-## Connessione al Pi
-
-La rete non espone mDNS: `namzero-lite.local` **non risolve**. Il nome viene risolto dal
-router (Fritz!Box):
-
-```bash
-ssh pi@namzero-lite            # nome semplice, fornito dal Fritz!Box
-ssh pi@namzero-lite.fritz.box  # FQDN del router, se il primo non basta
-```
-
-Copia del progetto dal Mac:
-
-```bash
-rsync -a --exclude build --exclude .git ~/Projects/namzero-lite/ pi@namzero-lite:~/namzero-lite/
-```
-
 ## Build
 
 Sul Pi:

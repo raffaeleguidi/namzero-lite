@@ -1,7 +1,7 @@
 """Bridge BLE MIDI: pedale -> socket Unix del motore.
 
 Variabili d'ambiente:
-  NAMZERO_BLE_DEVICE  MAC del pedale (obbligatorio); default 77:CD:E5:29:2A:4F
+  NAMZERO_BLE_DEVICE  nome o MAC del pedale; default FootCtrl
   NAMZERO_BLE_SOCKET  socket del motore; default /tmp/namzero-lite-ble.sock
   NAMZERO_BLE_DEBUG   1 = stampa ogni messaggio decodificato
 """
@@ -25,7 +25,7 @@ def log(message: str) -> None:
 
 
 async def main() -> int:
-    device = os.environ.get("NAMZERO_BLE_DEVICE", "77:CD:E5:29:2A:4F")
+    device = os.environ.get("NAMZERO_BLE_DEVICE", "FootCtrl")
     socket_path = os.environ.get("NAMZERO_BLE_SOCKET", "/tmp/namzero-lite-ble.sock")
     debug = os.environ.get("NAMZERO_BLE_DEBUG") == "1"
 
