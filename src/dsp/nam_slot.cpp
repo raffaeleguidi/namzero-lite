@@ -78,6 +78,12 @@ bool NamSlot::load(const std::string& path, double slim, std::string& err) {
                 s->SetSlimmableSize(slim);
             }
         }
+        if (!impl_->slimmable) {
+            // Controllo esplicito: i modelli non slimmable girano interi e
+            // sfondano il periodo audio (xrun). Non li carichiamo.
+            err = "modello non slimmable (serve un A2 slim): " + path;
+            return false;
+        }
 
         impl_->sample_rate = dsp->GetExpectedSampleRate();
         impl_->model_gain = read_model_gain(path, slim);
