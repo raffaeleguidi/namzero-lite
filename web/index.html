@@ -59,7 +59,7 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 <section id="looper">
   <div id="loop-bar"><div id="loop-fill"></div></div>
   <div id="loop-row">
-    <span id="loop-state">idle · 0.0s / 0.0s</span>
+    <span id="loop-state">idle · 0.0 s / 60 s</span>
     <button class="act" id="loop-rec" title="rec/play/dub">● rec</button>
     <button class="act" id="loop-stop" title="stop">■ stop</button>
     <button class="act" id="loop-clear" title="clear">⌫ clear</button>
@@ -212,8 +212,10 @@ function render(st) {
   });
   if (st.looper) {
     const L = st.looper;
-    loopStateEl.textContent = `${L.state} · ${(+L.pos).toFixed(1)}s / ${(+L.len).toFixed(1)}s`;
-    loopFillEl.style.width = (L.len > 0 ? Math.min(100, 100 * L.pos / L.len) : 0) + "%";
+    // Niente corsa della posizione (il poll non la segue): si colora la
+    // lunghezza del loop rispetto al massimo.
+    loopStateEl.textContent = `${L.state} · ${(+L.len).toFixed(1)} s / ${(+L.max).toFixed(0)} s`;
+    loopFillEl.style.width = (L.max > 0 ? Math.min(100, 100 * L.len / L.max) : 0) + "%";
     loopSection.classList.toggle("active", L.state !== "idle");
   }
   knobs.forEach(k => {
