@@ -53,6 +53,17 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
   (`cross-build.sh` + `deploy.sh`)
 - Test: C++ (ctest), decoder bridge Python, verifica preset
 
+## Prossimi passi
+
+- **GUI di gestione** (web locale sul Pi o app desktop): elenco degli slot,
+  editor dei parametri del preset, **upload di modelli NAM e file IR**, salvataggio
+  di `presets.json` e anteprima dei file disponibili.
+- **MIDI learn** per assegnare i CC dal pedale invece della mappa fissa.
+- Cambio preset **a caldo** (~200 ms) al posto del ri-exec attuale (~300 ms).
+- LED per gli altri slot (gate/comp/delay/reverb) quando ci saranno LED liberi.
+
+Dettaglio e milestone in [PLAN.md](PLAN.md).
+
 ## Connessione al Pi
 
 La rete non espone mDNS: `namzero-lite.local` **non risolve**. Il nome viene risolto dal
