@@ -1,1 +1,14 @@
-{"networks":[]}
+{
+  "networks": [
+    {
+      "ssid": "Casa-Esempio",
+      "password": "esempio",
+      "priority": 2
+    },
+    {
+      "ssid": "Hotspot-Esempio",
+      "password": "esempio",
+      "priority": 1
+    }
+  ]
+}

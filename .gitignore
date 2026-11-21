@@ -31,4 +31,3 @@ ble-bridge/.bun-cache/
 .nam/
 build-arm64/
 .docker/
-config/tone3000.json

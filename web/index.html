@@ -45,6 +45,7 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <div id="slots"></div>
   <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
   <button class="act primary" id="save">Salva preset</button>
+  <span id="presetname" style="color:var(--dim);font-size:12px"></span>
   <a href="settings.html" style="color:var(--acc);text-decoration:none">settings</a>
 </header>
 <main id="board"></main>
@@ -117,6 +118,24 @@ const bfoot = el("div", {className:"foot"}); bfoot.append(breset); boostCard.app
 boostCard._power = bpower; boostCard._id = "boost"; boostCard._knob = binp; boostCard._out = bout;
 board.append(boostCard);
 
+// Looper: stato, barra e comandi (stessi del socket/MIDI).
+const loopCard = el("div", {className:"pedal"});
+loopCard.style.background = "#b8c6db";
+const lh = el("h2"); lh.append("Looper"); loopCard.append(lh);
+const lstate = el("div", {style:"font-size:12px;color:rgba(0,0,0,.7)", textContent:"idle"});
+const lbar = el("div", {style:"height:5px;background:#9a9a9a;border-radius:3px;margin:6px 0;overflow:hidden"});
+const lfill = el("div", {style:"height:5px;background:#2563eb;width:0%"});
+lbar.append(lfill); loopCard.append(lstate, lbar);
+const lrow = el("div", {style:"display:flex;gap:6px;margin-top:6px"});
+const lrec = el("button", {className:"power", textContent:"●", title:"rec/play/dub"});
+lrec.onclick = () => send({cmd:"looper", action:"toggle"});
+const lstop = el("button", {className:"power", textContent:"■", title:"stop"});
+lstop.onclick = () => send({cmd:"looper", action:"stop"});
+const lclr = el("button", {className:"power", textContent:"⌫", title:"clear"});
+lclr.onclick = () => send({cmd:"looper", action:"clear"});
+lrow.append(lrec, lstop, lclr); loopCard.append(lrow);
+loopCard._id = "looper"; board.append(loopCard);
+
 let last = null;
 const undoBtn = document.getElementById("undo");
 let undoStack = [];
@@ -157,7 +176,9 @@ undoBtn.onclick = () => {
 function render(st) {
   last = st;
   const status = document.getElementById("status");
-  status.textContent = `slot ${st.slot} · ${(st.preset||"").split("/").pop()} · boost ${st.boost ? "on" : "off"}`;
+  status.textContent = `slot ${st.slot} · boost ${st.boost ? "on" : "off"}`;
+  const pn = document.getElementById("presetname");
+  if (pn) pn.textContent = (st.preset || "").split("/").pop().replace(/\.json$/, "");
   document.querySelectorAll("#slots button").forEach((b,i) => b.classList.toggle("cur", i === st.slot));
   board.children && [...board.children].forEach(card => {
     const id = card._id;
@@ -179,6 +200,12 @@ function render(st) {
       card._file.value = base;
     }
   });
+  if (st.looper) {
+    const L = st.looper;
+    lstate.textContent = `${L.state} · ${(+L.pos).toFixed(1)}s / ${(+L.len).toFixed(1)}s`;
+    lfill.style.width = (L.len > 0 ? Math.min(100, 100 * L.pos / L.len) : 0) + "%";
+    lrec.classList.toggle("on", L.state === "rec" || L.state === "dub");
+  }
   knobs.forEach(k => {
     const v = st.slots[k.slot] ? st.slots[k.slot][k.key] : undefined;
     if (v === undefined) return;
