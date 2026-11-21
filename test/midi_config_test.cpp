@@ -98,7 +98,7 @@ int main() {
         std::string err;
         CHECK(namzero::parse_midi_config(j, c, err));
         CHECK(c.boost_cc == 44);
-        CHECK(c.boost_percent == 30.0);
+        CHECK(c.boost_db == 30.0);
     }
 
     // -1 toglie un binding.

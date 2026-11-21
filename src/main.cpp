@@ -1102,7 +1102,6 @@ int main(int argc, char** argv) {
     }
 
     // Looper a fine catena: buffer preallocato all'avvio (60 s stereo).
-    const std::size_t i_looper = chain.size();
     namzero::LooperSlot* looper_ptr = nullptr;
     {
         auto lp = std::make_unique<namzero::LooperSlot>(60.0);
@@ -1811,7 +1810,7 @@ int main(int argc, char** argv) {
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
-    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, &current_slot, &apply_leds, wah_armed,
+    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, &current_slot, &apply_leds, looper_ptr, wah_armed,
                            drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
                            i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
         termios oldt{};
