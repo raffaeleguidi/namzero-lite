@@ -2234,11 +2234,13 @@ int main(int argc, char** argv) {
                 if (is_cc) {
                     int target = -1;
                     const int cur = current_slot.load();
-                    if (e.cc == 22) target = (cur + 9) % 10;
-                    else if (e.cc == 24) target = (cur + 1) % 10;
+                    // 8 slot: la navigazione gira su 0-7.
+                    if (e.cc == 22) target = (cur + 7) % 8;
+                    else if (e.cc == 24) target = (cur + 1) % 8;
                     else if (e.cc == 25) target = 0;
                     if (target >= 0) {
                         switch_slot.store(target);
+                        current_slot.store(target);
                         std::printf("  preset: slot %d (nav CC%d)\n", target, e.cc);
                         std::fflush(stdout);
                         continue;

@@ -13,8 +13,6 @@
     "presets/toneking_big.json",
     "presets/vox_ac30_edge.json",
     "presets/vox_ac30_klon.json",
-    "presets/vox_ac30_tremolo.json",
-    "presets/vox_delay.json",
-    null
+    "presets/vox_ac30_tremolo.json"
   ]
 }

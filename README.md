@@ -28,7 +28,7 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Tasti `+`/`-` per il volume dell'ampli (salvato nel preset con `s`)
 
 **Preset**
-- `config/presets.json`: 10 slot (0-9) verso i file, gate globale, `start_slot`
+- `config/presets.json`: 8 slot (0-7) verso i file, gate globale, `start_slot`
 - Tasti `0`-`9` e navigazione blu dell'XTONE per cambiare slot; banner
   `[N] - file.json (modello.nam)` a ogni caricamento
 - Salvataggio con `s` (on/off e trim dell'ampli), altri parametri intatti
