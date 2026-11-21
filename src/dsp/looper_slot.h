@@ -101,6 +101,9 @@ private:
     void apply(Command c) {
         State st = state();
         if (c == Command::kStop) {
+            // STOP durante REC chiude il loop: la lunghezza diventa la
+            // posizione raggiunta, cosi' il toggle successivo fa PLAY.
+            if (st == State::kRecording && pos_ > 0) loop_len_ = pos_;
             pos_ = 0;
             state_.store(static_cast<int>(State::kIdle));
         } else if (c == Command::kClear) {
