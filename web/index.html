@@ -22,7 +22,11 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .pedal select { width:100%; background:rgba(255,255,255,.55); color:#16181d; border:1px solid rgba(0,0,0,.2); border-radius:6px; padding:4px; margin:6px 0; }
 .pedal .knob { display:grid; grid-template-columns:1fr auto; gap:2px 6px; margin-top:6px; font-size:11px; color:rgba(0,0,0,.62); }
 .pedal .knob output { color:#16181d; font-variant-numeric:tabular-nums; }
-.pedal .knob input { grid-column:1 / -1; width:100%; accent-color:#16181d; }
+.pedal .knob input { grid-column:1 / -1; width:100%; -webkit-appearance:none; appearance:none; height:18px; background:transparent; }
+.pedal .knob input::-webkit-slider-runnable-track { height:4px; background:#9a9a9a; border-radius:2px; }
+.pedal .knob input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
+.pedal .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
+.pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 #files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
