@@ -12,6 +12,7 @@ import urllib.parse
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
 CTL = "/tmp/namzero-lite-ctl.sock"
+WIFI = os.path.join(ROOT, "config/wifi.json")
 PORT = int(os.environ.get("NAMZERO_WEB_PORT", "8080"))
 
 
@@ -54,6 +55,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as exc:
                 self._json({"error": str(exc)}, 503)
             return
+        if self.path.startswith("/api/wifi"):
+            try:
+                with open(WIFI) as f:
+                    self._json(json.load(f))
+            except Exception:
+                self._json({"networks": []})
+            return
         if self.path.startswith("/api/files"):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             kind = q.get("kind", ["models"])[0]
@@ -73,6 +81,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             if self.path.startswith("/api/save"):
                 self._json(ctl({"cmd": "save"}))
+                return
+            if self.path.startswith("/api/wifi"):
+                data = json.loads(body)
+                nets = data.get("networks", [])
+                clean = []
+                for n in nets:
+                    ssid = str(n.get("ssid", "")).strip()
+                    if not ssid:
+                        continue
+                    clean.append({"ssid": ssid,
+                                  "password": str(n.get("password", "")),
+                                  "priority": int(n.get("priority", 0))})
+                with open(WIFI, "w") as f:
+                    json.dump({"networks": clean}, f, indent=2)
+                self._json({"ok": True, "networks": clean})
                 return
             if self.path.startswith("/api/upload"):
                 name = os.path.basename(self.headers.get("X-Filename", ""))

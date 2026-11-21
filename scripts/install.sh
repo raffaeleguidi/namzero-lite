@@ -60,11 +60,13 @@ say "unit del bridge, del motore e della web UI"
 sudo cp "systemd/${BRIDGE}.service" /etc/systemd/system/
 sudo cp "systemd/${SERVICE}.service" /etc/systemd/system/
 sudo cp "systemd/namzero-web.service" /etc/systemd/system/
+sudo cp "systemd/namzero-wifi.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable "$BRIDGE" "$SERVICE" namzero-web >/dev/null 2>&1 || true
+sudo systemctl enable "$BRIDGE" "$SERVICE" namzero-web namzero-wifi >/dev/null 2>&1 || true
 sudo systemctl restart "$BRIDGE"
 sudo systemctl restart "$SERVICE"
 sudo systemctl restart namzero-web
+sudo systemctl restart namzero-wifi
 
 say "verifica"
 for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do

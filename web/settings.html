@@ -16,12 +16,51 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
 <main>
 <section><h2>Modelli NAM (.nam)</h2><input type="file" id="up-models" accept=".nam"><ul id="list-models"></ul></section>
 <section><h2>IR (.wav)</h2><input type="file" id="up-irs" accept=".wav"><ul id="list-irs"></ul></section>
+<section><h2>Reti WiFi conosciute</h2>
+<p style="color:#8b93a7;font-size:12px">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità.</p>
+<table id="wifi" style="border-collapse:collapse;font-size:13px"></table>
+<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+  <input id="w-ssid" placeholder="SSID" style="padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
+  <input id="w-pass" placeholder="password" style="padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
+  <input id="w-prio" placeholder="priorità" value="0" style="width:70px;padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
+  <button id="w-add" style="padding:4px 10px;background:#1e222b;color:#e6e9ef;border:1px solid #4fd1c5;border-radius:6px;cursor:pointer">Aggiungi</button>
+</div></section>
 </main>
 <script>
 function upload(kind, inp) {
   const f = inp.files[0]; if (!f) return;
   fetch(`/api/upload?kind=${kind}`, {method:"POST", headers:{"X-Filename":f.name}, body:f})
-    .then(r=>r.json()).then(j=>{ if (j.error) alert(j.error); inp.value=""; load(); });
+    .then(r=>r.json()).then(j=>{ if (j.error) alert(j.error); inp.value=""; load();
+
+let wifi = [];
+function renderWifi() {
+  const t = document.getElementById("wifi"); t.innerHTML = "";
+  wifi.forEach((n, i) => {
+    const tr = document.createElement("tr");
+    const a = document.createElement("td"); a.textContent = n.ssid; a.style.padding = "3px 8px";
+    const b = document.createElement("td"); b.textContent = "•".repeat(Math.min(8, (n.password||"").length)); b.style.padding = "3px 8px";
+    const c = document.createElement("td"); c.textContent = n.priority; c.style.padding = "3px 8px";
+    const d = document.createElement("td");
+    const del = document.createElement("button"); del.textContent = "✕";
+    del.onclick = () => { wifi.splice(i,1); saveWifi(); };
+    d.append(del); tr.append(a,b,c,d); t.append(tr);
+  });
+}
+function saveWifi() {
+  fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({networks:wifi})})
+    .then(r=>r.json()).then(j=>{ if (j.networks) { wifi = j.networks; renderWifi(); } });
+}
+function loadWifi() {
+  fetch("/api/wifi").then(r=>r.json()).then(j=>{ wifi = j.networks || []; renderWifi(); });
+}
+document.getElementById("w-add").onclick = () => {
+  const ssid = document.getElementById("w-ssid").value.trim();
+  if (!ssid) return;
+  wifi.push({ssid, password:document.getElementById("w-pass").value, priority:parseInt(document.getElementById("w-prio").value||"0",10)});
+  document.getElementById("w-ssid").value = ""; document.getElementById("w-pass").value = "";
+  saveWifi();
+};
+loadWifi(); });
 }
 function load() {
   ["models","irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r=>r.json()).then(j=>{
@@ -32,4 +71,34 @@ function load() {
 document.getElementById("up-models").onchange = e => upload("models", e.target);
 document.getElementById("up-irs").onchange = e => upload("irs", e.target);
 load();
+
+let wifi = [];
+function renderWifi() {
+  const t = document.getElementById("wifi"); t.innerHTML = "";
+  wifi.forEach((n, i) => {
+    const tr = document.createElement("tr");
+    const a = document.createElement("td"); a.textContent = n.ssid; a.style.padding = "3px 8px";
+    const b = document.createElement("td"); b.textContent = "•".repeat(Math.min(8, (n.password||"").length)); b.style.padding = "3px 8px";
+    const c = document.createElement("td"); c.textContent = n.priority; c.style.padding = "3px 8px";
+    const d = document.createElement("td");
+    const del = document.createElement("button"); del.textContent = "✕";
+    del.onclick = () => { wifi.splice(i,1); saveWifi(); };
+    d.append(del); tr.append(a,b,c,d); t.append(tr);
+  });
+}
+function saveWifi() {
+  fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({networks:wifi})})
+    .then(r=>r.json()).then(j=>{ if (j.networks) { wifi = j.networks; renderWifi(); } });
+}
+function loadWifi() {
+  fetch("/api/wifi").then(r=>r.json()).then(j=>{ wifi = j.networks || []; renderWifi(); });
+}
+document.getElementById("w-add").onclick = () => {
+  const ssid = document.getElementById("w-ssid").value.trim();
+  if (!ssid) return;
+  wifi.push({ssid, password:document.getElementById("w-pass").value, priority:parseInt(document.getElementById("w-prio").value||"0",10)});
+  document.getElementById("w-ssid").value = ""; document.getElementById("w-pass").value = "";
+  saveWifi();
+};
+loadWifi();
 </script></body></html>

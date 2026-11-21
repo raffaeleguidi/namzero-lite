@@ -23,6 +23,13 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 - **Upload**: modelli NAM in `models/`, IR in `irs/` (il file va poi associato
   allo slot nel preset: selezione da slot in arrivo).
 
+## Reti WiFi
+
+In Settings si aggiungono/rimuovono le reti conosciute (`config/wifi.json`:
+ssid, password, priorita'). Il servizio `namzero-wifi` (installato da
+`install.sh`, gir as root) ogni 30 s cerca una rete raggiungibile tra quelle
+note e si collega con `nmcli`. L'access point di fallback non e' ancora gestito.
+
 ## API
 
 | Metodo | Percorso | Note |
@@ -31,6 +38,7 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 | POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |
+| GET/POST | `/api/wifi` | reti conosciute |
 | POST | `/api/upload?kind=models|irs` | corpo = file, header `X-Filename` |
 
 Il socket di controllo è `/tmp/namzero-lite-ctl.sock` (righe JSON).

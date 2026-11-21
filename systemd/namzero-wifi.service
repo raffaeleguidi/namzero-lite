@@ -1,0 +1,12 @@
+[Unit]
+Description=namzero-lite known wifi networks
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+ExecStart=/home/pi/namzero-lite/scripts/wifi-connect.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
