@@ -1,0 +1,73 @@
+{
+  "audio": {
+    "device": "hw:XTONE",
+    "gain_db": 0.0,
+    "period_frames": 64,
+    "periods": 3,
+    "rate": 48000
+  },
+  "name": "Marshall Plexi -> Celestion",
+  "slots": {
+    "amp": {
+      "file": "models/FNDR-BFSR-VB-Edge-WRM2-CAB-FREE.nam",
+      "on": true,
+      "slim": 0.49,
+      "trim_db": 0.0
+    },
+    "comp": {
+      "attack_ms": 10.0,
+      "makeup_db": 3.0,
+      "on": true,
+      "ratio": 3.0,
+      "release_ms": 150.0,
+      "threshold_db": -18.0
+    },
+    "delay": {
+      "feedback": 0.35,
+      "mix": 0.25,
+      "mode": "stereo",
+      "on": false,
+      "time_ms": 350.0,
+      "tone": 0.5
+    },
+    "drive": {
+      "amount": 0.15,
+      "blend": 0.4,
+      "level_db": 0.0,
+      "low_db": 5.0,
+      "mid_db": 4.0,
+      "on": false,
+      "tone": 0.55,
+      "type": "klon"
+    },
+    "gate": {
+      "on": true
+    },
+    "ir": {
+      "file": "irs/ir_lr_cl.wav",
+      "on": true,
+      "taps": 2048
+    },
+    "mod": {
+      "depth": 0.66,
+      "feedback": 0.0,
+      "fx_mix": 0.5,
+      "high_hz": 2200.0,
+      "low_hz": 350.0,
+      "mix": 1.0,
+      "on": false,
+      "position": 0.5,
+      "q": 3.0,
+      "rate_hz": 5.35,
+      "type": "tremolo"
+    },
+    "reverb": {
+      "damp": 0.45,
+      "mix": 0.25,
+      "on": true,
+      "size": 0.55
+    }
+  },
+  "stats": false,
+  "version": 1
+}
