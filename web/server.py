@@ -78,7 +78,11 @@ def _b64u(raw):
 
 
 def _http(method, url, data=None, headers=None, timeout=60):
-    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    # Cloudflare di TONE3000 blocca lo User-Agent di urllib sui download
+    # (403 error 1010): si presenta come browser.
+    hdrs = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) namzero-lite"}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.read(), dict(r.headers)
 
