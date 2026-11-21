@@ -838,6 +838,7 @@ void store_max(std::atomic<uint64_t>& target, uint64_t value) {
 // Puntatore globale alla config MIDI: serve a lambda con capture list esplicita
 // (es. save) per le opzioni globali (auto-engage).
 static namzero::MidiConfig* g_midi = nullptr;
+static bool g_g_boost_on = false;
 
 int main(int argc, char** argv) {
     Config cfg;
@@ -1031,15 +1032,14 @@ int main(int argc, char** argv) {
     // MIDI lo cambia e il thread audio lo legge a ogni blocco.
     const float base_master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
     std::atomic<float> master_gain{base_master};
-    bool boost_on = false;
     // Il boost e' un'opzione generale: si ripristina da presets.json.
     {
         std::ifstream bst("config/presets.json");
         nlohmann::json bj;
         if (bst && (bst >> bj) && bj.contains("boost")) {
-            boost_on = bj["boost"].value("on", false);
+            g_boost_on = bj["boost"].value("on", false);
             midi_cfg.boost_db = bj["boost"].value("db", midi_cfg.boost_db);
-            if (boost_on) {
+            if (g_boost_on) {
                 master_gain.store(base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)));
             }
         }
@@ -1586,7 +1586,7 @@ int main(int argc, char** argv) {
             led_out.send_note(0, static_cast<uint8_t>(i),
                               (cfg.drive_on && dt == i) ? 127 : 0);
         }
-        led_out.send_note(0, 3, boost_on ? 127 : 0);
+        led_out.send_note(0, 3, g_boost_on ? 127 : 0);
     };
     apply_leds();
 
@@ -1595,7 +1595,7 @@ int main(int argc, char** argv) {
         nlohmann::json s;
         s["slot"] = current_slot.load();
         s["preset"] = preset_path;
-        s["boost"] = boost_on;
+        s["boost"] = g_boost_on;
         s["boost_db"] = midi_cfg.boost_db;
         s["autoengage"] = {{"threshold", midi_cfg.wah_threshold},
                            {"release_threshold", midi_cfg.wah_release_threshold},
@@ -1877,7 +1877,7 @@ int main(int argc, char** argv) {
             } else if (slot == "boost") {
                 namzero::MidiConfig dm;
                 midi_cfg.boost_db = dm.boost_db;
-                if (boost_on) {
+                if (g_boost_on) {
                     master_gain.store(
                         base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)),
                         std::memory_order_relaxed);
@@ -1901,8 +1901,8 @@ int main(int argc, char** argv) {
             ae_rev.fetch_add(1, std::memory_order_relaxed);
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
-            boost_on = j.value("on", boost_on);
-            const float b = boost_on
+            g_boost_on = j.value("on", g_boost_on);
+            const float b = g_boost_on
                                 ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
                                 : 1.0f;
             master_gain.store(base_master * b, std::memory_order_relaxed);
@@ -2241,7 +2241,7 @@ int main(int argc, char** argv) {
                     gj["autoengage"]["release_threshold"] = g_midi->wah_release_threshold;
                     gj["autoengage"]["engage_ms"] = g_midi->wah_engage_ms;
                     gj["autoengage"]["release_ms"] = g_midi->wah_release_ms;
-                    gj["boost"]["on"] = boost_on;
+                    gj["boost"]["on"] = g_boost_on;
                     gj["boost"]["db"] = g_midi->boost_db;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
@@ -2450,13 +2450,13 @@ int main(int argc, char** argv) {
                     } else if (midi_cfg.gboard_boost_pc >= 0 &&
                                e.cc == midi_cfg.gboard_boost_pc) {
                         std::lock_guard<std::mutex> lk(ctrl_mtx);
-                        boost_on = !boost_on;
+                        g_boost_on = !g_boost_on;
                         const float boost =
-                            boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
+                            g_boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
                                      : 1.0f;
                         master_gain.store(base_master * boost, std::memory_order_relaxed);
                         apply_leds();
-                        std::printf("  boost: %s (PC%d)\n", boost_on ? "on" : "off", e.cc);
+                        std::printf("  boost: %s (PC%d)\n", g_boost_on ? "on" : "off", e.cc);
                         std::fflush(stdout);
                     } else if (drive_led >= 0) {
                         std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -2521,13 +2521,13 @@ int main(int argc, char** argv) {
 
                 if (midi_cfg.boost_cc >= 0 && e.cc == midi_cfg.boost_cc) {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    boost_on = !boost_on;
+                    g_boost_on = !g_boost_on;
                     const float boost =
-                        boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
+                        g_boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
                                  : 1.0f;
                     master_gain.store(base_master * boost, std::memory_order_relaxed);
                     apply_leds();
-                    if (boost_on) {
+                    if (g_boost_on) {
                         std::printf("  boost: on (+%.1f dB)\n", midi_cfg.boost_db);
                     } else {
                         std::printf("  boost: off\n");
