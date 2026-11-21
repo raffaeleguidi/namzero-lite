@@ -845,6 +845,7 @@ int main(int argc, char** argv) {
     // Slot in uso: serve alla navigazione (prec/succ) e viene tramandato al
     // processo ri-eseguito con NAMZERO_SLOT.
     std::atomic<int> current_slot{0};
+    std::atomic<int> ae_rev{0};  // cambia quando la UI tocca l'auto-engage
 
     if (!parse_args(argc, argv, cfg, midi_cli, preset_path, saw_flag, err)) {
         std::fprintf(stderr, "errore: %s\n\n", err.c_str());
@@ -990,6 +991,23 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "errore: midi.json non leggibile: %s\n", midi_path.c_str());
                 return 2;
             }
+        }
+    }
+    // Opzioni globali salvate dalla web UI: l'auto-engage vive in presets.json
+    // (che i deploy escludono), cosi' non viene sovrascritto.
+    if (have_presets) {
+        std::ifstream ain("config/presets.json");
+        nlohmann::json aj;
+        if (ain && (ain >> aj) && aj.contains("autoengage")) {
+            const auto& a = aj["autoengage"];
+            if (a.contains("threshold")) midi_cfg.wah_threshold = a["threshold"].get<double>();
+            if (a.contains("release_threshold")) midi_cfg.wah_release_threshold = a["release_threshold"].get<double>();
+            if (a.contains("engage_ms")) midi_cfg.wah_engage_ms = a["engage_ms"].get<int>();
+            if (a.contains("release_ms")) midi_cfg.wah_release_ms = a["release_ms"].get<int>();
+            if (a.contains("invert")) midi_cfg.wah_invert = a["invert"].get<bool>();
+            std::printf("autoengage: soglia %.2f / release %.2f, %d ms / %d ms\n",
+                        midi_cfg.wah_threshold, midi_cfg.wah_release_threshold,
+                        midi_cfg.wah_engage_ms, midi_cfg.wah_release_ms);
         }
     }
     if (midi_cli.device_set) {
@@ -1562,6 +1580,10 @@ int main(int argc, char** argv) {
         s["preset"] = preset_path;
         s["boost"] = boost_on;
         s["boost_db"] = midi_cfg.boost_db;
+        s["autoengage"] = {{"threshold", midi_cfg.wah_threshold},
+                           {"release_threshold", midi_cfg.wah_release_threshold},
+                           {"engage_ms", midi_cfg.wah_engage_ms},
+                           {"release_ms", midi_cfg.wah_release_ms}};
         if (looper_ptr != nullptr) {
             s["looper"]["state"] = namzero::LooperSlot::state_name(looper_ptr->state());
             s["looper"]["pos"] = looper_ptr->position_seconds();
@@ -1851,6 +1873,15 @@ int main(int argc, char** argv) {
                 else if (action == "stop") looper_ptr->command(namzero::LooperSlot::Command::kStop);
                 else if (action == "clear") looper_ptr->command(namzero::LooperSlot::Command::kClear);
             }
+        } else if (cmd == "autoengage") {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            const std::string key = j.value("key", "");
+            const double v = j.value("value", 0.0);
+            if (key == "threshold") midi_cfg.wah_threshold = v;
+            else if (key == "release_threshold") midi_cfg.wah_release_threshold = v;
+            else if (key == "engage_ms") midi_cfg.wah_engage_ms = static_cast<int>(v);
+            else if (key == "release_ms") midi_cfg.wah_release_ms = static_cast<int>(v);
+            ae_rev.fetch_add(1, std::memory_order_relaxed);
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             boost_on = j.value("on", boost_on);
@@ -2189,6 +2220,10 @@ int main(int argc, char** argv) {
                     gj["gate"]["threshold_db"] = cfg.gate_threshold_db;
                     gj["gate"]["attack_ms"] = cfg.gate_attack_ms;
                     gj["gate"]["release_ms"] = cfg.gate_release_ms;
+                    gj["autoengage"]["threshold"] = midi_cfg.wah_threshold;
+                    gj["autoengage"]["release_threshold"] = midi_cfg.wah_release_threshold;
+                    gj["autoengage"]["engage_ms"] = midi_cfg.wah_engage_ms;
+                    gj["autoengage"]["release_ms"] = midi_cfg.wah_release_ms;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {
@@ -2261,10 +2296,18 @@ int main(int argc, char** argv) {
         // Finche' il pedale non ha parlato non si conosce la sua posizione:
         // meglio restare spenti che accendersi su un valore inventato.
         bool have_expr = false;
+        int ae_seen = ae_rev.load();
 
         // Il wah vive nel blocco FILTER, che e' separato dal mod: l'auto-engage
         // accende e spegne solo quello, senza toccare il tipo di modulazione.
         while (g_running.load()) {
+            if (ae_rev.load(std::memory_order_relaxed) != ae_seen) {
+                std::lock_guard<std::mutex> lk(ctrl_mtx);
+                ae.configure(static_cast<float>(midi_cfg.wah_threshold),
+                             midi_cfg.wah_engage_ms, midi_cfg.wah_release_ms,
+                             static_cast<float>(midi_cfg.wah_release_threshold));
+                ae_seen = ae_rev.load(std::memory_order_relaxed);
+            }
             // Hotplug: un pedale USB collegato dopo l'avvio viene aperto qui.
             static std::int64_t last_retry = 0;
             const auto now_retry = std::chrono::duration_cast<std::chrono::milliseconds>(

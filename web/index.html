@@ -44,13 +44,14 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .unit .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
 .unit .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .unit .foot { display:flex; margin-top:8px; }
-#looper { margin:0 16px 24px; border:1px solid #2c3240; border-radius:12px; padding:12px; background:#1b1f27; transition:box-shadow .2s, border-color .2s; }
-#looper.active { border-color:#4fd1c5; box-shadow:0 0 14px rgba(79,209,197,.25); }
-#loop-bar { height:22px; background:#262b35; border-radius:8px; overflow:hidden; }
+#looper { min-width:320px; }
+#looper.active #loop-bar { border-color:#4fd1c5; box-shadow:0 0 8px rgba(79,209,197,.35); }
+#loop-bar { height:12px; background:#262b35; border:1px solid transparent; border-radius:6px; overflow:hidden; margin-top:6px; }
 #loop-fill { height:100%; width:0%; background:#4a5568; transition:width .1s linear, background .2s; }
 #looper.active #loop-fill { background:#4fd1c5; }
-#loop-row { display:flex; align-items:center; gap:10px; margin-top:10px; }
-#loop-state { color:#8b93a7; font-size:12px; min-width:150px; font-variant-numeric:tabular-nums; }
+#loop-row { display:flex; align-items:center; gap:6px; margin-top:6px; }
+#loop-state { color:#8b93a7; font-size:11px; min-width:130px; font-variant-numeric:tabular-nums; }
+#loop-row .act { padding:2px 8px; font-size:12px; }
 #files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
@@ -73,18 +74,10 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 </header>
 <main id="board"></main>
 <section id="rack">
-  <div class="rack-title">RACK · comune a tutti i preset</div>
+  <div class="rack-title">Opzioni generali</div>
   <div id="rack-units"></div>
 </section>
-<section id="looper">
-  <div id="loop-bar"><div id="loop-fill"></div></div>
-  <div id="loop-row">
-    <span id="loop-state">idle · 0.0 s / 60 s</span>
-    <button class="act" id="loop-rec" title="rec / chiude / overdub">● rec</button>
-    <button class="act" id="loop-stop" title="stop / riprendi">■ stop</button>
-    <button class="act" id="loop-clear" title="clear">⌫ clear</button>
-  </div>
-</section>
+
 
 <script>
 const SLOTS = [
@@ -193,13 +186,34 @@ gateUnit._power = gpower; gateUnit._id = "gate";
 rackUnits.append(gateUnit);
 rackUnits.append(boostCard);
 
-// Looper: barra larga sotto la pedaliera.
-const loopSection = document.getElementById("looper");
-const loopStateEl = document.getElementById("loop-state");
-const loopFillEl = document.getElementById("loop-fill");
-document.getElementById("loop-rec").onclick = () => send({cmd:"looper", action:"toggle"});
-document.getElementById("loop-stop").onclick = () => send({cmd:"looper", action:"stop"});
-document.getElementById("loop-clear").onclick = () => send({cmd:"looper", action:"clear"});
+// Auto-engage (opzioni generali, salvate in presets.json).
+const aeUnit = el("div", {className:"unit"});
+const aeh = el("h3"); aeh.append("Auto-engage"); aeUnit.append(aeh);
+const aeKnobs = [];
+[["engage_ms","Engage",0,1000,10,"ms"],["release_ms","Release",0,2000,10,"ms"],["threshold","Soglia",0,1,0.01,""]].forEach(([key,label,min,max,step,unit]) => {
+  const wrap = el("div", {className:"knob"});
+  const out = el("output"); const inp = el("input", {type:"range", min, max, step});
+  let t = null;
+  inp.oninput = () => { out.textContent = (+inp.value).toFixed(step < 0.1 ? 2 : 0) + unit; clearTimeout(t); t = setTimeout(() => send({cmd:"autoengage", key, value:+inp.value}), 60); };
+  wrap.append(el("span", {textContent:label}), out, inp); aeUnit.append(wrap);
+  aeKnobs.push({key, inp, out, step, unit});
+});
+rackUnits.append(aeUnit);
+
+// Looper compatto nel rack.
+const loopSection = el("div", {className:"unit"}); loopSection.id = "looper";
+const lh = el("h3"); lh.append("Looper"); loopSection.append(lh);
+const loopStateEl = el("div", {id:"loop-state", textContent:"idle · 0.0 s / 60 s"});
+const loopBar = el("div", {id:"loop-bar"}); const loopFillEl = el("div", {id:"loop-fill"}); loopBar.append(loopFillEl);
+const lrow = el("div", {id:"loop-row"});
+const lrec = el("button", {className:"act", id:"loop-rec", textContent:"●"});
+const lstop = el("button", {className:"act", id:"loop-stop", textContent:"■"});
+const lclr = el("button", {className:"act", id:"loop-clear", textContent:"⌫"});
+lrow.append(loopStateEl, lrec, lstop, lclr); loopSection.append(loopBar, lrow);
+rackUnits.append(loopSection);
+lrec.onclick = () => send({cmd:"looper", action:"toggle"});
+lstop.onclick = () => send({cmd:"looper", action:"stop"});
+lclr.onclick = () => send({cmd:"looper", action:"clear"});
 
 let last = null;
 const undoBtn = document.getElementById("undo");
@@ -278,6 +292,14 @@ function render(st) {
       if (document.activeElement !== boostCard._knob) boostCard._knob.value = st.boost_db;
       boostCard._out.textContent = (+st.boost_db).toFixed(1) + "dB";
     }
+  }
+  if (st.autoengage) {
+    aeKnobs.forEach(k => {
+      const v = st.autoengage[k.key];
+      if (v === undefined) return;
+      if (document.activeElement !== k.inp) k.inp.value = v;
+      k.out.textContent = (+v).toFixed(k.step < 0.1 ? 2 : 0) + k.unit;
+    });
   }
   if (st.looper) {
     const L = st.looper;
