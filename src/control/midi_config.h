@@ -98,6 +98,11 @@ struct MidiConfig {
     int gboard_boost_pc = -1;               // PC del tasto boost (on/off)
     int gboard_flash_ms = 150;
 
+    // Looper: CC del gruppo rosso dell'XTONE (30 toggle, 43 stop, 42 clear).
+    int looper_toggle_cc = -1;
+    int looper_stop_cc = -1;
+    int looper_clear_cc = -1;
+
     // Percorso della socket del bridge BLE; vuoto = nessun bridge.
     std::string ble_socket;
 };

@@ -24,7 +24,7 @@
     "drive": 20,
     "mod": 10,
     "amp": 23,
-    "ir": 30,
+    "ir": -1,
     "delay": 11,
     "reverb": -1
   },
@@ -70,5 +70,10 @@
     ],
     "flash_ms": 150,
     "boost_pc": 3
+  },
+  "looper": {
+    "toggle": 30,
+    "stop": 43,
+    "clear": 42
   }
 }

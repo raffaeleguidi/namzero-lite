@@ -222,6 +222,12 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
                 return false;
             }
             cfg.gboard_flash_ms = gb["flash_ms"].get<int>();
+            if (j.contains("looper")) {
+                const auto& lp = j["looper"];
+                if (lp.contains("toggle")) cfg.looper_toggle_cc = lp["toggle"].get<int>();
+                if (lp.contains("stop")) cfg.looper_stop_cc = lp["stop"].get<int>();
+                if (lp.contains("clear")) cfg.looper_clear_cc = lp["clear"].get<int>();
+            }
             if (cfg.gboard_flash_ms < 0 || cfg.gboard_flash_ms > 2000) {
                 err = "midi.json: gboard.flash_ms deve stare fra 0 e 2000";
                 return false;

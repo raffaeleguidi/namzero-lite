@@ -2259,6 +2259,23 @@ int main(int argc, char** argv) {
 
                 if (!is_cc || is_expr) continue;
 
+                // Looper: gruppo rosso dell'XTONE.
+                if (looper_ptr != nullptr) {
+                    namzero::LooperSlot::Command lc = namzero::LooperSlot::Command::kNone;
+                    if (midi_cfg.looper_toggle_cc >= 0 && e.cc == midi_cfg.looper_toggle_cc)
+                        lc = namzero::LooperSlot::Command::kToggle;
+                    else if (midi_cfg.looper_stop_cc >= 0 && e.cc == midi_cfg.looper_stop_cc)
+                        lc = namzero::LooperSlot::Command::kStop;
+                    else if (midi_cfg.looper_clear_cc >= 0 && e.cc == midi_cfg.looper_clear_cc)
+                        lc = namzero::LooperSlot::Command::kClear;
+                    if (lc != namzero::LooperSlot::Command::kNone) {
+                        looper_ptr->command(lc);
+                        std::printf("  looper: CC%d\n", e.cc);
+                        std::fflush(stdout);
+                        continue;
+                    }
+                }
+
                 // Gruppo blu dell'XTONE: navigazione preset. 22 = indietro,
                 // 24 = avanti, 25 = primo slot. I CC sono presi prima della
                 // mappa degli slot, cosi' non vengono interpretati due volte.
