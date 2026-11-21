@@ -91,16 +91,26 @@ struct Config {
     double drive_low_db = 5.0;  // solo fuzz: peso delle basse
 
     bool mod_on = false;
-    std::string mod_type = "tremolo";  // tremolo | univibe | flanger | phaser | wah
+    std::string mod_type = "tremolo";  // tremolo | univibe | flanger | phaser
     double mod_rate_hz = 4.5;
     double mod_depth = 0.6;
     double mod_fx_mix = 0.5;   // univibe/flanger/phaser: quota di segnale trattato
     double mod_feedback = 0.35;  // flanger/phaser
-    double mod_position = 0.5;
-    double mod_q = 3.0;
-    double mod_mix = 1.0;
-    double mod_low_hz = 350.0;
-    double mod_high_hz = 2200.0;
+    // Dove sta il mod nella catena: prima dell'amplificatore (default, come un
+    // pedale vero) oppure dopo la IR. Si applica al caricamento del preset.
+    std::string mod_position = "pre_amp";  // pre_amp | post_ir
+
+    // FILTER (wah) fisso prima del drive. Nei preset e' sempre spento: lo
+    // accende solo l'auto-engage dell'espressione. rate/depth non sono usati
+    // dal wah ma restano configurabili (e nello stato/param della UI).
+    bool filter_on = false;
+    double filter_rate_hz = 1.0;
+    double filter_depth = 0.5;
+    double filter_q = 3.0;
+    double filter_mix = 1.0;
+    double filter_low_hz = 350.0;
+    double filter_high_hz = 2200.0;
+    double filter_position = 0.5;
 
     bool amp_on = false;
     std::string amp_file;
@@ -138,22 +148,16 @@ struct Config {
 
 // Rate e feedback suggeriti per tipo: quando si scorre con 'w' i parametri si
 // adeguano, altrimenti un flanger a 4.5 Hz suonerebbe come un vibrato nervoso.
-constexpr float kModDefaultRate[] = {4.5f, 0.0f, 1.0f, 0.5f, 0.8f};
-constexpr float kModDefaultFeedback[] = {0.0f, 0.0f, 0.0f, 0.35f, 0.20f};
-
-// Il wah non e' nella turnazione: si usa col pedale (o da preset / --wah).
-// Restare in elenco significava solo poterlo selezionare spento.
-constexpr int kModCycle[] = {0, 2, 3, 4};  // tremolo, univibe, flanger, phaser
-constexpr int kModCycleCount = static_cast<int>(sizeof(kModCycle) / sizeof(kModCycle[0]));
+constexpr float kModDefaultRate[] = {4.5f, 1.0f, 0.5f, 0.8f};
+constexpr float kModDefaultFeedback[] = {0.0f, 0.0f, 0.35f, 0.20f};
 
 
 
 namzero::ModSlot::Type mod_type_enum(int idx) {
     switch (idx) {
-        case 1: return namzero::ModSlot::Type::kWah;
-        case 2: return namzero::ModSlot::Type::kUnivibe;
-        case 3: return namzero::ModSlot::Type::kFlanger;
-        case 4: return namzero::ModSlot::Type::kPhaser;
+        case 1: return namzero::ModSlot::Type::kUnivibe;
+        case 2: return namzero::ModSlot::Type::kFlanger;
+        case 3: return namzero::ModSlot::Type::kPhaser;
         default: return namzero::ModSlot::Type::kTremolo;
     }
 }
@@ -211,10 +215,10 @@ void usage() {
         "  --drive-mid <db>     solo klon: gobba sulle medie (default +4)\n"
         "  --drive-low <db>     solo fuzz: peso delle basse (default +5)\n"
         "  --tremolo            tremolo nello slot mod\n"
-        "  --wah                wah nello slot mod\n"
-        "  --wah-position <0..1> posizione del pedale (default 0.5)\n"
-        "  --wah-q <0.5..12>    risonanza (default 3)\n"
-        "  --wah-mix <0..1>     quantita' di wah (default 1)\n"
+        "  --mod-position <p>   pre_amp (default) | post_ir: dove sta il mod\n"
+        "  --wah-position <0..1> posizione del filter (default 0.5)\n"
+        "  --wah-q <0.5..12>    risonanza del filter (default 3)\n"
+        "  --wah-mix <0..1>     quantita' di filter (default 1)\n"
         "  --tremolo-rate <hz>  frequenza (default 4.5)\n"
         "  --tremolo-depth <0..1> profondita' (default 0.6)\n"
         "  --delay              delay\n"
@@ -239,7 +243,7 @@ void usage() {
         "Tasti durante l'esecuzione:\n"
         "  g gate | c comp | o overdrive | k modello drive | p modo delay\n"
         "  + - volume ampli\n"
-        "  m mod | w tipo mod | , . wah\n"
+        "  m mod | w tipo mod | , . filter\n"
         "  d delay | t tap tempo | i ir | r reverb\n"
         "  s salva lo stato nel preset | q o Ctrl+C esce\n");
 }
@@ -354,17 +358,41 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.mod_on = get_bool(md, "on", cfg.mod_on);
         if (md.contains("type") && md["type"].is_string()) {
             cfg.mod_type = md["type"].get<std::string>();
+            // Compatibilita': il wah non e' piu' un tipo di mod. Un preset
+            // vecchio con "wah" diventa tremolo spento, senza fallire; i
+            // parametri del wah si leggono dal blocco "filter".
+            if (cfg.mod_type == "wah") {
+                std::fprintf(stderr,
+                             "preset: mod.type \"wah\" non piu' supportato, "
+                             "uso tremolo spento (il wah sta nel blocco filter)\n");
+                cfg.mod_type = "tremolo";
+                cfg.mod_on = false;
+            }
         }
         cfg.mod_rate_hz = get_num(md, "rate_hz", cfg.mod_rate_hz);
         cfg.mod_depth = get_num(md, "depth", cfg.mod_depth);
         cfg.mod_fx_mix = get_num(md, "fx_mix", cfg.mod_fx_mix);
         cfg.mod_feedback = get_num(md, "feedback", cfg.mod_feedback);
-        cfg.mod_position = get_num(md, "position", cfg.mod_position);
-        cfg.mod_q = get_num(md, "q", cfg.mod_q);
-        cfg.mod_mix = get_num(md, "mix", cfg.mod_mix);
-        cfg.mod_low_hz = get_num(md, "low_hz", cfg.mod_low_hz);
-        cfg.mod_high_hz = get_num(md, "high_hz", cfg.mod_high_hz);
+        // mod.position e' la posizione nella catena. I preset vecchi avevano
+        // qui un numero (la posizione del pedale wah): si ignora.
+        if (md.contains("position") && md["position"].is_string()) {
+            cfg.mod_position = md["position"].get<std::string>();
+        }
     }
+
+    // FILTER (wah) fisso prima del drive. Il flag on del file viene ignorato:
+    // si accende solo l'auto-engage dell'espressione.
+    auto fl = slot_or_empty(j, "filter");
+    if (!fl.empty()) {
+        cfg.filter_rate_hz = get_num(fl, "rate_hz", get_num(fl, "rate", cfg.filter_rate_hz));
+        cfg.filter_depth = get_num(fl, "depth", cfg.filter_depth);
+        cfg.filter_q = get_num(fl, "q", cfg.filter_q);
+        cfg.filter_mix = get_num(fl, "mix", cfg.filter_mix);
+        cfg.filter_low_hz = get_num(fl, "low_hz", cfg.filter_low_hz);
+        cfg.filter_high_hz = get_num(fl, "high_hz", cfg.filter_high_hz);
+        cfg.filter_position = get_num(fl, "position", cfg.filter_position);
+    }
+    cfg.filter_on = false;
 
     auto amp = slot_or_empty(j, "amp");
     if (!amp.empty()) {
@@ -459,13 +487,18 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     slots["mod"]["type"] = cfg.mod_type;
     slots["mod"]["rate_hz"] = cfg.mod_rate_hz;
     slots["mod"]["depth"] = cfg.mod_depth;
-    slots["mod"]["position"] = cfg.mod_position;
-    slots["mod"]["q"] = cfg.mod_q;
-    slots["mod"]["mix"] = cfg.mod_mix;
-    slots["mod"]["low_hz"] = cfg.mod_low_hz;
-    slots["mod"]["high_hz"] = cfg.mod_high_hz;
     slots["mod"]["fx_mix"] = cfg.mod_fx_mix;
     slots["mod"]["feedback"] = cfg.mod_feedback;
+    slots["mod"]["position"] = cfg.mod_position;
+    // Il filter si salva sempre spento: si accende solo col pedale.
+    slots["filter"]["on"] = false;
+    slots["filter"]["rate_hz"] = cfg.filter_rate_hz;
+    slots["filter"]["depth"] = cfg.filter_depth;
+    slots["filter"]["q"] = cfg.filter_q;
+    slots["filter"]["mix"] = cfg.filter_mix;
+    slots["filter"]["low_hz"] = cfg.filter_low_hz;
+    slots["filter"]["high_hz"] = cfg.filter_high_hz;
+    slots["filter"]["position"] = cfg.filter_position;
     slots["amp"]["on"] = cfg.amp_on;
     slots["amp"]["file"] = cfg.amp_file;
     slots["amp"]["slim"] = cfg.amp_slim;
@@ -632,24 +665,25 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
         } else if (a == "--tremolo") {
             cfg.mod_on = true;
             cfg.mod_type = "tremolo";
-        } else if (a == "--wah") {
-            cfg.mod_on = true;
-            cfg.mod_type = "wah";
+        } else if (a == "--mod-position") {
+            const char* v = next("--mod-position");
+            if (v == nullptr) return false;
+            cfg.mod_position = v;
         } else if (a == "--wah-position") {
             const char* v = next("--wah-position");
-            if (v == nullptr || !parse_float(v, cfg.mod_position)) {
+            if (v == nullptr || !parse_float(v, cfg.filter_position)) {
                 err = "valore non valido per --wah-position";
                 return false;
             }
         } else if (a == "--wah-q") {
             const char* v = next("--wah-q");
-            if (v == nullptr || !parse_float(v, cfg.mod_q)) {
+            if (v == nullptr || !parse_float(v, cfg.filter_q)) {
                 err = "valore non valido per --wah-q";
                 return false;
             }
         } else if (a == "--wah-mix") {
             const char* v = next("--wah-mix");
-            if (v == nullptr || !parse_float(v, cfg.mod_mix)) {
+            if (v == nullptr || !parse_float(v, cfg.filter_mix)) {
                 err = "valore non valido per --wah-mix";
                 return false;
             }
@@ -922,6 +956,11 @@ int main(int argc, char** argv) {
                      cfg.mod_type.c_str());
         cfg.mod_type = "tremolo";
     }
+    if (cfg.mod_position != "pre_amp" && cfg.mod_position != "post_ir") {
+        std::fprintf(stderr, "mod: posizione \"%s\" sconosciuta, uso pre_amp\n",
+                     cfg.mod_position.c_str());
+        cfg.mod_position = "pre_amp";
+    }
 
     // --- mappa MIDI: file globale, non preset ------------------------------
     // Precedenza: default compilati < midi.json < flag da riga di comando.
@@ -1002,6 +1041,25 @@ int main(int argc, char** argv) {
         cp->set_makeup_db(static_cast<float>(cfg.comp_makeup_db));
         chain.add(std::move(cp));
     }
+    // FILTER (wah) fisso: seconda istanza di ModSlot, sempre in catena. Nei
+    // preset e' spento (lo accende solo l'auto-engage dell'espressione), ma
+    // esiste da subito cosi' il pedale puo' comandarlo in qualunque momento.
+    const std::size_t i_filter = chain.size();
+    namzero::ModSlot* filter_ptr = nullptr;
+    {
+        auto fl = std::make_unique<namzero::ModSlot>();
+        filter_ptr = fl.get();
+        fl->set_type(namzero::ModSlot::Type::kWah);
+        fl->set_rate_hz(static_cast<float>(cfg.filter_rate_hz));
+        fl->set_depth(static_cast<float>(cfg.filter_depth));
+        fl->set_wah_q(static_cast<float>(cfg.filter_q));
+        fl->set_wah_mix(static_cast<float>(cfg.filter_mix));
+        fl->set_wah_low_hz(static_cast<float>(cfg.filter_low_hz));
+        fl->set_wah_high_hz(static_cast<float>(cfg.filter_high_hz));
+        fl->set_position(static_cast<float>(cfg.filter_position));
+        chain.add(std::move(fl));
+    }
+
     const std::size_t i_drive = chain.size();
     namzero::DriveSlot* drive_ptr = nullptr;
     {
@@ -1017,21 +1075,23 @@ int main(int argc, char** argv) {
         chain.add(std::move(dr));
     }
 
-    const std::size_t i_mod = chain.size();
-    auto mod_owner = std::make_unique<namzero::ModSlot>();
-    namzero::ModSlot* mod_ptr = mod_owner.get();
-    auto mod_slot = std::move(mod_owner);
-    mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
-    mod_slot->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
-    mod_slot->set_depth(static_cast<float>(cfg.mod_depth));
-    mod_ptr->set_position(static_cast<float>(cfg.mod_position));
-    mod_slot->set_wah_q(static_cast<float>(cfg.mod_q));
-    mod_slot->set_wah_mix(static_cast<float>(cfg.mod_mix));
-    mod_slot->set_wah_low_hz(static_cast<float>(cfg.mod_low_hz));
-    mod_slot->set_wah_high_hz(static_cast<float>(cfg.mod_high_hz));
-    mod_slot->set_fx_mix(static_cast<float>(cfg.mod_fx_mix));
-    mod_slot->set_feedback(static_cast<float>(cfg.mod_feedback));
-    chain.add(std::move(mod_slot));
+    // Il mod sta prima dell'amplificatore (default) o dopo la IR: la catena si
+    // costruisce all'avvio, quindi la scelta si applica caricando il preset.
+    const bool mod_pre_amp = cfg.mod_position == "pre_amp";
+    std::size_t i_mod = kNoSlot;
+    namzero::ModSlot* mod_ptr = nullptr;
+    auto add_mod = [&]() {
+        i_mod = chain.size();
+        auto mod = std::make_unique<namzero::ModSlot>();
+        mod_ptr = mod.get();
+        mod->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
+        mod->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+        mod->set_depth(static_cast<float>(cfg.mod_depth));
+        mod->set_fx_mix(static_cast<float>(cfg.mod_fx_mix));
+        mod->set_feedback(static_cast<float>(cfg.mod_feedback));
+        chain.add(std::move(mod));
+    };
+    if (mod_pre_amp) add_mod();
 
     const std::size_t i_amp = chain.size();
     namzero::NamSlot* amp_ptr = nullptr;
@@ -1068,6 +1128,8 @@ int main(int argc, char** argv) {
                     ir->taps(), static_cast<double>(ir->taps()) * 1000.0 / 48000.0);
         chain.add(std::move(ir));
     }
+
+    if (!mod_pre_amp) add_mod();
 
     // Delay e riverbero esistono sempre, anche se spenti: cosi' il tasto di
     // bypass funziona con qualunque preset, invece di non fare nulla in silenzio.
@@ -1159,13 +1221,18 @@ int main(int argc, char** argv) {
         std::printf("cfg.mod.type=%s\n", mod_name(mod_ptr->type()));
         std::printf("cfg.mod.rate_hz=%.4f\n", mod_ptr->rate_hz());
         std::printf("cfg.mod.depth=%.4f\n", mod_ptr->depth());
-        std::printf("cfg.mod.position=%.4f\n", mod_ptr->position());
-        std::printf("cfg.mod.q=%.4f\n", mod_ptr->wah_q());
-        std::printf("cfg.mod.mix=%.4f\n", mod_ptr->wah_mix());
-        std::printf("cfg.mod.low_hz=%.4f\n", mod_ptr->wah_low_hz());
-        std::printf("cfg.mod.high_hz=%.4f\n", mod_ptr->wah_high_hz());
         std::printf("cfg.mod.fx_mix=%.4f\n", mod_ptr->fx_mix());
         std::printf("cfg.mod.feedback=%.4f\n", mod_ptr->feedback());
+        std::printf("cfg.mod.position=%s\n", cfg.mod_position.c_str());
+
+        std::printf("cfg.filter.on=%d\n", 0);
+        std::printf("cfg.filter.rate_hz=%.4f\n", filter_ptr->rate_hz());
+        std::printf("cfg.filter.depth=%.4f\n", filter_ptr->depth());
+        std::printf("cfg.filter.q=%.4f\n", filter_ptr->wah_q());
+        std::printf("cfg.filter.mix=%.4f\n", filter_ptr->wah_mix());
+        std::printf("cfg.filter.low_hz=%.4f\n", filter_ptr->wah_low_hz());
+        std::printf("cfg.filter.high_hz=%.4f\n", filter_ptr->wah_high_hz());
+        std::printf("cfg.filter.position=%.4f\n", filter_ptr->position());
 
         std::printf("cfg.amp.file=%s\n", cfg.amp_file.c_str());
         std::printf("cfg.amp.slim=%.4f\n", cfg.amp_slim);
@@ -1310,18 +1377,14 @@ int main(int argc, char** argv) {
         }
     }
 
-    const bool wah_armed = !midis.empty();
-
-    // Regola: il wah non parte mai acceso, lo accende solo il pedale. Se il
-    // MIDI non c'e' (o e' disattivato) resta il controllo manuale, altrimenti
-    // un preset col wah dentro non avrebbe modo di suonare.
-    if (wah_armed && cfg.mod_type == "wah" && cfg.mod_on) {
-        cfg.mod_on = false;
-        std::printf("mod: wah spento all'avvio (si accende col pedale)\n");
-    }
+    // Regola: il filter non parte mai acceso, lo accende solo l'auto-engage
+    // dell'espressione. Vale anche senza MIDI: il filter non ha un interruttore.
+    cfg.filter_on = false;
+    if (cfg.mod_type == "wah") cfg.mod_type = "tremolo";  // non deve succedere, ma...
 
     chain.set_enabled(i_gate, cfg.gate_on);
     chain.set_enabled(i_comp, cfg.comp_on);
+    chain.set_enabled(i_filter, false);
     chain.set_enabled(i_drive, cfg.drive_on);
     chain.set_enabled(i_mod, cfg.mod_on);
     chain.set_enabled(i_amp, has_amp);
@@ -1335,17 +1398,28 @@ int main(int argc, char** argv) {
     std::printf("comp: soglia %.1f dB | ratio %.1f | attack %.1f ms | release %.0f ms | makeup %.1f dB\n",
                 cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms, cfg.comp_release_ms,
                 cfg.comp_makeup_db);
-    std::printf("slot: gate %s | comp %s | drive %s (%s) | mod %s (%s) | amp %s | ir %s | delay %s | reverb %s\n",
+    std::printf("filter: wah spento (auto-engage) | q %.1f | mix %.2f | %.0f..%.0f Hz | pos %.2f\n",
+                cfg.filter_q, cfg.filter_mix, cfg.filter_low_hz, cfg.filter_high_hz,
+                cfg.filter_position);
+    std::printf("slot: gate %s | comp %s | filter %s | drive %s (%s) | mod %s (%s, %s) | amp %s | ir %s | delay %s | reverb %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
+                cfg.filter_on ? "on" : "off",
                 cfg.drive_on ? "on" : "off", cfg.drive_type.c_str(),
-                cfg.mod_on ? "on" : "off", cfg.mod_type.c_str(),
+                cfg.mod_on ? "on" : "off", cfg.mod_type.c_str(), cfg.mod_position.c_str(),
                 has_amp ? "on" : "off", has_ir ? "on" : "off",
                 cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off");
+    std::string chain_desc = "gate -> comp -> filter(wah) -> drive -> ";
+    if (mod_pre_amp) chain_desc += "mod -> ";
+    chain_desc += "amp";
+    if (has_ir) chain_desc += " -> ir";
+    if (!mod_pre_amp) chain_desc += " -> mod";
+    chain_desc += " -> delay -> reverb";
+    std::printf("catena: %s\n", chain_desc.c_str());
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
                 static_cast<double>(latency) * 1000.0 / 48000.0);
     std::printf("tasti: g gate | c comp | o overdrive | k modello drive | p modo delay | + - volume amp\n"
-                "        m mod | w tipo mod | , . wah\n"
+                "        m mod | w tipo mod | , . filter\n"
                 "        d delay | t tap tempo | i ir | r reverb | s salva | q o Ctrl+C esci\n");
     std::fflush(stdout);
 
@@ -1466,7 +1540,7 @@ int main(int argc, char** argv) {
     // nota 7 libera. Il LED acceso e' quello dell'effetto selezionato.
     auto apply_leds = [&]() {
         if (!led_out.is_open()) return;
-        static const int mod_led_type[4] = {0, 2, 3, 4};  // tremolo/univibe/flanger/phaser
+        static const int mod_led_type[4] = {0, 1, 2, 3};  // tremolo/univibe/flanger/phaser
         const int mt = namzero::mod_type_index(cfg.mod_type);
         for (int i = 0; i < 4; ++i) {
             led_out.send_note(0, static_cast<uint8_t>(4 + i),
@@ -1520,11 +1594,15 @@ int main(int argc, char** argv) {
         sl["mod"]["depth"] = cfg.mod_depth;
         sl["mod"]["feedback"] = cfg.mod_feedback;
         sl["mod"]["fx_mix"] = cfg.mod_fx_mix;
-        sl["mod"]["q"] = cfg.mod_q;
-        sl["mod"]["mix"] = cfg.mod_mix;
-        sl["mod"]["low_hz"] = cfg.mod_low_hz;
-        sl["mod"]["high_hz"] = cfg.mod_high_hz;
         sl["mod"]["position"] = cfg.mod_position;
+        sl["filter"]["on"] = cfg.filter_on;
+        sl["filter"]["rate"] = cfg.filter_rate_hz;
+        sl["filter"]["depth"] = cfg.filter_depth;
+        sl["filter"]["q"] = cfg.filter_q;
+        sl["filter"]["mix"] = cfg.filter_mix;
+        sl["filter"]["low_hz"] = cfg.filter_low_hz;
+        sl["filter"]["high_hz"] = cfg.filter_high_hz;
+        sl["filter"]["position"] = cfg.filter_position;
         sl["amp"]["on"] = cfg.amp_on;
         sl["amp"]["file"] = cfg.amp_file;
         sl["amp"]["trim"] = cfg.amp_trim_db;
@@ -1552,6 +1630,7 @@ int main(int argc, char** argv) {
         }
         const std::string cmd = j.value("cmd", "");
         if (cmd == "state") {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
             ctl.send(build_state());
         } else if (cmd == "slot") {
             const int n = j.value("n", -1);
@@ -1564,9 +1643,9 @@ int main(int argc, char** argv) {
         } else if (cmd == "save") {
             std::string e;
             if (save_preset(preset_path, cfg, e)) {
-                std::printf("  preset salvato: %s\\n", preset_path.c_str());
+                std::printf("  preset salvato: %s\n", preset_path.c_str());
             } else {
-                std::printf("  save: %s\\n", e.c_str());
+                std::printf("  save: %s\n", e.c_str());
             }
             std::fflush(stdout);
         } else if (cmd == "rename") {
@@ -1701,23 +1780,31 @@ int main(int argc, char** argv) {
                 cfg.mod_depth = d.mod_depth;
                 cfg.mod_feedback = d.mod_feedback;
                 cfg.mod_fx_mix = d.mod_fx_mix;
-                cfg.mod_q = d.mod_q;
-                cfg.mod_mix = d.mod_mix;
-                cfg.mod_low_hz = d.mod_low_hz;
-                cfg.mod_high_hz = d.mod_high_hz;
-                cfg.mod_position = d.mod_position;
+                // mod_position non si ripristina: e' la posizione nella catena,
+                // non un parametro dell'effetto (e cambiarla richiede un reload).
                 mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
                 mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
                 mod_ptr->set_depth(static_cast<float>(cfg.mod_depth));
                 mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
                 mod_ptr->set_fx_mix(static_cast<float>(cfg.mod_fx_mix));
-                mod_ptr->set_wah_q(static_cast<float>(cfg.mod_q));
-                mod_ptr->set_wah_mix(static_cast<float>(cfg.mod_mix));
-                mod_ptr->set_wah_low_hz(static_cast<float>(cfg.mod_low_hz));
-                mod_ptr->set_wah_high_hz(static_cast<float>(cfg.mod_high_hz));
-                mod_ptr->set_position(static_cast<float>(cfg.mod_position));
                 if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
                 apply_leds();
+            } else if (slot == "filter") {
+                cfg.filter_rate_hz = d.filter_rate_hz;
+                cfg.filter_depth = d.filter_depth;
+                cfg.filter_q = d.filter_q;
+                cfg.filter_mix = d.filter_mix;
+                cfg.filter_low_hz = d.filter_low_hz;
+                cfg.filter_high_hz = d.filter_high_hz;
+                cfg.filter_position = d.filter_position;
+                filter_ptr->set_rate_hz(static_cast<float>(cfg.filter_rate_hz));
+                filter_ptr->set_depth(static_cast<float>(cfg.filter_depth));
+                filter_ptr->set_wah_q(static_cast<float>(cfg.filter_q));
+                filter_ptr->set_wah_mix(static_cast<float>(cfg.filter_mix));
+                filter_ptr->set_wah_low_hz(static_cast<float>(cfg.filter_low_hz));
+                filter_ptr->set_wah_high_hz(static_cast<float>(cfg.filter_high_hz));
+                filter_ptr->set_position(static_cast<float>(cfg.filter_position));
+                // filter_on resta com'e': lo comanda solo l'espressione.
             } else if (slot == "amp") {
                 cfg.amp_on = d.amp_on;
                 cfg.amp_trim_db = d.amp_trim_db;
@@ -1777,8 +1864,39 @@ int main(int argc, char** argv) {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             if (slot == "mod") {
                 if (j.contains("type")) {
-                    cfg.mod_type = j["type"].get<std::string>();
-                    mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
+                    const std::string type = j["type"].get<std::string>();
+                    if (namzero::mod_type_index(type) >= 0) {
+                        cfg.mod_type = type;
+                        mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
+                    } else {
+                        std::printf("  mod: tipo \"%s\" non valido (tremolo/univibe/flanger/phaser)\n",
+                                    type.c_str());
+                        std::fflush(stdout);
+                    }
+                }
+                // La posizione nella catena si applica solo ricaricando: si
+                // salva il preset e si chiede il re-exec, come il comando file.
+                if (j.contains("position")) {
+                    const std::string position = j["position"].get<std::string>();
+                    if (position != "pre_amp" && position != "post_ir") {
+                        std::printf("  mod: posizione \"%s\" non valida (pre_amp/post_ir)\n",
+                                    position.c_str());
+                        std::fflush(stdout);
+                    } else if (position != cfg.mod_position) {
+                        cfg.mod_position = position;
+                        std::string e;
+                        if (!preset_path.empty() && save_preset(preset_path, cfg, e)) {
+                            std::printf("  mod: posizione %s, ricarico il preset\n",
+                                        position.c_str());
+                            std::fflush(stdout);
+                            switch_slot.store(current_slot.load());
+                        } else {
+                            std::printf("  mod: posizione %s non salvata (%s)\n",
+                                        position.c_str(),
+                                        preset_path.empty() ? "nessun preset" : e.c_str());
+                            std::fflush(stdout);
+                        }
+                    }
                 }
                 cfg.mod_on = j.value("on", cfg.mod_on);
                 if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
@@ -1841,11 +1959,14 @@ int main(int argc, char** argv) {
                 else if (key == "depth") { cfg.mod_depth = v; mod_ptr->set_depth(static_cast<float>(v)); }
                 else if (key == "feedback") { cfg.mod_feedback = v; mod_ptr->set_feedback(static_cast<float>(v)); }
                 else if (key == "fx_mix") { cfg.mod_fx_mix = v; mod_ptr->set_fx_mix(static_cast<float>(v)); }
-                else if (key == "q") { cfg.mod_q = v; mod_ptr->set_wah_q(static_cast<float>(v)); }
-                else if (key == "mix") { cfg.mod_mix = v; mod_ptr->set_wah_mix(static_cast<float>(v)); }
-                else if (key == "low_hz") { cfg.mod_low_hz = v; mod_ptr->set_wah_low_hz(static_cast<float>(v)); }
-                else if (key == "high_hz") { cfg.mod_high_hz = v; mod_ptr->set_wah_high_hz(static_cast<float>(v)); }
-                else if (key == "position") { cfg.mod_position = v; mod_ptr->set_position(static_cast<float>(v)); }
+            } else if (slot == "filter") {
+                if (key == "rate") { cfg.filter_rate_hz = v; filter_ptr->set_rate_hz(static_cast<float>(v)); }
+                else if (key == "depth") { cfg.filter_depth = v; filter_ptr->set_depth(static_cast<float>(v)); }
+                else if (key == "q") { cfg.filter_q = v; filter_ptr->set_wah_q(static_cast<float>(v)); }
+                else if (key == "mix") { cfg.filter_mix = v; filter_ptr->set_wah_mix(static_cast<float>(v)); }
+                else if (key == "low_hz") { cfg.filter_low_hz = v; filter_ptr->set_wah_low_hz(static_cast<float>(v)); }
+                else if (key == "high_hz") { cfg.filter_high_hz = v; filter_ptr->set_wah_high_hz(static_cast<float>(v)); }
+                else if (key == "position") { cfg.filter_position = v; filter_ptr->set_position(static_cast<float>(v)); }
             } else if (slot == "amp") {
                 if (key == "trim") { cfg.amp_trim_db = v; amp_ptr->set_trim_db(v); }
             } else if (slot == "delay") {
@@ -1860,12 +1981,11 @@ int main(int argc, char** argv) {
             }
         }
     };
-    // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
-    // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
-    std::atomic<bool> wah_engaged{false};
-    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &wah_engaged, &switch_slot, &current_slot, &apply_leds, looper_ptr, wah_armed,
+    // Il filter non ha un tasto on/off: lo comanda solo l'auto-engage
+    // dell'espressione. Qui la tastiera ne regola al massimo la posizione.
+    std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &switch_slot, &current_slot, &apply_leds, looper_ptr,
                            drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
-                           i_delay, i_ir, i_reverb, mod_ptr, delay_slot]() {
+                           i_delay, i_ir, i_reverb, mod_ptr, filter_ptr, delay_slot]() {
         termios oldt{};
         const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
         if (is_tty) {
@@ -2016,37 +2136,16 @@ int main(int argc, char** argv) {
                     break;
                 }
                 case 'm': {
-                    if (wah_engaged.load()) {
-                        std::printf("  (il wah e' in mano al pedale)\n");
-                        std::fflush(stdout);
-                        break;
-                    }
-                    if (wah_armed && cfg.mod_type == "wah") {
-                        std::printf("  (il wah si accende col pedale, non da qui)\n");
-                        std::fflush(stdout);
-                        break;
-                    }
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     toggle("mod", i_mod, cfg.mod_on);
                     break;
                 }
                 case 'w': {
                     if (mod_ptr == nullptr) break;
-                    if (wah_engaged.load()) {
-                        std::printf("  (il wah e' in mano al pedale)\n");
-                        std::fflush(stdout);
-                        break;
-                    }
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    // Si scorre solo fra gli effetti: il wah si usa dal pedale.
-                    const int cur = namzero::mod_type_index(cfg.mod_type);
-                    int next = kModCycle[0];
-                    for (int i = 0; i < kModCycleCount; ++i) {
-                        if (kModCycle[i] == cur) {
-                            next = kModCycle[(i + 1) % kModCycleCount];
-                            break;
-                        }
-                    }
+                    // Quattro tipi, in cerchio: il wah non e' piu' di casa qui.
+                    int next = namzero::mod_type_index(cfg.mod_type) + 1;
+                    if (next < 0 || next >= static_cast<int>(namzero::kModTypeCount)) next = 0;
                     cfg.mod_type = namzero::kModTypeNames[next];
                     cfg.mod_rate_hz = kModDefaultRate[next];
                     cfg.mod_feedback = kModDefaultFeedback[next];
@@ -2061,17 +2160,14 @@ int main(int argc, char** argv) {
                 }
                 case ',':
                 case '.': {
-                    if (mod_ptr == nullptr) break;
-                    if (cfg.mod_type != "wah") {
-                        std::printf("  (il wah e' spento: premi w per attivarlo)\n");
-                        std::fflush(stdout);
-                        break;
-                    }
-                    double p = cfg.mod_position + (ch == '.' ? 0.1 : -0.1);
+                    if (filter_ptr == nullptr) break;
+                    std::lock_guard<std::mutex> lk(ctrl_mtx);
+                    double p = cfg.filter_position + (ch == '.' ? 0.1 : -0.1);
                     p = p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p);
-                    cfg.mod_position = p;
-                    mod_ptr->set_position(static_cast<float>(p));
-                    std::printf("  wah: %.1f\n", p);
+                    cfg.filter_position = p;
+                    filter_ptr->set_position(static_cast<float>(p));
+                    std::printf("  filter: %.2f%s\n", p,
+                                cfg.filter_on ? "" : " (spento: si accende col pedale)");
                     std::fflush(stdout);
                     break;
                 }
@@ -2166,19 +2262,8 @@ int main(int argc, char** argv) {
         // meglio restare spenti che accendersi su un valore inventato.
         bool have_expr = false;
 
-        // Proprieta' dello slot mod: il wah accende solo dal pedale, e al
-        // rilascio si torna esattamente allo stato di prima (tremolo compreso).
-        namzero::ModArbiter arbiter;
-
-        // Applica uno stato allo slot: usata sia per accendere sia per
-        // ripristinare, cosi' le due strade non possono divergere.
-        auto apply_mod = [&](const namzero::ModArbiter::State& st) {
-            cfg.mod_on = st.on;
-            cfg.mod_type = namzero::kModTypeNames[static_cast<std::size_t>(st.type)];
-            if (mod_ptr != nullptr) mod_ptr->set_type(mod_type_enum(st.type));
-            if (i_mod != kNoSlot) chain.set_enabled(i_mod, st.on);
-        };
-
+        // Il wah vive nel blocco FILTER, che e' separato dal mod: l'auto-engage
+        // accende e spegne solo quello, senza toccare il tipo di modulazione.
         while (g_running.load()) {
             // Hotplug: un pedale USB collegato dopo l'avvio viene aperto qui.
             static std::int64_t last_retry = 0;
@@ -2248,7 +2333,11 @@ int main(int argc, char** argv) {
                     p = p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
                     pos = midi_cfg.expression_invert ? 1.0f - p : p;
                     have_expr = true;
-                    if (mod_ptr != nullptr) mod_ptr->set_position(pos);
+                    {
+                        std::lock_guard<std::mutex> lk(ctrl_mtx);
+                        cfg.filter_position = pos;
+                        if (filter_ptr != nullptr) filter_ptr->set_position(pos);
+                    }
                 }
 
                 if (cfg.midi_log) {
@@ -2278,7 +2367,7 @@ int main(int argc, char** argv) {
                     for (int i = 0; i < 3; ++i) {
                         if (midi_cfg.gboard_drive_pc[i] == e.cc) drive_led = i;
                     }
-                    static const int mod_led_type[4] = {0, 2, 3, 4};
+                    static const int mod_led_type[4] = {0, 1, 2, 3};
                     if (mod_led >= 0) {
                         std::lock_guard<std::mutex> lk(ctrl_mtx);
                         const int type_idx = mod_led_type[mod_led];
@@ -2419,8 +2508,8 @@ int main(int argc, char** argv) {
                 const int sel = cc_mod_select[e.cc];
                 if (sel >= 0) {
                     // Un tasto = un effetto: seleziona il tipo e accende lo slot;
-                    // ripremere lo stesso tasto lo spegne.
-                    if (arbiter.engaged()) continue;  // il pedale tiene il wah
+                    // ripremere lo stesso tasto lo spegne. Il filter non c'entra:
+                    // vive in un altro slot e lo comanda solo l'espressione.
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     const bool same = (cfg.mod_type == namzero::kModTypeNames[sel] && cfg.mod_on);
                     cfg.mod_type = namzero::kModTypeNames[sel];
@@ -2445,19 +2534,9 @@ int main(int argc, char** argv) {
                 const char* name = namzero::midi_action_name(act);
 
                 if (act == namzero::MidiAction::kMod) {
-                    // Il mod condivide lo slot col wah: se il pedale lo tiene,
-                    // non si tocca (comanda il pedale).
-                    if (arbiter.engaged()) continue;
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
-                    // Se lo slot e' sul wah questo comando lo riporta al tremolo;
-                    // per gli altri effetti si cambia solo on/off, senza
-                    // sovrascrivere il tipo scelto dall'utente.
-                    if (cfg.mod_type == "wah") {
-                        cfg.mod_type = "tremolo";
-                        if (mod_ptr != nullptr) {
-                            mod_ptr->set_type(namzero::ModSlot::Type::kTremolo);
-                        }
-                    }
+                    // Il filter e' un altro slot: il mod cambia solo on/off,
+                    // senza sovrascrivere il tipo scelto dall'utente.
                     cfg.mod_on = !cfg.mod_on;
                     if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
                     apply_leds();
@@ -2502,16 +2581,15 @@ int main(int argc, char** argv) {
 
             if (transition == 1) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
-                arbiter.engage({cfg.mod_on, std::max(0, namzero::mod_type_index(cfg.mod_type))});
-                apply_mod({true, 1});  // 1 = wah
-                wah_engaged.store(true);
-                std::printf("  wah: acceso dal pedale\n");
+                cfg.filter_on = true;
+                chain.set_enabled(i_filter, true);
+                std::printf("  filter: wah acceso dal pedale\n");
                 std::fflush(stdout);
             } else if (transition == -1) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
-                apply_mod(arbiter.release());
-                wah_engaged.store(false);
-                std::printf("  wah: spento dal pedale\n");
+                cfg.filter_on = false;
+                chain.set_enabled(i_filter, false);
+                std::printf("  filter: wah spento dal pedale\n");
                 std::fflush(stdout);
             }
         }

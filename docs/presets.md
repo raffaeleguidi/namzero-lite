@@ -25,9 +25,10 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
                 "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
     "drive":  { "on": false, "type": "fuzz", "amount": 0.15, "tone": 0.5,
                 "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0 },
+    "filter": { "on": false, "rate_hz": 1.0, "depth": 0.5, "q": 3.0, "mix": 1.0,
+                "low_hz": 350, "high_hz": 2200, "position": 0.5 },
     "mod":    { "on": true,  "type": "tremolo", "rate_hz": 4.5, "depth": 0.5,
-                "position": 0.5, "q": 3.0, "mix": 1.0,
-                "low_hz": 350, "high_hz": 2200, "fx_mix": 0.5, "feedback": 0.35 },
+                "fx_mix": 0.5, "feedback": 0.35, "position": "pre_amp" },
     "amp":    { "on": true,  "file": "models/vox_ac30_a2.nam",
                 "slim": 0.49, "trim_db": -6 },
     "ir":     { "on": false, "file": "", "taps": 2048 },
@@ -81,24 +82,45 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 | `mid_db` | 4.0 | solo klon: gobba a 800 Hz |
 | `low_db` | 5.0 | solo fuzz: low-shelf a 110 Hz |
 
+### filter (wah)
+
+Blocco fisso **prima del drive**: e' una seconda istanza di `ModSlot` con tipo
+`wah`, sempre presente in catena. Non ha un interruttore: `on` viene forzato a
+`false` in lettura e riscritto `false` in salvataggio. Si accende solo con
+l'auto-engage dell'espressione (vedi `docs/midi.md`).
+
+| Chiave | Default | Note |
+|--------|---------|------|
+| `on` | false | ignorato: il filter nei preset e' sempre spento |
+| `rate_hz` | 1.0 | non usato dal wah, esposto per completezza |
+| `depth` | 0.5 | non usato dal wah |
+| `q` | 3.0 | risonanza (il Q effettivo scende verso la punta) |
+| `mix` | 1.0 | quanto bagnato |
+| `low_hz` / `high_hz` | 350 / 2200 | estremi dello sweep |
+| `position` | 0.5 | posizione del pedale 0..1 |
+
+Se il blocco manca valgono i default; `filter` e' comunque in catena e spento.
+
 ### mod
 
 | Chiave | Default | Note |
 |--------|---------|------|
 | `on` | false | |
-| `type` | `tremolo` | `tremolo`, `univibe`, `flanger`, `phaser`, `wah` |
+| `type` | `tremolo` | `tremolo`, `univibe`, `flanger`, `phaser` |
 | `rate_hz` | 4.5 | LFO di tremolo/univibe/flanger/phaser |
 | `depth` | 0.6 | 0..1 |
-| `position` | 0.5 | solo wah: posizione del pedale 0..1 |
-| `q` | 3.0 | solo wah: risonanza (il Q effettivo scende verso la punta) |
-| `mix` | 1.0 | solo wah: quanto bagnato |
-| `low_hz` / `high_hz` | 350 / 2200 | solo wah: estremi dello sweep |
-| `fx_mix` | 0.5 | solo univibe/flanger/phaser: quota di wet |
+| `position` | `pre_amp` | `pre_amp` (default) o `post_ir`: dove sta il mod nella catena |
+| `fx_mix` | 0.5 | quota di wet |
 | `feedback` | 0.35 | solo flanger/phaser |
 
-Il wah **non** si accende da preset: all'avvio, con MIDI attivo, viene forzato
-spento e lo comanda solo il pedale (vedi `docs/midi.md`). Il tipo `wah` in un
-preset serve a scegliere i parametri del filtro, non ad accenderlo.
+Il **wah non e' piu' un tipo di mod**: sta nel blocco `filter`. Un preset vecchio
+con `mod.type: "wah"` viene letto come tremolo spento, senza fallire.
+
+`mod.position` si applica **al caricamento del preset**, perche' la catena si
+costruisce all'avvio. Dal vivo il comando `set` con `slot:"mod"` e `position`
+salva il preset e lo ricarica (~300 ms), come il cambio di un file amp/IR. Un
+`position` numerico nei preset vecchi (era la posizione del pedale wah) viene
+ignorato.
 
 ### amp / ir
 
@@ -143,10 +165,9 @@ Default: silenzioso, parla solo se qualcosa non va.
 
 - **La mappa MIDI** sta in `config/midi.json` e vale per tutti i preset. Un
   blocco `"midi"` dentro un preset viene ignorato con un avviso.
-- **Il salvataggio con `s`** riscrive i campi `on` degli slot e il volume
-  dell'ampli (`slots.amp.trim_db`, regolato con `+` e `-`): nome, tipi, altri
-  parametri e chiavi sconosciute restano intatti. Non salva gli altri cambi fatti
-  dal vivo (modo del delay, tap tempo, tipo di drive/mod).
+- **Il salvataggio con `s`** (o il bottone *Salva preset* della web UI) riscrive
+  tutto lo stato live: on/off e parametri degli slot, `mod.position`, `filter`
+  (sempre con `on: false`). Nome e chiavi sconosciute restano intatti.
 - **Il preset non si ricarica da solo**: vale quanto detto sopra, si legge
   all'avvio.
 

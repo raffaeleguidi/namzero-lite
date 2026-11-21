@@ -55,7 +55,8 @@ Gli slot della catena, nell'ordine in cui vengono comandati:
 | `gate` | -1 (nessuno) | il CC 25 è usato dalla navigazione (primo slot) |
 | `comp` | -1 (nessuno) | il CC 22 è usato dalla navigazione (slot precedente) |
 | `drive` | 20 | banco A (fs2) |
-| `mod` | 10 | banco A (fs1): tremolo; se il wah è in mano al pedale il tasto è ignorato |
+| `mod` | 10 | banco A (fs1): on/off del mod |
+| `filter` | — | **nessun CC**: il wah si accende solo con l'auto-engage dell'espressione |
 | `amp` | 23 | non mappato dall'XTONE, libero |
 | `ir` | 30 | banco C |
 | `delay` | 11 | banco A (fs3) |
@@ -65,6 +66,11 @@ Gli slot della catena, nell'ordine in cui vengono comandati:
 | `drive_select` | 36/37/38 | **seleziona** fuzz/klon/tubescreamer (radio button) |
 | `delay_select` | 45/46/47 | **seleziona** stereo/ping-pong/ping-pong stereo (radio button) |
 | `boost` | 44 | **aumenta** il volume di `db` dB a fine catena (default +6); ripremendo torna al livello originale |
+
+Il **FILTER** (wah) non ha CC: non è selezionabile da footswitch, non ha un
+tasto on/off e non compare in `mod_select`. Si accende solo con l'auto-engage
+dell'espressione, come spiegato in §4. Il tipo `wah` nel mod non esiste più:
+un preset che lo contiene viene letto come tremolo spento.
 
 I gruppi dell'XTONE cambiano **solo i numeri di CC**: A = 10/20/11, B = 22/24/25,
 C = 30/43/42. Con questa mappa i tre banchi coprono tutti gli slot tranne `amp`, che
@@ -144,10 +150,15 @@ rawmidi (hw:XTONE)
 - I toggle scrivono lo stato dell'app e `chain.set_enabled`; il thread audio legge solo
   atomici. Tastiera e MIDI condividono un mutex perché scrivono lo stesso stato.
 
-## 4. Auto-engage del wah
+## 4. Auto-engage del FILTER (wah)
 
-Macchina a stati in `src/control/wah_autoengage.h`, isolata per poterla testare senza
-audio:
+Il wah non è più un tipo di mod: vive nel blocco **FILTER**, una seconda istanza
+di `ModSlot` (tipo `wah`) sempre presente in catena **prima del drive**. Non ha
+un interruttore: il flag `on` dei preset viene ignorato e `save_preset` lo
+riscrive sempre spento. Si accende solo dal pedale.
+
+Macchina a stati in `src/control/wah_autoengage.h`, isolata per poterla testare
+senza audio:
 
 - si accende se l'**attivazione** resta sopra `threshold` (10%) per `engage_ms` (100 ms);
 - si spegne se resta sotto `release_threshold` (5%) per `release_ms` (500 ms);
@@ -159,15 +170,15 @@ punta 1) e il wah si accende verso la punta. Con `invert` l'attivazione è `1 �
 la punta diventa la zona spenta e il wah si accende appena la si lascia. È diverso da
 `expression.invert`, che rovescia la mappa del pedale (e quindi la corsa del filtro).
 
-**Proprietà dello slot `mod`**: il wah non è mai acceso di suo.
+**Proprietà del FILTER**:
 
-1. All'avvio, se il MIDI è aperto e il preset ha `mod` acceso in tipo `wah`, viene
-   spento: lo accende solo il pedale.
-2. Quando il pedale lo accende, `ModArbiter` salva lo stato dello slot (acceso/spento e
-   tipo) e lo ripristina identico allo spegnimento: se c'era il tremolo, torna il
-   tremolo.
-3. Mentre il pedale tiene il wah, tasti e footswitch non toccano lo slot, altrimenti il
-   ripristino riporterebbe uno stato cambiato nel frattempo.
+1. All'avvio è sempre spento, con o senza MIDI: non esiste un comando per
+   accenderlo a mano.
+2. Il pedale (CC 7/4/1) aggiorna `filter.position` e, tramite l'auto-engage,
+   accende/spegne solo lo slot filter con `chain.set_enabled(i_filter, ...)`.
+3. Il mod è un altro slot: l'auto-engage non salva e non ripristina il suo stato
+   (tipo e on/off restano quelli scelti dall'utente). Il vecchio `ModArbiter` è
+   stato rimosso.
 4. Finché il pedale non manda la **prima posizione** il gate resta spento: all'avvio non
    si sa dove sta il pedale.
 
@@ -196,8 +207,8 @@ il blocco non cambia":
   mod: on (CC10)
   drive: off (CC20, fuzz)
   delay: on (CC11)
-  wah: acceso dal pedale
-  wah: spento dal pedale
+  filter: wah acceso dal pedale
+  filter: wah spento dal pedale
 ```
 
 ## 6. Switch: `any` contro `edge`
@@ -221,8 +232,9 @@ Senza ALSA, quindi eseguibili anche fuori dal Pi:
 | Test | Copre |
 |------|-------|
 | `switch_debounce_test` | modi `any`/`edge`, rimbalzi, pressione tenuta a lungo, soli-127 |
-| `wah_autoengage_test` | soglie, isteresi, tempi, polarità invertita, ripristino dello slot |
-| `midi_config_test` | default, file completo, `-1`, doppioni, conflitto con l'espressione, JSON rotto |
+| `wah_autoengage_test` | soglie, isteresi, tempi, polarità invertita del gate |
+| `filter_test` | blocco FILTER come seconda istanza wah, posizione indipendente, tabella dei 4 tipi di mod |
+| `midi_config_test` | default, file completo, `-1`, doppioni, conflitto con l'espressione, `wah` rifiutato in `mod_select`, JSON rotto |
 | `drive_klon_test` | modello Klon (non MIDI, ma sta nello stesso slot comandato dai CC) |
 
 ```bash
@@ -238,5 +250,6 @@ cmake --build build -j1 && cd build && ctest
 | Il blocco si accende e si spegne subito | switch momentanei con `switches: any` → mettere `edge` |
 | Metà delle pressioni ignorate | switch a stato con `switches: edge` → mettere `any` |
 | Il wah non si spegne mai | manca `wah_autoengage.invert` per la convenzione "punta = spento" |
-| Il wah non si accende | il gate aspetta la prima posizione del pedale, o il pedale è sulla punta con `invert` |
+| Il filter non si accende | il gate aspetta la prima posizione del pedale, o il pedale è sulla punta con `invert` |
+| Il filter resta spento e la UI dice off | non è un guasto: si accende solo con l'espressione, non c'è un tasto on/off |
 | `Operation not permitted` all'avvio | non è MIDI: mancano le capability realtime, vedi README |

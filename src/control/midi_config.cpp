@@ -127,11 +127,8 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             const int idx = mod_type_index(it.key());
             if (idx < 0) {
                 err = "midi.json: tipo di modulazione sconosciuto \"" + it.key() +
-                      "\" (attesi: tremolo, univibe, flanger, phaser)";
-                return false;
-            }
-            if (idx == 1) {
-                err = "midi.json: il wah non si seleziona da footswitch, si usa dal pedale";
+                      "\" (attesi: tremolo, univibe, flanger, phaser; "
+                      "il wah sta nel blocco filter e non ha CC)";
                 return false;
             }
             if (!it.value().is_number_integer()) {

@@ -14,7 +14,7 @@ static int g_fail = 0;
         }                                                                      \
     } while (0)
 
-// Gate: tempi asimmetrici e isteresi di posizione.
+// Gate del FILTER (wah): tempi asimmetrici e isteresi di posizione.
 static void test_gate() {
     namzero::WahAutoEngage ae;
     ae.configure(0.10f, 100, 500);
@@ -112,54 +112,17 @@ static void test_inverted_polarity() {
     CHECK(!ae.engaged());
 }
 
-// Proprieta' dello slot mod: si salva com'era e si ripristina uguale.
-static void test_arbiter() {
-    using namzero::ModArbiter;
-
-    // Tremolo acceso -> il pedale accende il wah -> al rilascio torna il tremolo.
-    {
-        ModArbiter ar;
-        ar.engage({true, 0});
-        CHECK(ar.engaged());
-        // Un secondo engage non deve sovrascrivere il salvataggio.
-        ar.engage({false, 0});
-        const auto st = ar.release();
-        CHECK(st.on);
-        CHECK(st.type == 0);
-        CHECK(!ar.engaged());
-        // Release a vuoto: neutro, non rispolvera il salvataggio vecchio.
-        const auto again = ar.release();
-        CHECK(!again.on);
-        CHECK(again.type == 0);
-    }
-
-    // Slot spento -> al rilascio resta spento.
-    {
-        ModArbiter ar;
-        ar.engage({false, 0});
-        const auto st = ar.release();
-        CHECK(!st.on);
-    }
-
-    // Stato con wah gia' selezionato ma spento: torna spento, stesso tipo.
-    {
-        ModArbiter ar;
-        ar.engage({false, 1});
-        const auto st = ar.release();
-        CHECK(!st.on);
-        CHECK(st.type == 1);
-    }
-}
-
+// Proprieta' del FILTER: e' uno slot separato, quindi l'auto-engage non deve
+// salvare/ripristinare lo stato del mod. Qui si verifica solo il gate; il
+// filter come istanza DSP ha il suo test (filter_test).
 int main() {
     test_gate();
     test_hysteresis();
     test_inverted_polarity();
-    test_arbiter();
     if (g_fail != 0) {
         std::fprintf(stderr, "wah_autoengage: %d controlli falliti\n", g_fail);
         return 1;
     }
-    std::printf("wah_autoengage: gate, isteresi e ripristino dello slot ok\n");
+    std::printf("wah_autoengage: gate e isteresi del filter ok\n");
     return 0;
 }

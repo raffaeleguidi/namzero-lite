@@ -52,6 +52,19 @@ def ctl(payload):
             # il looper applica il comando nel thread audio al blocco dopo:
             # si aspetta un attimo prima di leggere lo stato.
             time.sleep(0.09)
+        if (payload.get("cmd") == "set" and payload.get("slot") == "mod"
+                and "position" in payload):
+            # Il cambio posizione del mod salva il preset e fa re-exec del
+            # motore (~300 ms): la connessione cade. Si riapre e si legge lo
+            # stato nuovo, invece di restituire un errore alla UI.
+            s.close()
+            time.sleep(0.7)
+            for _ in range(12):
+                try:
+                    return ctl(None)
+                except Exception:
+                    time.sleep(0.15)
+            raise RuntimeError("motore non raggiungibile dopo il reload")
     f.write(b'{"cmd":"state"}\n')
     f.flush()
     line = f.readline()

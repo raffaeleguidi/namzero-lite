@@ -13,7 +13,8 @@ inline float wah_activation(float position, bool invert) {
     return invert ? 1.0f - position : position;
 }
 
-// Macchina a stati per l'accensione automatica del wah comandata dal pedale.
+// Macchina a stati per l'accensione automatica del wah (blocco FILTER)
+// comandata dal pedale.
 //
 // Specifica: si accende quando l'attivazione resta sopra soglia per engage_ms,
 // si spegne quando resta sotto per release_ms. I due tempi sono asimmetrici di
@@ -86,44 +87,6 @@ private:
     bool below_ = true;
     double above_since_ = 0.0;
     double below_since_ = 0.0;
-};
-
-// Sovraintende alla proprieta' dello slot mod, che e' condiviso.
-//
-// Regola: il wah non e' mai "acceso" di suo, lo accende solo l'auto-engage.
-// Quando si accende, lo stato corrente dello slot (acceso/spento e tipo) viene
-// messo da parte; quando si spegne, quello stato torna esattamente com'era.
-// L'arbitro non tocca il DSP: dice solo cosa salvare e cosa ripristinare, cosi'
-// la regola si puo' testare senza audio.
-class ModArbiter {
-public:
-    struct State {
-        bool on = false;
-        int type = 0;  // indice del tipo di modulazione (0 = tremolo, 1 = wah, ...)
-    };
-
-    // Il gate ha acceso il wah: memorizza lo stato da ripristinare.
-    // Idempotente: un secondo engage senza release non sovrascrive il salvataggio.
-    void engage(const State& current) {
-        if (engaged_) return;
-        saved_ = current;
-        engaged_ = true;
-    }
-
-    // Il gate ha spento il wah: ritorna lo stato precedente.
-    // Chiamata a vuoto (senza engage) ritorna "spento, tremolo": non deve
-    // ripristinare lo stato di un ingaggio vecchio.
-    State release() {
-        if (!engaged_) return State{};
-        engaged_ = false;
-        return saved_;
-    }
-
-    bool engaged() const { return engaged_; }
-
-private:
-    bool engaged_ = false;
-    State saved_{};
 };
 
 }  // namespace namzero

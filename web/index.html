@@ -17,6 +17,8 @@ h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
 main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-start; }
 .pedal { background:var(--card); border:1px solid rgba(0,0,0,.18); border-radius:12px; padding:10px; width:190px; flex:0 0 auto; color:#16181d; box-shadow:0 2px 10px rgba(0,0,0,.35); }
 .pedal h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:0 0 8px; color:#16181d; display:flex; justify-content:space-between; align-items:center; }
+.pedal h2 .fstate { font-size:10px; text-transform:lowercase; letter-spacing:0; color:rgba(0,0,0,.55); border:1px solid rgba(0,0,0,.25); border-radius:8px; padding:0 6px; }
+.pedal h2 .fstate.on { background:#2563eb; border-color:#2563eb; color:#fff; box-shadow:0 0 8px rgba(37,99,235,.45); }
 .power { width:26px; height:26px; border-radius:50%; border:1px solid rgba(0,0,0,.25); background:rgba(255,255,255,.45); color:#16181d; cursor:pointer; font-size:12px; }
 .power.on { background:#2563eb; color:#fff; border-color:#2563eb; box-shadow:0 0 10px rgba(37,99,235,.55); }
 .pedal select { width:100%; background:rgba(255,255,255,.55); color:#16181d; border:1px solid rgba(0,0,0,.2); border-radius:6px; padding:4px; margin:6px 0; }
@@ -70,8 +72,9 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 const SLOTS = [
  {id:"gate", name:"Gate", color:"#7fb3d5", knobs:[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]]},
  {id:"comp", name:"Comp", color:"#a3c9a8", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["attack","Attack",0,50,1,"ms"],["release","Release",20,1000,10,"ms"],["makeup","Makeup",0,12,0.5,"dB"]]},
+ {id:"filter", name:"Filter", color:"#e6c39a", knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""]]},
  {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"]]},
- {id:"mod", name:"Mod", color:"#c5b3e6", types:["tremolo","univibe","flanger","phaser","wah"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""],["fx_mix","FX mix",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""]]},
+ {id:"mod", name:"Mod", color:"#c5b3e6", types:["tremolo","univibe","flanger","phaser"], modPosition:true, knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""],["fx_mix","FX mix",0,1,0.01,""]]},
  {id:"amp", name:"Amp", color:"#f2d5a8", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
  {id:"ir", name:"IR", color:"#b8d8d0", knobs:[]},
  {id:"delay", name:"Delay", color:"#a9c7e8", modes:["stereo","ping_pong","ping_pong_stereo"], knobs:[["time","Time",20,1200,5,"ms"],["feedback","Fdbk",0,0.9,0.01,""],["mix","Mix",0,1,0.01,""],["tone","Tone",0,1,0.01,""]]},
@@ -85,17 +88,36 @@ SLOTS.forEach(s => {
   card.style.background = s.color;
   card._color = s.color;
   const head = el("h2"); head.append(s.name);
-  const power = el("button", {className:"power", textContent:"⏻"});
-  power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
   const reset = el("button", {className:"power", textContent:"↺", title:"ripristina default dello slot"});
   reset.onclick = () => send({cmd:"defaults", slot:s.id});
-  head.append(power); card.append(head);
+  let power = null;
+  let filterState = null;
+  if (s.id === "filter") {
+    // Il filter non ha on/off: si accende solo con l'espressione. Si mostra
+    // "auto" quando l'auto-engage lo tiene acceso, "off" altrimenti.
+    filterState = el("span", {className:"fstate", textContent:"off"});
+    head.append(filterState);
+  } else {
+    power = el("button", {className:"power", textContent:"⏻"});
+    power.onclick = () => send({cmd:"set", slot:s.id, on:!last?.slots?.[s.id]?.on});
+    head.append(power);
+  }
+  card.append(head);
   let select = null;
   if (s.types || s.modes) {
     select = el("select");
     (s.types || s.modes).forEach(v => select.append(el("option", {value:v, textContent:v})));
     select.onchange = () => send({cmd:"set", slot:s.id, ...(s.types ? {type:select.value} : {mode:select.value})});
     card.append(select);
+  }
+  let position = null;
+  if (s.modPosition) {
+    // Posizione nella catena: il motore salva il preset e lo ricarica (~300 ms).
+    position = el("select", {title:"posizione nella catena"});
+    [["pre_amp","pre-amplificatore"], ["post_ir","dopo IR"]].forEach(([v,label]) =>
+      position.append(el("option", {value:v, textContent:label})));
+    position.onchange = () => send({cmd:"set", slot:s.id, position:position.value});
+    card.append(position);
   }
   s.knobs.forEach(([key,label,min,max,step,unit]) => {
     const wrap = el("div", {className:"knob"});
@@ -114,7 +136,8 @@ SLOTS.forEach(s => {
     fsel.onchange = () => send({cmd:"file", slot:s.id, file:fsel.value});
     card.append(fsel); card._file = fsel;
   }
-  card._power = power; card._select = select; card._id = s.id;
+  card._power = power; card._select = select; card._pos = position;
+  card._filterState = filterState; card._id = s.id;
   board.append(card);
 });
 // boost
@@ -157,6 +180,7 @@ function inverseOf(cmd) {
     const inv = {cmd:"set", slot:cmd.slot, on:sl.on};
     if (cmd.type !== undefined) inv.type = sl.type;
     if (cmd.mode !== undefined) inv.mode = sl.mode;
+    if (cmd.position !== undefined) inv.position = sl.position;
     return inv;
   }
   if (cmd.cmd === "boost") return {cmd:"boost", on:!!last.boost};
@@ -199,9 +223,15 @@ function render(st) {
       return;
     }
     if (!s) return;
-    card._power.classList.toggle("on", !!s.on);
+    if (card._power) card._power.classList.toggle("on", !!s.on);
+    if (card._filterState) {
+      card._filterState.textContent = s.on ? "auto" : "off";
+      card._filterState.classList.toggle("on", !!s.on);
+      card._filterState.title = s.on ? "acceso dall'espressione" : "spento: si accende col pedale";
+    }
     if (card._select && s.type) card._select.value = s.type;
     if (card._select && s.mode) card._select.value = s.mode;
+    if (card._pos && typeof s.position === "string") card._pos.value = s.position;
     if (card._file && s.file) {
       const base = s.file.split("/").pop();
       if (![...card._file.options].some(o => o.value === base)) {

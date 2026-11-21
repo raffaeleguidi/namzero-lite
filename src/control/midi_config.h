@@ -76,8 +76,9 @@ struct MidiConfig {
     std::array<int, kMidiActionCount> slot_cc = {-1, -1, 20, 10, -1, -1, 11, -1};
 
     // CC che SELEZIONANO un tipo di modulazione (un tasto per effetto), indicizzati
-    // come kModTypeNames. Il wah (indice 1) non e' ammesso: si usa dal pedale.
-    std::array<int, kModTypeCount> mod_select_cc = {-1, -1, -1, -1, -1};
+    // come kModTypeNames. Il wah non c'e' piu' fra i tipi di mod: vive nel
+    // blocco filter e si accende solo dal pedale.
+    std::array<int, kModTypeCount> mod_select_cc = {-1, -1, -1, -1};
 
     // Stessa cosa per il drive: un tasto per modello.
     std::array<int, kDriveTypeCount> drive_select_cc = {-1, -1, -1};

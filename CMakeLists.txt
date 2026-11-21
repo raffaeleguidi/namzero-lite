@@ -97,6 +97,10 @@ add_executable(wah_tone_test test/wah_tone_test.cpp)
 target_include_directories(wah_tone_test PRIVATE src)
 add_test(NAME wah_tone COMMAND wah_tone_test)
 
+add_executable(filter_test test/filter_test.cpp)
+target_include_directories(filter_test PRIVATE src)
+add_test(NAME filter COMMAND filter_test)
+
 add_executable(midi_parser_test test/midi_parser_test.cpp)
 target_include_directories(midi_parser_test PRIVATE src)
 add_test(NAME midi_parser COMMAND midi_parser_test)

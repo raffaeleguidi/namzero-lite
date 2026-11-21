@@ -42,13 +42,17 @@ MAPPING = [
     ("cfg.mod.type", ("slots", "mod", "type"), str),
     ("cfg.mod.rate_hz", ("slots", "mod", "rate_hz"), float),
     ("cfg.mod.depth", ("slots", "mod", "depth"), float),
-    ("cfg.mod.position", ("slots", "mod", "position"), float),
-    ("cfg.mod.q", ("slots", "mod", "q"), float),
-    ("cfg.mod.mix", ("slots", "mod", "mix"), float),
-    ("cfg.mod.low_hz", ("slots", "mod", "low_hz"), float),
-    ("cfg.mod.high_hz", ("slots", "mod", "high_hz"), float),
+    ("cfg.mod.position", ("slots", "mod", "position"), str),
     ("cfg.mod.fx_mix", ("slots", "mod", "fx_mix"), float),
     ("cfg.mod.feedback", ("slots", "mod", "feedback"), float),
+
+    ("cfg.filter.rate_hz", ("slots", "filter", "rate_hz"), float),
+    ("cfg.filter.depth", ("slots", "filter", "depth"), float),
+    ("cfg.filter.q", ("slots", "filter", "q"), float),
+    ("cfg.filter.mix", ("slots", "filter", "mix"), float),
+    ("cfg.filter.low_hz", ("slots", "filter", "low_hz"), float),
+    ("cfg.filter.high_hz", ("slots", "filter", "high_hz"), float),
+    ("cfg.filter.position", ("slots", "filter", "position"), float),
 
     ("cfg.amp.file", ("slots", "amp", "file"), str),
     ("cfg.amp.slim", ("slots", "amp", "slim"), float),
@@ -113,6 +117,10 @@ def check_preset(path, preset):
     for dump_key, preset_path, kind in MAPPING:
         expected = dig(preset, preset_path)
         if expected is None:
+            continue
+        # I preset vecchi avevano mod.position numerico (posizione del pedale
+        # wah). Il motore lo ignora: non c'e' niente da confrontare.
+        if preset_path == ("slots", "mod", "position") and not isinstance(expected, str):
             continue
         # amp e ir esistono come slot solo se attivi e con file: altrimenti non
         # c'e' niente da applicare e i valori del preset restano dichiarativi.

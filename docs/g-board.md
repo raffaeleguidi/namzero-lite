@@ -24,6 +24,10 @@ Il LED di ogni pulsante e' quello con la **stessa nota del PC** (dal codice
 originale `midico2.js`: `setLights(start, end, on)` manda Note On 0-7 e accende
 la nota uguale a `on`).
 
+Il **filter (wah)** non ha ne' un PC ne' un LED: non e' nella tabella perche' si
+accende solo con l'auto-engage dell'espressione. I quattro tasti mod coprono
+tremolo/univibe/flanger/phaser.
+
 ## Mappa MIDI
 
 ### Ingresso (G-Board -> motore)

@@ -52,14 +52,20 @@
       "depth": 0.6,
       "feedback": 0.35,
       "fx_mix": 0.5,
-      "high_hz": 2200.0,
-      "low_hz": 350.0,
-      "mix": 1.0,
       "on": false,
-      "position": 0.5,
-      "q": 3.0,
+      "position": "pre_amp",
       "rate_hz": 4.5,
-      "type": "wah"
+      "type": "tremolo"
+    },
+    "filter": {
+      "on": false,
+      "rate_hz": 1.0,
+      "depth": 0.5,
+      "q": 3.0,
+      "mix": 1.0,
+      "low_hz": 350.0,
+      "high_hz": 2200.0,
+      "position": 0.5
     },
     "reverb": {
       "damp": 0.45,

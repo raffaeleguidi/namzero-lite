@@ -13,8 +13,15 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 
 ## Cosa c'è
 
-- **Pedaliera**: gate, comp, drive, mod, amp, IR, delay, riverbero, boost;
-  ogni slot ha lo stomp e le manopole dei parametri principali.
+- **Pedaliera**: gate, comp, filter, drive, mod, amp, IR, delay, riverbero, boost;
+  ogni slot ha le manopole dei parametri principali e, dove ha senso, lo stomp.
+- **Filter**: card dedicata prima del drive, con rate, depth, q, mix, low_hz,
+  high_hz e position. Non ha un pulsante on/off: mostra `off` oppure `auto`
+  (acceso dall'auto-engage dell'espressione). Le manopole sono sempre editabili.
+- **Mod**: solo i quattro tipi (`tremolo`, `univibe`, `flanger`, `phaser`) e la
+  **posizione** nella catena (`pre-amplificatore` / `dopo IR`). Cambiare
+  posizione invia `set` con `slot:"mod"` e `position`: il motore salva il preset
+  e lo ricarica (~300 ms), quindi la UI resta in attesa del nuovo stato.
 - **Live bidirezionale**: la pagina legge lo stato dal motore 4 volte al secondo;
   le manopole mandano `param`, gli switch mandano `set`. Se accendi un effetto
   dal pedale, la UI lo mostra.

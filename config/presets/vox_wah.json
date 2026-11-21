@@ -55,12 +55,22 @@
     },
     "mod": {
       "on": false,
-      "type": "wah",
-      "position": 0.35,
+      "type": "tremolo",
+      "rate_hz": 4.5,
+      "depth": 0.6,
+      "feedback": 0.35,
+      "fx_mix": 0.5,
+      "position": "pre_amp"
+    },
+    "filter": {
+      "on": false,
+      "rate_hz": 1.0,
+      "depth": 0.5,
       "q": 3.5,
       "mix": 1.0,
       "low_hz": 350,
-      "high_hz": 2000
+      "high_hz": 2000,
+      "position": 0.35
     }
   },
   "stats": false

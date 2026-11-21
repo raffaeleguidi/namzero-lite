@@ -78,6 +78,22 @@ int main() {
         CHECK(c.drive_select_cc[2] == 38);
     }
 
+    // mod_select: quattro tipi, indici {tremolo, univibe, flanger, phaser}.
+    // Il wah non e' piu' selezionabile: vive nel blocco filter.
+    {
+        const auto j = nlohmann::json::parse(R"({
+            "mod_select": { "tremolo": 32, "univibe": 33, "flanger": 34, "phaser": 35 }
+        })");
+        namzero::MidiConfig c;
+        std::string err;
+        CHECK(namzero::parse_midi_config(j, c, err));
+        CHECK(c.mod_select_cc[0] == 32);
+        CHECK(c.mod_select_cc[1] == 33);
+        CHECK(c.mod_select_cc[2] == 34);
+        CHECK(c.mod_select_cc[3] == 35);
+        CHECK(namzero::kModTypeCount == 4);
+    }
+
     // delay_select: un CC per modo.
     {
         const auto j = nlohmann::json::parse(R"({
@@ -93,12 +109,12 @@ int main() {
 
     // Boost di fine catena.
     {
-        const auto j = nlohmann::json::parse(R"({ "boost": { "cc": 44, "percent": 30 } })");
+        const auto j = nlohmann::json::parse(R"({ "boost": { "cc": 44, "db": 20 } })");
         namzero::MidiConfig c;
         std::string err;
         CHECK(namzero::parse_midi_config(j, c, err));
         CHECK(c.boost_cc == 44);
-        CHECK(c.boost_db == 30.0);
+        CHECK(c.boost_db == 20.0);
     }
 
     // -1 toglie un binding.
@@ -122,9 +138,10 @@ int main() {
     CHECK(rejects(R"({ "drive_select": { "fuzz": 36, "klon": 36 } })"));   // doppio
     CHECK(rejects(R"({ "drive_select": { "fuzz": 32 }, "mod_select": { "tremolo": 32 } })"));
     CHECK(rejects(R"({ "boost": { "cc": 200 } })"));                        // fuori range
-    CHECK(rejects(R"({ "boost": { "cc": 44, "percent": 500 } })"));         // boost assurdo
+    CHECK(rejects(R"({ "boost": { "cc": 44, "db": 500 } })"));              // boost assurdo
     CHECK(rejects(R"({ "boost": { "cc": 10 } })"));                         // collide col mod
     CHECK(rejects(R"({ "delay_select": { "boh": 45 } })"));                 // modo sconosciuto
+    CHECK(rejects(R"({ "mod_select": { "wah": 36 } })"));                   // il wah non e' un tipo di mod
     CHECK(rejects(R"({ "delay_select": { "stereo": 200 } })"));             // fuori range
     CHECK(rejects(R"({ "delay_select": { "stereo": 32 }, "mod_select": { "tremolo": 32 } })"));
     CHECK(rejects(R"({ "expression": { "cc": -1 } })"));                   // espressione fuori range
