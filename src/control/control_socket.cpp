@@ -37,7 +37,7 @@ bool ControlSocket::listen(const std::string& path, std::string& err) {
         return false;
     }
     ::chmod(path.c_str(), 0666);
-    if (::listen(fd_, 1) != 0) {
+    if (::listen(fd_, 64) != 0) {
         err = "listen " + path + ": " + std::strerror(errno);
         close();
         return false;
