@@ -24,7 +24,7 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Drive: `fuzz`, `klon` (blend col pulito), `tubescreamer`
 - Mod: tremolo, univibe, flanger, phaser e wah (auto-engage dal pedale)
 - Delay a tre modi (stereo, ping-pong, ping-pong stereo) e riverbero
-- Boost di volume a fine catena (CC 44 o tasto 8 del G-Board)
+- Boost di volume a fine catena in dB assoluti (default +6 dB), da CC 44 o tasto 8 del G-Board
 - Tasti `+`/`-` per il volume dell'ampli (salvato nel preset con `s`)
 
 **Preset**

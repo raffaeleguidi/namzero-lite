@@ -44,7 +44,7 @@
   },
   "boost": {
     "cc": 44,
-    "percent": 20
+    "db": 6
   },
   "delay_select": {
     "stereo": 45,

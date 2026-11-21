@@ -1225,8 +1225,8 @@ int main(int argc, char** argv) {
             print_select("drive", midi_cfg.drive_select_cc.data(), namzero::kDriveTypeCount);
             print_select("delay", midi_cfg.delay_select_cc.data(), namzero::kDelayModeCount);
             if (midi_cfg.boost_cc >= 0) {
-                std::printf("  %-6s CC%d (+%.0f%%)\n", "boost", midi_cfg.boost_cc,
-                            midi_cfg.boost_percent);
+                std::printf("  %-6s CC%d (+%.1f dB)\n", "boost", midi_cfg.boost_cc,
+                            midi_cfg.boost_db);
             }
         }
     }
@@ -1781,7 +1781,7 @@ int main(int argc, char** argv) {
                         std::lock_guard<std::mutex> lk(ctrl_mtx);
                         boost_on = !boost_on;
                         const float boost =
-                            boost_on ? 1.0f + static_cast<float>(midi_cfg.boost_percent) / 100.0f
+                            boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
                                      : 1.0f;
                         master_gain.store(base_master * boost, std::memory_order_relaxed);
                         apply_leds();
@@ -1833,12 +1833,12 @@ int main(int argc, char** argv) {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     boost_on = !boost_on;
                     const float boost =
-                        boost_on ? 1.0f + static_cast<float>(midi_cfg.boost_percent) / 100.0f
+                        boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
                                  : 1.0f;
                     master_gain.store(base_master * boost, std::memory_order_relaxed);
                     apply_leds();
                     if (boost_on) {
-                        std::printf("  boost: on (+%.0f%%)\n", midi_cfg.boost_percent);
+                        std::printf("  boost: on (+%.1f dB)\n", midi_cfg.boost_db);
                     } else {
                         std::printf("  boost: off\n");
                     }

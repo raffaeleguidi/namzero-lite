@@ -232,11 +232,11 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
     if (j.contains("boost")) {
         const auto& b = j["boost"];
         if (!b.is_object()) {
-            err = "midi.json: \"boost\" deve essere un oggetto {cc, percent}";
+            err = "midi.json: \"boost\" deve essere un oggetto {cc, db}";
             return false;
         }
         if (!get_int(b, "cc", cfg.boost_cc, err)) return false;
-        if (!get_num(b, "percent", cfg.boost_percent, err)) return false;
+        if (!get_num(b, "db", cfg.boost_db, err)) return false;
     }
 
     if (j.contains("delay_select")) {
@@ -446,8 +446,8 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             err = "midi.json: boost.cc deve stare fra 0 e 127";
             return false;
         }
-        if (cfg.boost_percent < 0.0 || cfg.boost_percent > 200.0) {
-            err = "midi.json: boost.percent deve stare fra 0 e 200";
+        if (cfg.boost_db < 0.0 || cfg.boost_db > 24.0) {
+            err = "midi.json: boost.db deve stare fra 0 e 24 dB";
             return false;
         }
         if (is_expr_cc(cfg.boost_cc)) {
