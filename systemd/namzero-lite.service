@@ -6,7 +6,7 @@ Wants=bluetooth.target
 [Service]
 User=pi
 WorkingDirectory=/home/pi/namzero-lite
-ExecStart=/home/pi/namzero-lite/build/namzero-lite
+ExecStart=/home/pi/namzero-lite/build/namzero-lite --buffer 256
 # Le capability le concede systemd: non serve setcap per il servizio, e
 # sopravvivono alle ricompilazioni.
 AmbientCapabilities=cap_sys_nice cap_ipc_lock
