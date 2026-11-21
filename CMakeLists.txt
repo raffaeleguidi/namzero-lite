@@ -27,6 +27,7 @@ add_executable(namzero-lite
   src/dsp/nam_slot.cpp
   src/control/midi.cpp
   src/control/midi_config.cpp
+  src/control/control_socket.cpp
   src/control/midi_output.cpp
   src/control/midi_socket.cpp
   src/control/presets_config.cpp

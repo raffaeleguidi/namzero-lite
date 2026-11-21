@@ -40,6 +40,7 @@
 #include "control/drive_types.h"
 #include "control/mod_types.h"
 #include "control/presets_config.h"
+#include "control/control_socket.h"
 #include "control/midi_output.h"
 #include "control/midi_socket.h"
 #include "control/switch_debounce.h"
@@ -1253,6 +1254,16 @@ int main(int argc, char** argv) {
         }
     }
 
+    namzero::ControlSocket ctl;
+    {
+        std::string cerr_;
+        if (ctl.listen("/tmp/namzero-lite-ctl.sock", cerr_)) {
+            std::printf("ctl: %s (JSON per la UI)\n", "/tmp/namzero-lite-ctl.sock");
+        } else {
+            std::fprintf(stderr, "ctl: %s (si prosegue senza)\n", cerr_.c_str());
+        }
+    }
+
     const bool wah_armed = !midis.empty();
 
     // Regola: il wah non parte mai acceso, lo accende solo il pedale. Se il
@@ -1423,6 +1434,144 @@ int main(int argc, char** argv) {
         led_out.send_note(0, 3, boost_on ? 127 : 0);
     };
     apply_leds();
+
+    // Snapshot dello stato live per la UI: si manda intero a ogni cambiamento.
+    auto build_state = [&]() {
+        nlohmann::json s;
+        s["slot"] = current_slot.load();
+        s["preset"] = preset_path;
+        s["boost"] = boost_on;
+        auto& sl = s["slots"];
+        sl["gate"]["on"] = cfg.gate_on;
+        sl["gate"]["threshold"] = cfg.gate_threshold_db;
+        sl["gate"]["attack"] = cfg.gate_attack_ms;
+        sl["gate"]["release"] = cfg.gate_release_ms;
+        sl["comp"]["on"] = cfg.comp_on;
+        sl["comp"]["threshold"] = cfg.comp_threshold_db;
+        sl["comp"]["ratio"] = cfg.comp_ratio;
+        sl["comp"]["makeup"] = cfg.comp_makeup_db;
+        sl["drive"]["on"] = cfg.drive_on;
+        sl["drive"]["type"] = cfg.drive_type;
+        sl["drive"]["amount"] = cfg.drive_amount;
+        sl["drive"]["tone"] = cfg.drive_tone;
+        sl["drive"]["blend"] = cfg.drive_blend;
+        sl["mod"]["on"] = cfg.mod_on;
+        sl["mod"]["type"] = cfg.mod_type;
+        sl["mod"]["rate"] = cfg.mod_rate_hz;
+        sl["mod"]["depth"] = cfg.mod_depth;
+        sl["mod"]["feedback"] = cfg.mod_feedback;
+        sl["amp"]["on"] = cfg.amp_on;
+        sl["amp"]["file"] = cfg.amp_file;
+        sl["amp"]["trim"] = cfg.amp_trim_db;
+        sl["ir"]["on"] = cfg.ir_on;
+        sl["ir"]["file"] = cfg.ir_file;
+        sl["delay"]["on"] = cfg.delay_on;
+        sl["delay"]["mode"] = cfg.delay_mode;
+        sl["delay"]["time"] = cfg.delay_time_ms;
+        sl["delay"]["feedback"] = cfg.delay_feedback;
+        sl["delay"]["mix"] = cfg.delay_mix;
+        sl["reverb"]["on"] = cfg.reverb_on;
+        sl["reverb"]["mix"] = cfg.reverb_mix;
+        sl["reverb"]["size"] = cfg.reverb_size;
+        sl["reverb"]["damp"] = cfg.reverb_damp;
+        return s.dump();
+    };
+
+    auto handle_ctl = [&](const std::string& line) {
+        nlohmann::json j;
+        try {
+            j = nlohmann::json::parse(line);
+        } catch (...) {
+            return;
+        }
+        const std::string cmd = j.value("cmd", "");
+        if (cmd == "state") {
+            ctl.send(build_state());
+        } else if (cmd == "slot") {
+            const int n = j.value("n", -1);
+            if (n >= 0 && n < 10) {
+                switch_slot.store(n);
+                current_slot.store(n);
+            }
+        } else if (cmd == "reload") {
+            switch_slot.store(current_slot.load());
+        } else if (cmd == "save") {
+            std::string e;
+            if (save_preset(preset_path, cfg, e)) {
+                std::printf("  preset salvato: %s\\n", preset_path.c_str());
+            } else {
+                std::printf("  save: %s\\n", e.c_str());
+            }
+            std::fflush(stdout);
+        } else if (cmd == "boost") {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            boost_on = j.value("on", boost_on);
+            const float b = boost_on
+                                ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
+                                : 1.0f;
+            master_gain.store(base_master * b, std::memory_order_relaxed);
+            apply_leds();
+        } else if (cmd == "set") {
+            const std::string slot = j.value("slot", "");
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            if (slot == "mod") {
+                if (j.contains("type")) {
+                    cfg.mod_type = j["type"].get<std::string>();
+                    mod_ptr->set_type(mod_type_enum(namzero::mod_type_index(cfg.mod_type)));
+                }
+                cfg.mod_on = j.value("on", cfg.mod_on);
+                if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+                apply_leds();
+            } else if (slot == "drive") {
+                if (j.contains("type")) {
+                    cfg.drive_type = j["type"].get<std::string>();
+                    drive_ptr->set_type(drive_type_enum(namzero::drive_type_index(cfg.drive_type)));
+                }
+                cfg.drive_on = j.value("on", cfg.drive_on);
+                if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+                apply_leds();
+            } else if (slot == "delay") {
+                if (j.contains("mode")) {
+                    cfg.delay_mode = j["mode"].get<std::string>();
+                    delay_slot->set_mode(delay_mode_enum(namzero::delay_mode_index(cfg.delay_mode)));
+                }
+                cfg.delay_on = j.value("on", cfg.delay_on);
+                if (i_delay != kNoSlot) chain.set_enabled(i_delay, cfg.delay_on);
+            }
+        } else if (cmd == "param") {
+            const std::string slot = j.value("slot", "");
+            const std::string key = j.value("key", "");
+            const double v = j.value("value", 0.0);
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            if (slot == "gate") {
+                if (key == "threshold") { cfg.gate_threshold_db = v; gate_ptr->set_threshold_db(static_cast<float>(v)); }
+                else if (key == "attack") { cfg.gate_attack_ms = v; gate_ptr->set_attack_ms(static_cast<float>(v)); }
+                else if (key == "release") { cfg.gate_release_ms = v; gate_ptr->set_release_ms(static_cast<float>(v)); }
+            } else if (slot == "comp") {
+                if (key == "threshold") { cfg.comp_threshold_db = v; comp_ptr->set_threshold_db(static_cast<float>(v)); }
+                else if (key == "ratio") { cfg.comp_ratio = v; comp_ptr->set_ratio(static_cast<float>(v)); }
+                else if (key == "makeup") { cfg.comp_makeup_db = v; comp_ptr->set_makeup_db(static_cast<float>(v)); }
+            } else if (slot == "drive") {
+                if (key == "amount") { cfg.drive_amount = v; drive_ptr->set_drive(static_cast<float>(v)); }
+                else if (key == "tone") { cfg.drive_tone = v; drive_ptr->set_tone(static_cast<float>(v)); }
+                else if (key == "blend") { cfg.drive_blend = v; drive_ptr->set_blend(static_cast<float>(v)); }
+            } else if (slot == "mod") {
+                if (key == "rate") { cfg.mod_rate_hz = v; mod_ptr->set_rate_hz(static_cast<float>(v)); }
+                else if (key == "depth") { cfg.mod_depth = v; mod_ptr->set_depth(static_cast<float>(v)); }
+                else if (key == "feedback") { cfg.mod_feedback = v; mod_ptr->set_feedback(static_cast<float>(v)); }
+            } else if (slot == "amp") {
+                if (key == "trim") { cfg.amp_trim_db = v; amp_ptr->set_trim_db(v); }
+            } else if (slot == "delay") {
+                if (key == "time") { cfg.delay_time_ms = v; delay_slot->set_time_ms(static_cast<float>(v)); }
+                else if (key == "feedback") { cfg.delay_feedback = v; delay_slot->set_feedback(static_cast<float>(v)); }
+                else if (key == "mix") { cfg.delay_mix = v; delay_slot->set_mix(static_cast<float>(v)); }
+            } else if (slot == "reverb") {
+                if (key == "mix") { cfg.reverb_mix = v; reverb_ptr->set_wet(static_cast<float>(v)); }
+                else if (key == "size") { cfg.reverb_size = v; reverb_ptr->set_room_size(static_cast<float>(v)); }
+                else if (key == "damp") { cfg.reverb_damp = v; reverb_ptr->set_damp(static_cast<float>(v)); }
+            }
+        }
+    };
     // true mentre il pedale tiene acceso il wah: la tastiera non deve toccare
     // lo slot mod in quel momento, o il ripristino al rilascio sarebbe sbagliato.
     std::atomic<bool> wah_engaged{false};
@@ -1656,6 +1805,35 @@ int main(int argc, char** argv) {
     });
 
     // MIDI: assegnazioni fisse, uguali in ogni preset.
+
+    std::thread ctl_thread([&]() {
+        std::string last;
+        bool was = false;
+        while (g_running.load()) {
+            std::vector<std::string> lines;
+            ctl.poll(lines);
+            for (const auto& line : lines) {
+                try {
+                    handle_ctl(line);
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr, "ctl: %s\n", e.what());
+                }
+            }
+            std::string snap;
+            {
+                std::lock_guard<std::mutex> lk(ctrl_mtx);
+                snap = build_state();
+            }
+            const bool now = ctl.connected();
+            if (now && (!was || snap != last)) {
+                ctl.send(snap);
+                last = snap;
+            }
+            was = now;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
+
     std::thread midi_thread([&]() {
         if (midis.empty() && !ble.is_open()) return;
 
@@ -2056,6 +2234,7 @@ int main(int argc, char** argv) {
     if (stats_thread.joinable()) stats_thread.join();
     if (kb_thread.joinable()) kb_thread.join();
     if (midi_thread.joinable()) midi_thread.join();
+    if (ctl_thread.joinable()) ctl_thread.join();
     for (auto& m : midis) m->close();
 
     io.close();
