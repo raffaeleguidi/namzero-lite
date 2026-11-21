@@ -110,8 +110,12 @@ private:
         } else if (c == Command::kToggle) {
             if (st == State::kIdle) {
                 pos_ = 0;
-                loop_len_ = 0;
-                state_.store(static_cast<int>(State::kRecording));
+                if (loop_len_ > 0) {
+                    state_.store(static_cast<int>(State::kPlaying));  // riprende
+                } else {
+                    loop_len_ = 0;
+                    state_.store(static_cast<int>(State::kRecording));
+                }
             } else if (st == State::kRecording) {
                 loop_len_ = pos_ > 0 ? pos_ : 1;
                 pos_ = 0;
