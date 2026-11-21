@@ -51,6 +51,18 @@ def ctl(payload):
     f.write(b'{"cmd":"state"}\n')
     f.flush()
     line = f.readline()
+    # L'engine manda anche uno snapshot all'apertura della connessione: il
+    # primo messaggio puo' essere quello (stato PRIMA del comando). Busco
+    # l'ultimo disponibile, che e' la risposta allo state post-comando.
+    s.settimeout(0.15)
+    try:
+        while True:
+            nxt = f.readline()
+            if not nxt:
+                break
+            line = nxt
+    except (socket.timeout, OSError):
+        pass
     s.close()
     if not line:
         raise RuntimeError("motore senza risposta")
