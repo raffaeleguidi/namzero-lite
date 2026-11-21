@@ -30,6 +30,20 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .pedal .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
 .pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .pedal .foot { display:flex; justify-content:flex-start; margin-top:8px; }
+#rack { margin:0 16px 16px; background:linear-gradient(#2b303b,#22262f); border:1px solid #3a4150; border-radius:10px; padding:10px 16px 14px; box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+.rack-title { font-size:11px; letter-spacing:2px; color:#8b93a7; text-transform:uppercase; margin-bottom:8px; }
+#rack-units { display:flex; gap:32px; flex-wrap:wrap; align-items:flex-start; }
+.unit { min-width:230px; padding:0 0 0 16px; border-left:1px solid #3a4150; }
+.unit:first-child { border-left:none; padding-left:0; }
+.unit h3 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#cfd6e4; margin:0 0 6px; display:flex; gap:6px; align-items:center; }
+.unit .knob { display:grid; grid-template-columns:1fr auto; gap:2px 6px; margin-top:6px; font-size:11px; color:#8b93a7; }
+.unit .knob output { color:#e6e9ef; font-variant-numeric:tabular-nums; }
+.unit .knob input { grid-column:1 / -1; width:100%; -webkit-appearance:none; appearance:none; height:18px; background:transparent; }
+.unit .knob input::-webkit-slider-runnable-track { height:4px; background:#9a9a9a; border-radius:2px; }
+.unit .knob input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
+.unit .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
+.unit .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
+.unit .foot { display:flex; margin-top:8px; }
 #looper { margin:0 16px 24px; border:1px solid #2c3240; border-radius:12px; padding:12px; background:#1b1f27; transition:box-shadow .2s, border-color .2s; }
 #looper.active { border-color:#4fd1c5; box-shadow:0 0 14px rgba(79,209,197,.25); }
 #loop-bar { height:22px; background:#262b35; border-radius:8px; overflow:hidden; }
@@ -58,6 +72,10 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <a href="settings.html" style="margin-left:auto;color:var(--acc);text-decoration:none">settings</a>
 </header>
 <main id="board"></main>
+<section id="rack">
+  <div class="rack-title">RACK · comune a tutti i preset</div>
+  <div id="rack-units"></div>
+</section>
 <section id="looper">
   <div id="loop-bar"><div id="loop-fill"></div></div>
   <div id="loop-row">
@@ -70,7 +88,6 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 
 <script>
 const SLOTS = [
- {id:"gate", name:"Gate", color:"#7fb3d5", knobs:[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]]},
  {id:"comp", name:"Comp", color:"#a3c9a8", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["attack","Attack",0,50,1,"ms"],["release","Release",20,1000,10,"ms"],["makeup","Makeup",0,12,0.5,"dB"]]},
  {id:"filter", name:"Filter", color:"#e6c39a", knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""]]},
  {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"]]},
@@ -141,13 +158,13 @@ SLOTS.forEach(s => {
   board.append(card);
 });
 // boost
-const boostCard = el("div", {className:"pedal"});
-const bh = el("h2"); bh.append("Boost");
+const boostCard = el("div", {className:"unit"});
+const bh = el("h3"); bh.append("Boost");
 const bpower = el("button", {className:"power", textContent:"⏻"});
 bpower.onclick = () => send({cmd:"boost", on:!last?.boost});
 const breset = el("button", {className:"power", textContent:"↺", title:"ripristina default"});
 breset.onclick = () => send({cmd:"defaults", slot:"boost"});
-bh.append(bpower); boostCard.style.background = "#e6d3a3";
+bh.append(bpower);
 boostCard.append(bh);
 const bw = el("div", {className:"knob"}); bw.append(el("span", {textContent:"Boost"}));
 const bout = el("output"), binp = el("input", {type:"range", min:0, max:24, step:0.5});
@@ -155,7 +172,26 @@ let bt = null; binp.oninput = () => { bout.textContent = (+binp.value).toFixed(1
 bw.append(bout, binp); boostCard.append(bw);
 const bfoot = el("div", {className:"foot"}); bfoot.append(breset); boostCard.append(bfoot);
 boostCard._power = bpower; boostCard._id = "boost"; boostCard._knob = binp; boostCard._out = bout;
-board.append(boostCard);
+const rackUnits = document.getElementById("rack-units");
+// Gate: rack unit (globale), fuori dalla fila dei pedali.
+const gateUnit = el("div", {className:"unit"});
+const gh = el("h3"); gh.append("Gate");
+const gpower = el("button", {className:"power", textContent:"\u23fb"});
+gpower.onclick = () => send({cmd:"set", slot:"gate", on:!last?.slots?.gate?.on});
+const greset = el("button", {className:"power", textContent:"\u21ba", title:"ripristina default"});
+greset.onclick = () => send({cmd:"defaults", slot:"gate"});
+gh.append(gpower, greset); gateUnit.append(gh);
+[["threshold","Threshold",-90,0,1,"dB"],["attack","Attack",0,50,1,"ms"],["release","Release",20,2000,10,"ms"]].forEach(([key,label,min,max,step,unit]) => {
+  const wrap = el("div", {className:"knob"});
+  const out = el("output"); const inp = el("input", {type:"range", min, max, step});
+  let t = null;
+  inp.oninput = () => { out.textContent = (+inp.value).toFixed(step < 0.1 ? 2 : 1) + unit; clearTimeout(t); t = setTimeout(() => send({cmd:"param", slot:"gate", key, value:+inp.value}), 60); };
+  wrap.append(el("span", {textContent:label}), out, inp); gateUnit.append(wrap);
+  knobs.push({slot:"gate", key, inp, out, step, unit});
+});
+gateUnit._power = gpower; gateUnit._id = "gate";
+rackUnits.append(gateUnit);
+rackUnits.append(boostCard);
 
 // Looper: barra larga sotto la pedaliera.
 const loopSection = document.getElementById("looper");
@@ -216,12 +252,7 @@ function render(st) {
   document.querySelectorAll("#slots button").forEach((b,i) => b.classList.toggle("cur", i === st.slot));
   board.children && [...board.children].forEach(card => {
     const id = card._id;
-    const s = id === "boost" ? null : st.slots[id];
-    if (id === "boost") {
-      card._power.classList.toggle("on", !!st.boost);
-      if (card._knob && st.boost_db !== undefined) { if (document.activeElement !== card._knob) card._knob.value = st.boost_db; card._out.textContent = (+st.boost_db).toFixed(1) + "dB"; }
-      return;
-    }
+    const s = st.slots[id];
     if (!s) return;
     if (card._power) card._power.classList.toggle("on", !!s.on);
     if (card._filterState) {
@@ -240,6 +271,14 @@ function render(st) {
       card._file.value = base;
     }
   });
+  if (gateUnit) gateUnit._power.classList.toggle("on", !!st.slots.gate?.on);
+  if (boostCard) {
+    boostCard._power.classList.toggle("on", !!st.boost);
+    if (boostCard._knob && st.boost_db !== undefined) {
+      if (document.activeElement !== boostCard._knob) boostCard._knob.value = st.boost_db;
+      boostCard._out.textContent = (+st.boost_db).toFixed(1) + "dB";
+    }
+  }
   if (st.looper) {
     const L = st.looper;
     // Niente corsa della posizione (il poll non la segue): si colora la
