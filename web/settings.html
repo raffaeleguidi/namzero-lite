@@ -11,11 +11,19 @@ section { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padd
 h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#8b93a7; margin:0 0 8px; }
 input[type=file] { color:#e6e9ef; }
 li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
+.btn { display:inline-block; padding:5px 10px; background:#1e222b; color:#e6e9ef; border:1px solid #4fd1c5; border-radius:6px; text-decoration:none; font-size:13px; cursor:pointer; }
 </style></head><body>
 <header><h1>Settings</h1><a href="index.html">← pedaliera</a></header>
 <main>
 <section><h2>Modelli NAM (.nam)</h2><input type="file" id="up-models" accept=".nam"><ul id="list-models"></ul></section>
 <section><h2>IR (.wav)</h2><input type="file" id="up-irs" accept=".wav"><ul id="list-irs"></ul></section>
+<section><h2>TONE3000</h2>
+<p id="t3k-status" style="color:#8b93a7;font-size:12px">…</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+  <a class="btn" href="/t3k/start?gear=amp">Collega e scegli ampli</a>
+  <a class="btn" href="/t3k/start?gear=ir">Collega e scegli IR</a>
+  <button class="btn" id="t3k-disc">Disconnetti</button>
+</div></section>
 <section><h2>Reti WiFi conosciute</h2>
 <p style="color:#8b93a7;font-size:12px">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità.</p>
 <table id="wifi" style="border-collapse:collapse;font-size:13px"></table>
@@ -60,7 +68,17 @@ document.getElementById("w-add").onclick = () => {
   document.getElementById("w-ssid").value = ""; document.getElementById("w-pass").value = "";
   saveWifi();
 };
-loadWifi(); });
+loadWifi();
+
+function t3kStatus() {
+  fetch("/api/t3k/status").then(r=>r.json()).then(j=>{
+    const el = document.getElementById("t3k-status");
+    if (!j.configured) el.textContent = "client_id mancante in config/tone3000.json";
+    else el.textContent = j.connected ? "account collegato" : "account non collegato";
+  }).catch(()=>{});
+}
+document.getElementById("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then(t3kStatus);
+t3kStatus(); });
 }
 function load() {
   ["models","irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r=>r.json()).then(j=>{
@@ -101,4 +119,14 @@ document.getElementById("w-add").onclick = () => {
   saveWifi();
 };
 loadWifi();
+
+function t3kStatus() {
+  fetch("/api/t3k/status").then(r=>r.json()).then(j=>{
+    const el = document.getElementById("t3k-status");
+    if (!j.configured) el.textContent = "client_id mancante in config/tone3000.json";
+    else el.textContent = j.connected ? "account collegato" : "account non collegato";
+  }).catch(()=>{});
+}
+document.getElementById("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then(t3kStatus);
+t3kStatus();
 </script></body></html>

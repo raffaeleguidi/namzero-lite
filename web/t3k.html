@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>namzero-lite · TONE3000</title>
+<style>
+body { margin:0; font:14px/1.4 -apple-system,system-ui,sans-serif; background:#15171c; color:#e6e9ef; }
+header { padding:12px 16px; border-bottom:1px solid #2c3240; display:flex; gap:12px; align-items:center; }
+h1 { font-size:16px; margin:0; }
+a { color:#4fd1c5; text-decoration:none; }
+main { padding:16px; display:flex; gap:12px; flex-wrap:wrap; }
+.card { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padding:12px; min-width:240px; }
+.card h3 { margin:0 0 4px; font-size:14px; }
+.card p { margin:0 0 8px; color:#8b93a7; font-size:12px; }
+button { padding:5px 10px; background:#1e222b; color:#e6e9ef; border:1px solid #4fd1c5; border-radius:6px; cursor:pointer; }
+#msg { color:#8b93a7; font-size:12px; }
+</style></head><body>
+<header><h1>TONE3000</h1><a href="index.html">← pedaliera</a><a href="settings.html">settings</a><span id="msg"></span></header>
+<main id="list"></main>
+<script>
+const q = new URLSearchParams(location.search);
+const toneId = q.get("tone_id");
+const list = document.getElementById("list");
+function msg(t) { document.getElementById("msg").textContent = t; }
+if (!toneId) { msg("nessun tone selezionato"); }
+else {
+  fetch(`/api/t3k/tone?tone_id=${toneId}`).then(r=>r.json()).then(j=>{
+    if (j.error) { msg(j.error); return; }
+    document.querySelector("h1").textContent = j.tone?.name || ("Tone " + toneId);
+    (j.models||[]).forEach(m => {
+      const c = document.createElement("div"); c.className = "card";
+      const h = document.createElement("h3"); h.textContent = m.name || ("model " + m.id);
+      const p = document.createElement("p"); p.textContent = (m.format || m.model_url || "").toString();
+      const b = document.createElement("button"); b.textContent = "Importa";
+      b.onclick = () => {
+        b.disabled = true; msg("scarico " + (m.name||m.id) + "…");
+        fetch("/api/t3k/import", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({model_id:m.id})})
+          .then(r=>r.json()).then(r=>{ if (r.error) { msg(r.error); b.disabled=false; } else { msg(`importato in ${r.kind}/${r.name}`); } })
+          .catch(e=>{ msg(String(e)); b.disabled=false; });
+      };
+      c.append(h,p,b); list.append(c);
+    });
+    if (!(j.models||[]).length) msg("nessun modello in questo tone");
+  }).catch(e=>msg(String(e)));
+}
+</script></body></html>
