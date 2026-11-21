@@ -16,7 +16,8 @@ ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'sudo -n systemctl stop namzero-lite 2>
 echo "== sincronizzo config/ (midi.json, presets.json, preset)"
 rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" config/ "$PI:~/namzero-lite/config/"
 
-echo "== copio il binario"
-scp -i "$SSH_KEY" -o BatchMode=yes "$BIN" "$PI:~/namzero-lite/build/namzero-lite"
-ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'sudo -n setcap cap_sys_nice,cap_ipc_lock+ep ~/namzero-lite/build/namzero-lite && echo setcap ok'
-echo "fatto: avvia il motore (o systemctl start namzero-lite)"
+echo "== copio il binario (rename: se il motore e' in esecuzione non da' ETXTBSY)"
+scp -i "$SSH_KEY" -o BatchMode=yes "$BIN" "$PI:~/namzero-lite/build/namzero-lite.new"
+ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'mv -f ~/namzero-lite/build/namzero-lite.new ~/namzero-lite/build/namzero-lite'
+ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'sudo -n setcap cap_sys_nice,cap_ipc_lock+ep ~/namzero-lite/build/namzero-lite 2>/dev/null && echo setcap ok || echo "setcap non applicato: per il servizio bastano le AmbientCapabilities; per l\047uso manuale rilancia scripts/install.sh"'
+echo "fatto: riavvia il servizio (sudo systemctl restart namzero-lite) o avvia a mano"
