@@ -24,7 +24,8 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
     "comp":   { "on": false, "threshold_db": -18, "ratio": 3,
                 "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
     "drive":  { "on": false, "type": "fuzz", "amount": 0.15, "tone": 0.5,
-                "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0 },
+                "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0,
+                "octave": 0.0 },
     "filter": { "on": false, "type": "wah", "range": 12, "rate_hz": 1.0,
                 "depth": 0.5, "q": 3.0, "mix": 1.0,
                 "low_hz": 350, "high_hz": 2200, "position": 0.5 },
@@ -82,6 +83,14 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 | `blend` | 0.40 | solo klon: quota di saturo nel mix |
 | `mid_db` | 4.0 | solo klon: gobba a 800 Hz |
 | `low_db` | 5.0 | solo fuzz: low-shelf a 110 Hz |
+| `octave` | 0.0 | solo fuzz: 0..1, quota di ottava stile Octavia |
+
+`octave` raddrizza il fuzz a onda intera, toglie la continua con un passa-alto a
+200 Hz e miscela il risultato al fuzz: non è un pitch shifter, è l'armonica a
+2f tipica dell'Octavia. A `0` il fuzz suona come prima; a `1` si sente solo
+l'ottava. Il parametro è significativo solo con `type: "fuzz"`: con `klon` e
+`tubescreamer` viene ignorato ma resta salvato. I preset senza `octave` valgono
+`0` (migrazione automatica).
 
 ### filter (wah / whammy)
 

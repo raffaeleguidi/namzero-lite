@@ -40,6 +40,14 @@ public:
     void set_mid_db(float db) { mid_db_.store(clamp(db, -12.0f, 12.0f), std::memory_order_relaxed); }
     // Basse del fuzz: low-shelf a 110 Hz (default +5 dB).
     void set_low_db(float db) { low_db_.store(clamp(db, -12.0f, 12.0f), std::memory_order_relaxed); }
+    // Ottava del fuzz (stile Octavia): raddrizza il fuzz a onda intera, toglie
+    // la continua con un passa-alto e lo miscela al fuzz. 0 = solo fuzz,
+    // 1 = solo ottava. Significativo solo per kFuzz: klon e tubescreamer lo
+    // ignorano (il valore resta comunque salvato nel preset).
+    void set_octave(float o) {
+        const float v = std::isfinite(o) ? clamp(o, 0.0f, 1.0f) : 0.0f;
+        octave_.store(v, std::memory_order_relaxed);
+    }
 
     float drive() const { return drive_.load(std::memory_order_relaxed); }
     float tone() const { return tone_.load(std::memory_order_relaxed); }
@@ -47,6 +55,7 @@ public:
     float blend() const { return blend_.load(std::memory_order_relaxed); }
     float mid_db() const { return mid_db_.load(std::memory_order_relaxed); }
     float low_db() const { return low_db_.load(std::memory_order_relaxed); }
+    float octave() const { return octave_.load(std::memory_order_relaxed); }
 
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
@@ -59,6 +68,10 @@ public:
         hp_lp_l_ = hp_lp_r_ = 0.0f;
         dc_x_l_ = dc_x_r_ = 0.0f;
         dc_y_l_ = dc_y_r_ = 0.0f;
+        oct_dc_l_ = oct_dc_r_ = 0.0f;
+        // All'accensione l'ottava parte gia' al valore del preset: il fade-in
+        // dello smussamento serve ai cambi a runtime, non all'avvio.
+        oct_smooth_ = octave_.load(std::memory_order_relaxed);
         mid_l_.reset();
         mid_r_.reset();
         low_l_.reset();
@@ -157,6 +170,13 @@ private:
         else if (type == Type::kTubescreamer) cutoff = 700.0f * std::pow(6.0f, t);
         tone_coef_ = 1.0f - std::exp(-2.0f * 3.14159265f * cutoff / fs_);
 
+        // Ottava del fuzz: passa-alto a 200 Hz per togliere la continua che
+        // crea il raddrizzamento. E' un one-pole: costa 3 operazioni per
+        // campione e per canale. Lo smussamento (~8 ms) evita il click quando
+        // si muove la manopola o si richiama un preset.
+        oct_hp_coef_ = 1.0f - std::exp(-2.0f * 3.14159265f * 200.0f / fs_);
+        oct_smooth_coef_ = 1.0f - std::exp(-1.0f / (0.008f * fs_));
+
         // I filtri fissi non si accendono insieme: si calcola solo quello del
         // modello in uso (un sin/cos per blocco, non per campione).
         if (klon) {
@@ -179,6 +199,14 @@ private:
         const float level = db_to_lin(level_db_.load(std::memory_order_relaxed));
         // Compensa il guadagno: senza, alzare il drive fa solo piu' volume.
         const float norm = level / std::tanh(pre);
+        const float oct_target = octave_.load(std::memory_order_relaxed);
+        // A octave 0 e smussamento esaurito non si paga nulla: il ramo si
+        // salta del tutto. Appena il target sale, la rampa riparte da zero.
+        const bool oct_on = oct_target > 0.0f || oct_smooth_ > 1e-4f;
+        if (!oct_on) {
+            oct_smooth_ = 0.0f;
+            oct_dc_l_ = oct_dc_r_ = 0.0f;
+        }
 
         for (std::size_t i = 0; i < frames; ++i) {
             const float l = std::tanh(pre * interleaved[i * 2 + 0]) * norm;
@@ -187,10 +215,27 @@ private:
             lp_l_ += (l - lp_l_) * tone_coef_;
             lp_r_ += (r - lp_r_) * tone_coef_;
 
+            float y_l = lp_l_;
+            float y_r = lp_r_;
+            if (oct_on) {
+                // Un solo smussamento per frame, uguale sui due canali: il
+                // crossfade fuzz/ottava non deve creare scalini.
+                oct_smooth_ += (oct_target - oct_smooth_) * oct_smooth_coef_;
+                const float o = oct_smooth_;
+                const float a_l = std::fabs(y_l);
+                const float a_r = std::fabs(y_r);
+                oct_dc_l_ += (a_l - oct_dc_l_) * oct_hp_coef_;
+                oct_dc_r_ += (a_r - oct_dc_r_) * oct_hp_coef_;
+                // Raddrizzamento a onda intera meno la continua: del fuzz
+                // resta l'armonica a 2f (l'ottava), non un pitch shift.
+                y_l += (a_l - oct_dc_l_ - y_l) * o;
+                y_r += (a_r - oct_dc_r_ - y_r) * o;
+            }
+
             // Low-shelf in uscita: ridona peso alle basse che il clipping
             // sottrae, senza rimandarle dentro la saturazione (farebbe fango).
-            interleaved[i * 2 + 0] = low_l_.process(lp_l_);
-            interleaved[i * 2 + 1] = low_r_.process(lp_r_);
+            interleaved[i * 2 + 0] = low_l_.process(y_l);
+            interleaved[i * 2 + 1] = low_r_.process(y_r);
         }
     }
 
@@ -302,9 +347,12 @@ private:
     std::atomic<float> blend_{0.40f};
     std::atomic<float> mid_db_{4.0f};
     std::atomic<float> low_db_{5.0f};
+    std::atomic<float> octave_{0.0f};
 
     float fs_ = 48000.0f;
     float tone_coef_ = 0.2f;
+    float oct_hp_coef_ = 0.026f;
+    float oct_smooth_coef_ = 0.0026f;
     float lp_l_ = 0.0f;
     float lp_r_ = 0.0f;
     float pre_lp_l_ = 0.0f;
@@ -315,6 +363,9 @@ private:
     float dc_x_r_ = 0.0f;
     float dc_y_l_ = 0.0f;
     float dc_y_r_ = 0.0f;
+    float oct_smooth_ = 0.0f;
+    float oct_dc_l_ = 0.0f;
+    float oct_dc_r_ = 0.0f;
     Biquad mid_l_, mid_r_, low_l_, low_r_;
 };
 

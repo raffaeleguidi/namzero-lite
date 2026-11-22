@@ -6,17 +6,22 @@
   analisi del dry, nota/cent/frequenza a 10–20 Hz via `/api/events`, transpose/ref
   personalizzabili, mute.
 
+## Fatto di recente
+
+- **Fuzz Octavia**: parametro `octave` (0..1) nel blocco **drive**, significativo
+  solo con tipo `fuzz`: raddrizzamento a onda intera + passa-alto a 200 Hz
+  miscelato al fuzz, carattere Octavia (non un pitch shifter). Manopola nella
+  web UI solo con `fuzz`, salvato nel preset e nel comando `param`.
+
 ## Da fare (ordine proposto)
 
-1. **Fuzz octaver** — nuovo tipo nel blocco **drive** (fuzz + raddrizzatore per
-   l'ottava, parametro "octave"), carattere Octavia.
-2. **AP di fallback WiFi**: se nessuna rete conosciuta è raggiungibile entro
+1. **AP di fallback WiFi**: se nessuna rete conosciuta è raggiungibile entro
    ~10 s dall'avvio, parte un **access point** (NetworkManager hotspot, SSID
    `namzero-lite` + password in config, DHCP) così la web UI resta raggiungibile
    anche senza rete; il servizio continua a scansionare e torna in STA appena
    compare una rete nota (una sola radio: AP *o* STA). Stato e credenziali AP
    nelle Impostazioni.
-3. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
+2. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
    collegate (da `aplay -l`), scelta del device, **kHz**, **ingressi** (canale
    d'ingresso per chitarra/dry del tuner), buffer/periodi; “Applica” = salva +
    reload. Il motore resta a 48 kHz internamente: per device che accettano solo

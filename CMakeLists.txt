@@ -85,6 +85,14 @@ add_executable(drive_klon_test test/drive_klon_test.cpp)
 target_include_directories(drive_klon_test PRIVATE src)
 add_test(NAME drive_klon COMMAND drive_klon_test)
 
+add_executable(drive_octave_test test/drive_octave_test.cpp)
+target_include_directories(drive_octave_test PRIVATE src)
+add_test(NAME drive_octave COMMAND drive_octave_test)
+
+# Microbench manuale del costo dell'ottava del fuzz (si lancia sul Pi).
+add_executable(octave_bench test/octave_bench.cpp)
+target_include_directories(octave_bench PRIVATE src)
+
 add_executable(switch_debounce_test test/switch_debounce_test.cpp)
 target_include_directories(switch_debounce_test PRIVATE src)
 add_test(NAME switch_debounce COMMAND switch_debounce_test)

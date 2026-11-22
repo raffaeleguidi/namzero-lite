@@ -15,6 +15,12 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 
 - **Pedaliera**: gate, comp, filter, drive, mod, amp, IR, delay, riverbero, boost;
   ogni slot ha le manopole dei parametri principali e, dove ha senso, lo stomp.
+- **Drive**: selettore del tipo (`fuzz`/`klon`/`tubescreamer`) e manopole
+  amount, tone, blend, level, mid, low. La manopola **Octave** (0..1) compare
+  **solo con tipo `fuzz`**: è l'ottava stile Octavia (raddrizzamento a onda
+  intera + passa-alto, non un pitch shifter). Passa da `param` con
+  `key:"octave"` (clamp 0..1); il valore resta nel preset anche sugli altri
+  tipi, dove viene ignorato. Cambiando tipo il render la mostra/nasconde subito.
 - **Filter**: card dedicata prima del drive, con un selettore **Tipo**
   (`wah`/`whammy`). Con `wah` mostra rate, depth, q, mix, low_hz e high_hz; con
   `whammy` mostra range (semitoni, -24..+24) e mix. La manopola **Pos** resta

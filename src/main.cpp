@@ -92,6 +92,7 @@ struct Config {
     double drive_blend = 0.40;  // solo klon: quota di segnale saturato
     double drive_mid_db = 4.0;  // solo klon: gobba sulle medie
     double drive_low_db = 5.0;  // solo fuzz: peso delle basse
+    double drive_octave = 0.0;  // solo fuzz: quota di ottava (0..1, stile Octavia)
 
     bool mod_on = false;
     std::string mod_type = "tremolo";  // tremolo | univibe | flanger | phaser
@@ -231,6 +232,7 @@ void usage() {
         "  --drive-blend <0..1> solo klon: quota di segnale saturato (default 0.40)\n"
         "  --drive-mid <db>     solo klon: gobba sulle medie (default +4)\n"
         "  --drive-low <db>     solo fuzz: peso delle basse (default +5)\n"
+        "  --drive-octave <0..1> solo fuzz: quota di ottava, stile Octavia (default 0)\n"
         "  --tremolo            tremolo nello slot mod\n"
         "  --mod-position <p>   pre_amp (default) | post_ir: dove sta il mod\n"
         "  --wah-position <0..1> posizione del filter (default 0.5)\n"
@@ -368,6 +370,18 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.drive_blend = get_num(d, "blend", cfg.drive_blend);
         cfg.drive_mid_db = get_num(d, "mid_db", cfg.drive_mid_db);
         cfg.drive_low_db = get_num(d, "low_db", cfg.drive_low_db);
+        cfg.drive_octave = get_num(d, "octave", cfg.drive_octave);
+        // Migrazione: un preset senza "octave" resta a 0 (solo fuzz). Un
+        // valore fuori range non deve far partire il motore con una manopola
+        // oltre i limiti: si limita come fa il setter.
+        if (!std::isfinite(cfg.drive_octave)) {
+            std::fprintf(stderr, "drive: octave non valido, uso 0\n");
+            cfg.drive_octave = 0.0;
+        } else if (cfg.drive_octave < 0.0 || cfg.drive_octave > 1.0) {
+            std::fprintf(stderr, "drive: octave %.3f fuori da 0..1, lo limito\n",
+                         cfg.drive_octave);
+            cfg.drive_octave = std::clamp(cfg.drive_octave, 0.0, 1.0);
+        }
     }
 
     auto md = slot_or_empty(j, "mod");
@@ -519,6 +533,7 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     slots["drive"]["level_db"] = cfg.drive_level_db;
     slots["drive"]["mid_db"] = cfg.drive_mid_db;
     slots["drive"]["low_db"] = cfg.drive_low_db;
+    slots["drive"]["octave"] = cfg.drive_octave;
     slots["mod"]["on"] = cfg.mod_on;
     slots["mod"]["type"] = cfg.mod_type;
     slots["mod"]["rate_hz"] = cfg.mod_rate_hz;
@@ -777,6 +792,15 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
                 err = "valore non valido per --drive-low";
                 return false;
             }
+        } else if (a == "--drive-octave") {
+            const char* v = next("--drive-octave");
+            if (v == nullptr || !parse_float(v, cfg.drive_octave)) {
+                err = "valore non valido per --drive-octave";
+                return false;
+            }
+            cfg.drive_octave = std::isfinite(cfg.drive_octave)
+                                   ? std::clamp(cfg.drive_octave, 0.0, 1.0)
+                                   : 0.0;
         } else if (a == "--drive-blend") {
             const char* v = next("--drive-blend");
             if (v == nullptr || !parse_float(v, cfg.drive_blend)) {
@@ -1217,6 +1241,7 @@ int main(int argc, char** argv) {
         dr->set_blend(static_cast<float>(cfg.drive_blend));
         dr->set_mid_db(static_cast<float>(cfg.drive_mid_db));
         dr->set_low_db(static_cast<float>(cfg.drive_low_db));
+        dr->set_octave(static_cast<float>(cfg.drive_octave));
         chain.add(std::move(dr));
     }
 
@@ -1376,6 +1401,7 @@ int main(int argc, char** argv) {
         std::printf("cfg.drive.blend=%.4f\n", drive_ptr->blend());
         std::printf("cfg.drive.mid_db=%.4f\n", drive_ptr->mid_db());
         std::printf("cfg.drive.low_db=%.4f\n", drive_ptr->low_db());
+        std::printf("cfg.drive.octave=%.4f\n", drive_ptr->octave());
 
         std::printf("cfg.mod.type=%s\n", mod_name(mod_ptr->type()));
         std::printf("cfg.mod.rate_hz=%.4f\n", mod_ptr->rate_hz());
@@ -1783,6 +1809,7 @@ int main(int argc, char** argv) {
         sl["drive"]["level"] = cfg.drive_level_db;
         sl["drive"]["mid"] = cfg.drive_mid_db;
         sl["drive"]["low"] = cfg.drive_low_db;
+        sl["drive"]["octave"] = cfg.drive_octave;
         sl["mod"]["on"] = cfg.mod_on;
         sl["mod"]["type"] = cfg.mod_type;
         sl["mod"]["rate"] = cfg.mod_rate_hz;
@@ -2058,6 +2085,7 @@ int main(int argc, char** argv) {
                 cfg.drive_level_db = d.drive_level_db;
                 cfg.drive_mid_db = d.drive_mid_db;
                 cfg.drive_low_db = d.drive_low_db;
+                cfg.drive_octave = d.drive_octave;
                 drive_ptr->set_type(drive_type_enum(namzero::drive_type_index(cfg.drive_type)));
                 drive_ptr->set_drive(static_cast<float>(cfg.drive_amount));
                 drive_ptr->set_tone(static_cast<float>(cfg.drive_tone));
@@ -2065,6 +2093,7 @@ int main(int argc, char** argv) {
                 drive_ptr->set_level_db(static_cast<float>(cfg.drive_level_db));
                 drive_ptr->set_mid_db(static_cast<float>(cfg.drive_mid_db));
                 drive_ptr->set_low_db(static_cast<float>(cfg.drive_low_db));
+                drive_ptr->set_octave(static_cast<float>(cfg.drive_octave));
                 if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
                 apply_leds();
             } else if (slot == "mod") {
@@ -2331,6 +2360,12 @@ int main(int argc, char** argv) {
                 else if (key == "level") { cfg.drive_level_db = v; drive_ptr->set_level_db(static_cast<float>(v)); }
                 else if (key == "mid") { cfg.drive_mid_db = v; drive_ptr->set_mid_db(static_cast<float>(v)); }
                 else if (key == "low") { cfg.drive_low_db = v; drive_ptr->set_low_db(static_cast<float>(v)); }
+                else if (key == "octave") {
+                    // Clamp qui (e nel setter): la manopola non deve poter
+                    // mandare il parametro fuori da 0..1 via socket.
+                    cfg.drive_octave = std::isfinite(v) ? std::clamp(v, 0.0, 1.0) : 0.0;
+                    drive_ptr->set_octave(static_cast<float>(cfg.drive_octave));
+                }
             } else if (slot == "mod") {
                 if (key == "rate") { cfg.mod_rate_hz = v; mod_ptr->set_rate_hz(static_cast<float>(v)); }
                 else if (key == "depth") { cfg.mod_depth = v; mod_ptr->set_depth(static_cast<float>(v)); }

@@ -223,7 +223,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 const SLOTS = [
  {id:"comp", name:"Comp", color:"#a3c9a8", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["attack","Attack",0,50,1,"ms"],["release","Release",20,1000,10,"ms"],["makeup","Makeup",0,12,0.5,"dB"]]},
  {id:"filter", name:"Filter", color:"#e6c39a", types:["wah","whammy"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""],["range","Range",-24,24,1,"st"]]},
- {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"]]},
+ {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"],["octave","Octave",0,1,0.01,""]]},
  {id:"mod", name:"Mod", color:"#c5b3e6", types:["tremolo","univibe","flanger","phaser"], modPosition:true, knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""],["fx_mix","FX mix",0,1,0.01,""]]},
  {id:"amp", name:"Amp", color:"#f2d5a8", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
  {id:"ir", name:"IR", color:"#b8d8d0", knobs:[]},
@@ -240,6 +240,13 @@ function applyFilterKnobs(card, type) {
   (card._knobs || []).forEach(w => {
     const g = w._group || "both";
     w.style.display = (g === "both" || g === t) ? "" : "none";
+  });
+}
+// L'ottava e' solo del fuzz: sulle altre facce del drive la manopola sparisce
+// (il valore resta nel preset, ma non si puo' muovere dove non fa nulla).
+function applyDriveKnobs(card, type) {
+  (card._knobs || []).forEach(w => {
+    if (w._fuzzOnly) w.style.display = type === "fuzz" ? "" : "none";
   });
 }
 const board = document.getElementById("board");
@@ -268,7 +275,10 @@ SLOTS.forEach(s => {
   if (s.types || s.modes) {
     select = el("select");
     (s.types || s.modes).forEach(v => select.append(el("option", {value:v, textContent:v})));
-    select.onchange = () => send({cmd:"set", slot:s.id, ...(s.types ? {type:select.value} : {mode:select.value})});
+    select.onchange = () => {
+      if (s.id === "drive" && s.types) applyDriveKnobs(card, select.value);
+      send({cmd:"set", slot:s.id, ...(s.types ? {type:select.value} : {mode:select.value})});
+    };
     card.append(select);
   }
   let position = null;
@@ -283,6 +293,10 @@ SLOTS.forEach(s => {
   s.knobs.forEach(([key,label,min,max,step,unit]) => {
     const wrap = el("div", {className:"knob"});
     if (s.id === "filter") wrap._group = FILTER_KNOB_GROUP[key] || "both";
+    if (s.id === "drive" && key === "octave") {
+      wrap._fuzzOnly = true;
+      wrap.title = "ottava del fuzz (Octavia): solo con tipo fuzz";
+    }
     const lab = el("span", {textContent:label});
     const out = el("output");
     const inp = el("input", {type:"range", min, max, step});
@@ -302,6 +316,7 @@ SLOTS.forEach(s => {
   card._power = power; card._select = select; card._pos = position;
   card._filterState = filterState; card._id = s.id;
   if (s.id === "filter") applyFilterKnobs(card, "wah");
+  if (s.id === "drive") applyDriveKnobs(card, "fuzz");
   board.append(card);
 });
 // boost
@@ -554,6 +569,7 @@ function render(st, fromPoll = false) {
       card._filterState.title = s.on ? "acceso dall'espressione" : "spento: si accende col pedale";
     }
     if (card._id === "filter") applyFilterKnobs(card, s.type);
+    if (card._id === "drive") applyDriveKnobs(card, s.type);
     if (card._select && s.type) card._select.value = s.type;
     if (card._select && s.mode) card._select.value = s.mode;
     if (card._pos && typeof s.position === "string") card._pos.value = s.position;
