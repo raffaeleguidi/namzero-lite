@@ -16,7 +16,7 @@ h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
 #status { color:var(--dim); font-size:12px; min-width:0; display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums; }
 #presetselect { background:var(--card); color:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-size:18px; font-weight:600; max-width:320px; min-width:0; cursor:pointer; }
 #actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
-#actions a { color:var(--acc); text-decoration:none; }
+
 #menu { display:none; }
 #spinner { position:fixed; inset:0; background:rgba(8,10,14,.6); display:flex; align-items:center; justify-content:center; z-index:50; backdrop-filter:blur(2px); }
 #spinner.hidden { display:none; }
@@ -84,10 +84,11 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
 #files code { color:var(--acc); font-size:12px; }
-button.act { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
-button.act.primary { border-color:var(--acc); color:var(--acc); }
-button.act.saved { background:var(--acc); border-color:var(--acc); color:#16181d; }
-button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
+.act { display:inline-flex; align-items:center; justify-content:center; background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; text-decoration:none; font:inherit; font-size:13px; }
+.act:disabled { opacity:.45; cursor:default; }
+.act.primary { border-color:var(--acc); color:var(--acc); }
+.act.saved { background:var(--acc); border-color:var(--acc); color:#16181d; }
+.act.err { background:#b00020; border-color:#b00020; color:#fff; }
 /* Progressiva: sotto i 720 px l'header resta su una riga (titolo, [slot] +
    combo, hamburger) e undo/Salva/settings passano nel menu. Il resto del layout
    si impila e i pedali restano scrollabili dentro main, mai la pagina. */
@@ -138,9 +139,9 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <span id="status"><span id="statustext">…</span><select id="presetselect" title="preset" aria-label="preset"></select></span>
   <button class="act" id="menu" type="button" aria-label="menu" aria-expanded="false" aria-controls="actions">☰</button>
   <div id="actions">
-    <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
+    <button class="act" id="undo" disabled title="annulla ultima modifica">Annulla</button>
     <button class="act primary" id="save">Salva</button>
-    <a href="settings.html">settings</a>
+    <a class="act" href="settings.html">Impostazioni</a>
   </div>
 </header>
 <main id="board"></main>
