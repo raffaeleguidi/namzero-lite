@@ -23,12 +23,17 @@ Verifica:
   e) EQ globale: band live, clamp, save_options, riavvio che la riapplica,
      defaults; volume globale live, clamp, persistenza, somma col boost;
   f) timeout dei client inattivi (~10 s);
-  g) ripristino del preset/presets.json originali e stato finale.
+  g) ripristino del preset/presets.json originali e stato finale;
+  h) accordatore: on/mute, clamp riferimento/transpose, riferimento effettivo,
+     save_options, riavvio che rilegge il blocco tuner (on/mute non persistiti);
+  i) SSE /api/events: primo evento, evento live, chiusura pulita, seconda
+     connessione e poll /api/state come fallback.
 
 Esce 0 solo se tutti i controlli passano.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -210,6 +215,35 @@ def web_get():
         return exc.code, None
     except Exception as exc:  # timeout, connessione rifiutata...
         return -1, str(exc)
+
+
+# ── SSE ─────────────────────────────────────────────────────────────────────
+# oggetto response di http.client: si leggono le righe finche' non arriva un
+# "data: <json>" oppure scade il timeout.
+def sse_open(timeout=6.0):
+    conn = http.client.HTTPConnection("127.0.0.1", 8080, timeout=timeout)
+    conn.request("GET", "/api/events")
+    resp = conn.getresponse()
+    return conn, resp
+
+
+def sse_read_data(resp, timeout=6.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            line = resp.readline()
+        except (socket.timeout, OSError):
+            return None
+        if not line:
+            return None
+        line = line.decode("utf-8", "replace").strip()
+        if not line.startswith("data:"):
+            continue
+        try:
+            return json.loads(line[5:].strip())
+        except ValueError:
+            continue
+    return None
 
 
 # ── iniezione MIDI per l'auto-engage ────────────────────────────────────────
@@ -552,7 +586,7 @@ def main():
         time.sleep(0.2)
         sj = json.load(open(presets_json))
         check("save_options scrive presets.json",
-              all(k in sj for k in ("gate", "autoengage", "boost", "eq")) and
+              all(k in sj for k in ("gate", "autoengage", "boost", "eq", "tuner")) and
               os.path.getsize(presets_json) > 50)
 
         # save: scrive il preset corrente (ripristinato nel finally).
@@ -674,6 +708,95 @@ def main():
               st["eq"]["on"] is True and all(abs(g) < 1e-6 for g in st["eq"]["gains"]) and
               st["eq"]["volume"] == 6.0)
 
+        # ── (h) accordatore: comandi, clamp, persistenza ─────────────────────
+        st = read_state()
+        check("stato tuner presente", isinstance(st.get("tuner"), dict),
+              json.dumps(st.get("tuner")))
+        t0 = st.get("tuner", {})
+        check("tuner parte spento e non muto",
+              t0.get("on") is False and t0.get("muted") is False,
+              json.dumps(t0))
+        check("tuner ha riferimento/transpose",
+              isinstance(t0.get("reference_hz"), (int, float)) and
+              isinstance(t0.get("transpose"), int), json.dumps(t0))
+
+        send_cmd({"cmd": "tuner", "on": True})
+        st = wait_state(lambda s: s["tuner"]["on"] is True, timeout=4, label="tuner on")
+        check("tuner on", st["tuner"]["on"] is True)
+        # Nessun ingresso audio: dopo ~0.5 s niente nota e confidenza zero.
+        time.sleep(0.5)
+        st = read_state()
+        check("tuner senza segnale: nessuna nota",
+              st["tuner"]["note"] == "" and st["tuner"]["freq"] == 0 and
+              st["tuner"]["confidence"] == 0, json.dumps(st["tuner"]))
+
+        send_cmd({"cmd": "tuner", "mute": True})
+        st = wait_state(lambda s: s["tuner"]["muted"] is True, timeout=4,
+                        label="tuner mute")
+        check("tuner mute", st["tuner"]["muted"] is True)
+
+        # Clamp del riferimento (il limite inferiore include 415.3 Hz).
+        send_cmd({"cmd": "tuner", "reference_hz": 400})
+        st = wait_state(lambda s: abs(s["tuner"]["reference_hz"] - 415.0) < 1e-6,
+                        timeout=4, label="tuner ref clamp basso")
+        check("tuner reference clamp a 415", st["tuner"]["reference_hz"] == 415.0)
+        send_cmd({"cmd": "tuner", "reference_hz": 500})
+        st = wait_state(lambda s: abs(s["tuner"]["reference_hz"] - 450.0) < 1e-6,
+                        timeout=4, label="tuner ref clamp alto")
+        check("tuner reference clamp a 450", st["tuner"]["reference_hz"] == 450.0)
+
+        send_cmd({"cmd": "tuner", "transpose": 99})
+        st = wait_state(lambda s: s["tuner"]["transpose"] == 6, timeout=4,
+                        label="tuner transpose clamp alto")
+        check("tuner transpose clamp a +6", st["tuner"]["transpose"] == 6)
+        send_cmd({"cmd": "tuner", "transpose": -99})
+        st = wait_state(lambda s: s["tuner"]["transpose"] == -6, timeout=4,
+                        label="tuner transpose clamp basso")
+        check("tuner transpose clamp a -6", st["tuner"]["transpose"] == -6)
+
+        # transpose -1 con riferimento 440 -> riferimento effettivo 415.3.
+        send_cmd({"cmd": "tuner", "reference_hz": 440.0, "transpose": -1})
+        st = wait_state(lambda s: abs(s["tuner"]["reference_hz"] - 440.0) < 1e-6 and
+                        s["tuner"]["transpose"] == -1, timeout=4,
+                        label="tuner transpose -1")
+        eff = st["tuner"].get("effective_reference_hz")
+        check("transpose -1 con ref 440 -> riferimento effettivo 415.3",
+              eff is not None and abs(eff - 440.0 * 2 ** (-1 / 12)) < 0.01,
+              str(eff))
+
+        # La stessa accordatura si ottiene scrivendo direttamente 415.3.
+        send_cmd({"cmd": "tuner", "reference_hz": 415.3, "transpose": 0})
+        st = wait_state(lambda s: abs(s["tuner"]["reference_hz"] - 415.3) < 1e-6 and
+                        s["tuner"]["transpose"] == 0, timeout=4,
+                        label="tuner ref 415.3")
+        eff = st["tuner"].get("effective_reference_hz")
+        check("reference 415.3 -> riferimento effettivo 415.3",
+              eff is not None and abs(eff - 415.3) < 0.01, str(eff))
+
+        # save_options scrive il blocco tuner; on/mute non sono persistiti.
+        send_cmd({"cmd": "save_options"})
+        time.sleep(0.25)
+        tj = json.load(open(presets_json))
+        check("save_options scrive il blocco tuner",
+              isinstance(tj.get("tuner"), dict) and
+              abs(float(tj["tuner"].get("reference_hz", 0)) - 415.3) < 1e-6 and
+              int(tj["tuner"].get("transpose", 99)) == 0,
+              json.dumps(tj.get("tuner")))
+
+        send_cmd({"cmd": "tuner", "on": True, "mute": True})
+        wait_state(lambda s: s["tuner"]["on"] is True and s["tuner"]["muted"] is True,
+                   timeout=4, label="tuner on+mute pre reload")
+        st = wait_reexec({"cmd": "reload"},
+                         lambda s: abs(s["tuner"]["reference_hz"] - 415.3) < 1e-6 and
+                         s["tuner"]["transpose"] == 0 and
+                         s["tuner"]["on"] is False and s["tuner"]["muted"] is False,
+                         "tuner dopo il riavvio", timeout=20)
+        check("tuner reference/transpose riletti dopo il riavvio",
+              abs(st["tuner"]["reference_hz"] - 415.3) < 1e-6 and
+              st["tuner"]["transpose"] == 0, json.dumps(st["tuner"]))
+        check("tuner on/mute non persistiti dopo il riavvio",
+              st["tuner"]["on"] is False and st["tuner"]["muted"] is False)
+
         # ── ripristino config viva ──────────────────────────────────────────
         restore_config()
 
@@ -687,6 +810,63 @@ def main():
               sha(presets_json) == sum_before[0] and
               (not backup_preset or sha(os.path.join(repo, initial_preset)) == sum_before[1]),
               "slot=%s amp=%s" % (st["slot"], st["slots"]["amp"]["file"]))
+
+        # ── (i) SSE /api/events + fallback poll ─────────────────────────────
+        conn = resp = None
+        try:
+            conn, resp = sse_open()
+            check("(i) SSE risponde 200", resp.status == 200, str(resp.status))
+            ctype = resp.getheader("Content-Type", "")
+            check("(i) SSE content-type text/event-stream",
+                  "text/event-stream" in (ctype or ""), str(ctype))
+            ev = sse_read_data(resp, timeout=6)
+            check("(i) SSE primo evento con lo stato",
+                  isinstance(ev, dict) and "slots" in ev)
+            # Un comando cambiato da un'altra connessione deve arrivare subito
+            # sul flusso SSE (render della modale a 10-20 Hz).
+            send_cmd({"cmd": "tuner", "on": True})
+            live = None
+            for _ in range(8):
+                ev = sse_read_data(resp, timeout=3)
+                if ev and ev.get("tuner", {}).get("on") is True:
+                    live = ev
+                    break
+            check("(i) SSE riceve l'evento live (tuner on)", live is not None)
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        time.sleep(0.2)
+        code, pst = web_get()
+        check("(i) poll /api/state dopo la chiusura SSE",
+              code == 200 and isinstance(pst, dict) and "slots" in pst,
+              "code=%s" % code)
+        # Una seconda connessione SSE funziona: il server non e' rimasto appeso
+        # e la chiusura del client e' stata gestita.
+        conn2 = resp2 = None
+        try:
+            conn2, resp2 = sse_open()
+            ev = sse_read_data(resp2, timeout=6)
+            check("(i) seconda connessione SSE", isinstance(ev, dict) and "slots" in ev)
+        finally:
+            if resp2 is not None:
+                try:
+                    resp2.close()
+                except Exception:
+                    pass
+            if conn2 is not None:
+                try:
+                    conn2.close()
+                except Exception:
+                    pass
+        send_cmd({"cmd": "tuner", "on": False, "mute": False})
 
         # ── (e) client inattivo chiuso dopo ~10 s ──────────────────────────
         s = connect()

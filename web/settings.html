@@ -6,128 +6,196 @@ body { margin:0; font:14px/1.4 -apple-system,system-ui,sans-serif; background:#1
 header { padding:12px 16px; border-bottom:1px solid #2c3240; display:flex; gap:12px; align-items:center; }
 h1 { font-size:16px; margin:0; }
 a { color:#4fd1c5; text-decoration:none; }
-main { padding:16px; display:flex; gap:24px; flex-wrap:wrap; }
-section { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padding:12px; min-width:260px; }
+main { padding:16px; display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
+section { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padding:12px; min-width:260px; max-width:420px; }
 h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#8b93a7; margin:0 0 8px; }
-input[type=file] { color:#e6e9ef; }
+input[type=file] { color:#e6e9ef; max-width:100%; }
 li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
-.btn { display:inline-block; padding:5px 10px; background:#1e222b; color:#e6e9ef; border:1px solid #4fd1c5; border-radius:6px; text-decoration:none; font-size:13px; cursor:pointer; }
+.hint { color:#8b93a7; font-size:12px; margin:8px 0 0; }
+.field { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0; }
+.field input { width:92px; padding:4px 6px; background:#12151b; color:#e6e9ef;
+  border:1px solid #2c3240; border-radius:6px; font-size:14px; }
+.btn { display:inline-block; padding:5px 10px; background:#1e222b; color:#e6e9ef;
+  border:1px solid #4fd1c5; border-radius:6px; text-decoration:none; font-size:13px;
+  cursor:pointer; font:inherit; font-size:13px; }
+.btn:active { background:#12151b; }
 </style></head><body>
 <header><h1>Impostazioni</h1><a href="index.html">← pedaliera</a></header>
 <main>
+<section>
+  <h2>Accordatore</h2>
+  <div class="field"><label for="tuner-ref">Riferimento A4 (Hz)</label>
+    <input id="tuner-ref" type="number" min="415" max="450" step="0.1" value="440"></div>
+  <div class="field"><label for="tuner-tr">Transpose (semitoni)</label>
+    <input id="tuner-tr" type="number" min="-6" max="6" step="1" value="0"></div>
+  <p id="tuner-eff" class="hint">Riferimento effettivo: 440.0 Hz</p>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+    <button class="btn" id="tuner-save">Salva accordatore</button>
+    <span id="tuner-msg" class="hint"></span>
+  </div>
+  <p class="hint">Il transpose cambia solo la lettura della nota (non il suono).
+  Chi suona un semitono sotto può usare transpose −1 oppure riferimento 415.3 Hz:
+  il riferimento effettivo è A4 × 2^(transpose/12).</p>
+</section>
 <section><h2>Modelli NAM (.nam)</h2><input type="file" id="up-models" accept=".nam"><ul id="list-models"></ul></section>
 <section><h2>IR (.wav)</h2><input type="file" id="up-irs" accept=".wav"><ul id="list-irs"></ul></section>
 <section><h2>TONE3000</h2>
-<p id="t3k-status" style="color:#8b93a7;font-size:12px">…</p>
+<p id="t3k-status" class="hint">…</p>
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
   <a class="btn" href="/t3k/start?gear=amp">Scegli ampli</a>
   <a class="btn" href="/t3k/start?gear=ir">Scegli IR</a>
   <button class="btn" id="t3k-disc">Disconnetti</button>
 </div></section>
 <section><h2>Reti WiFi conosciute</h2>
-<p style="color:#8b93a7;font-size:12px">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità.</p>
+<p class="hint">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità.</p>
 <table id="wifi" style="border-collapse:collapse;font-size:13px"></table>
 <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
   <input id="w-ssid" placeholder="SSID" style="padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
   <input id="w-pass" placeholder="password" style="padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
   <input id="w-prio" placeholder="priorità" value="0" style="width:70px;padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
-  <button id="w-add" style="padding:4px 10px;background:#1e222b;color:#e6e9ef;border:1px solid #4fd1c5;border-radius:6px;cursor:pointer">Aggiungi</button>
+  <button id="w-add" class="btn">Aggiungi</button>
 </div></section>
 </main>
 <script>
+// ── Accordatore: riferimento/transpose ─────────────────────────────────────
+// I valori arrivano dallo stato del motore (blocco "tuner", salvato in
+// config/presets.json). Il salvataggio manda prima il comando tuner (live) e
+// poi save_options (persistenza), così dopo un riavvio vengono riletti.
+const TUNER_REF_MIN = 415;
+const TUNER_REF_MAX = 450;
+
+function $(id) { return document.getElementById(id); }
+function clampRef(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 440;
+  return Math.min(TUNER_REF_MAX, Math.max(TUNER_REF_MIN, Math.round(n * 10) / 10));
+}
+function clampTr(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(6, Math.max(-6, Math.round(n)));
+}
+function effectiveRef(ref, tr) { return ref * Math.pow(2, tr / 12); }
+function renderTuner() {
+  const ref = clampRef($("tuner-ref").value);
+  const tr = clampTr($("tuner-tr").value);
+  $("tuner-eff").textContent = "Riferimento effettivo: " +
+    effectiveRef(ref, tr).toFixed(1) + " Hz" + (tr ? " (transpose " + (tr > 0 ? "+" : "") + tr + ")" : "");
+}
+function readTunerForm() {
+  const ref = clampRef($("tuner-ref").value);
+  const tr = clampTr($("tuner-tr").value);
+  $("tuner-ref").value = ref.toFixed(1);
+  $("tuner-tr").value = tr;
+  renderTuner();
+  return {reference_hz: ref, transpose: tr};
+}
+function saveTuner() {
+  const vals = readTunerForm();
+  $("tuner-msg").textContent = "…";
+  fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"},
+                     body:JSON.stringify({cmd:"tuner", reference_hz:vals.reference_hz, transpose:vals.transpose})})
+    .then(r => r.json()).then(j => {
+      if (j && j.error) throw new Error(j.error);
+      return fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"},
+                                body:JSON.stringify({cmd:"save_options"})});
+    })
+    .then(r => r.json()).then(j => {
+      if (j && j.error) throw new Error(j.error);
+      $("tuner-msg").textContent = "Salvato ✓";
+      setTimeout(() => { $("tuner-msg").textContent = ""; }, 1500);
+      loadTuner();
+    })
+    .catch(err => { $("tuner-msg").textContent = "Errore: " + err.message; });
+}
+function loadTuner(attempt = 0) {
+  fetch("/api/state").then(r => r.json()).then(st => {
+    if (!st || st.error || !st.tuner) throw new Error("stato tuner assente");
+    $("tuner-ref").value = clampRef(st.tuner.reference_hz).toFixed(1);
+    $("tuner-tr").value = clampTr(st.tuner.transpose);
+    renderTuner();
+  }).catch(() => {
+    if (attempt < 5) setTimeout(() => loadTuner(attempt + 1), 800);
+  });
+}
+$("tuner-ref").oninput = renderTuner;
+$("tuner-tr").oninput = renderTuner;
+$("tuner-ref").onchange = saveTuner;
+$("tuner-tr").onchange = saveTuner;
+$("tuner-save").onclick = saveTuner;
+
+// ── Upload modelli/IR ──────────────────────────────────────────────────────
 function upload(kind, inp) {
-  const f = inp.files[0]; if (!f) return;
+  const f = inp.files[0];
+  if (!f) return;
   fetch(`/api/upload?kind=${kind}`, {method:"POST", headers:{"X-Filename":f.name}, body:f})
-    .then(r=>r.json()).then(j=>{ if (j.error) alert(j.error); inp.value=""; load();
+    .then(r => r.json()).then(j => {
+      if (j.error) alert(j.error);
+      inp.value = "";
+      loadFiles();
+    }).catch(() => { inp.value = ""; });
+}
+function loadFiles() {
+  ["models", "irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r => r.json()).then(j => {
+    const ul = $("list-" + kind);
+    ul.innerHTML = "";
+    (j.files || []).forEach(f => {
+      const li = document.createElement("li");
+      li.textContent = f;
+      ul.append(li);
+    });
+  }).catch(() => {}));
+}
+$("up-models").onchange = e => upload("models", e.target);
+$("up-irs").onchange = e => upload("irs", e.target);
 
+// ── WiFi ───────────────────────────────────────────────────────────────────
 let wifi = [];
 function renderWifi() {
-  const t = document.getElementById("wifi"); t.innerHTML = "";
+  const t = $("wifi");
+  t.innerHTML = "";
   wifi.forEach((n, i) => {
     const tr = document.createElement("tr");
     const a = document.createElement("td"); a.textContent = n.ssid; a.style.padding = "3px 8px";
-    const b = document.createElement("td"); b.textContent = "•".repeat(Math.min(8, (n.password||"").length)); b.style.padding = "3px 8px";
+    const b = document.createElement("td"); b.textContent = "•".repeat(Math.min(8, (n.password || "").length)); b.style.padding = "3px 8px";
     const c = document.createElement("td"); c.textContent = n.priority; c.style.padding = "3px 8px";
     const d = document.createElement("td");
-    const del = document.createElement("button"); del.textContent = "✕";
-    del.onclick = () => { wifi.splice(i,1); saveWifi(); };
-    d.append(del); tr.append(a,b,c,d); t.append(tr);
+    const del = document.createElement("button"); del.textContent = "✕"; del.className = "btn";
+    del.onclick = () => { wifi.splice(i, 1); saveWifi(); };
+    d.append(del); tr.append(a, b, c, d); t.append(tr);
   });
 }
 function saveWifi() {
-  fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({networks:wifi})})
-    .then(r=>r.json()).then(j=>{ if (j.networks) { wifi = j.networks; renderWifi(); } });
+  fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify({networks:wifi})})
+    .then(r => r.json()).then(j => { if (j.networks) { wifi = j.networks; renderWifi(); } })
+    .catch(() => {});
 }
 function loadWifi() {
-  fetch("/api/wifi").then(r=>r.json()).then(j=>{ wifi = j.networks || []; renderWifi(); });
+  fetch("/api/wifi").then(r => r.json()).then(j => { wifi = j.networks || []; renderWifi(); }).catch(() => {});
 }
-document.getElementById("w-add").onclick = () => {
-  const ssid = document.getElementById("w-ssid").value.trim();
+$("w-add").onclick = () => {
+  const ssid = $("w-ssid").value.trim();
   if (!ssid) return;
-  wifi.push({ssid, password:document.getElementById("w-pass").value, priority:parseInt(document.getElementById("w-prio").value||"0",10)});
-  document.getElementById("w-ssid").value = ""; document.getElementById("w-pass").value = "";
+  wifi.push({ssid, password:$("w-pass").value,
+             priority:parseInt($("w-prio").value || "0", 10)});
+  $("w-ssid").value = ""; $("w-pass").value = "";
   saveWifi();
 };
-loadWifi();
 
+// ── TONE3000 ───────────────────────────────────────────────────────────────
 function t3kStatus() {
-  fetch("/api/t3k/status").then(r=>r.json()).then(j=>{
-    const el = document.getElementById("t3k-status");
+  fetch("/api/t3k/status").then(r => r.json()).then(j => {
+    const el = $("t3k-status");
     if (!j.configured) el.textContent = "client_id mancante in config/tone3000.json";
     else el.textContent = j.connected ? "account collegato" : "account non collegato";
-  }).catch(()=>{});
+  }).catch(() => {});
 }
-document.getElementById("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then(t3kStatus);
-t3kStatus(); });
-}
-function load() {
-  ["models","irs"].forEach(kind => fetch(`/api/files?kind=${kind}`).then(r=>r.json()).then(j=>{
-    const ul = document.getElementById("list-"+kind); ul.innerHTML = "";
-    (j.files||[]).forEach(f => { const li=document.createElement("li"); li.textContent=f; ul.append(li); });
-  }));
-}
-document.getElementById("up-models").onchange = e => upload("models", e.target);
-document.getElementById("up-irs").onchange = e => upload("irs", e.target);
-load();
+$("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then(t3kStatus);
 
-let wifi = [];
-function renderWifi() {
-  const t = document.getElementById("wifi"); t.innerHTML = "";
-  wifi.forEach((n, i) => {
-    const tr = document.createElement("tr");
-    const a = document.createElement("td"); a.textContent = n.ssid; a.style.padding = "3px 8px";
-    const b = document.createElement("td"); b.textContent = "•".repeat(Math.min(8, (n.password||"").length)); b.style.padding = "3px 8px";
-    const c = document.createElement("td"); c.textContent = n.priority; c.style.padding = "3px 8px";
-    const d = document.createElement("td");
-    const del = document.createElement("button"); del.textContent = "✕";
-    del.onclick = () => { wifi.splice(i,1); saveWifi(); };
-    d.append(del); tr.append(a,b,c,d); t.append(tr);
-  });
-}
-function saveWifi() {
-  fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({networks:wifi})})
-    .then(r=>r.json()).then(j=>{ if (j.networks) { wifi = j.networks; renderWifi(); } });
-}
-function loadWifi() {
-  fetch("/api/wifi").then(r=>r.json()).then(j=>{ wifi = j.networks || []; renderWifi(); });
-}
-document.getElementById("w-add").onclick = () => {
-  const ssid = document.getElementById("w-ssid").value.trim();
-  if (!ssid) return;
-  wifi.push({ssid, password:document.getElementById("w-pass").value, priority:parseInt(document.getElementById("w-prio").value||"0",10)});
-  document.getElementById("w-ssid").value = ""; document.getElementById("w-pass").value = "";
-  saveWifi();
-};
+loadTuner();
+loadFiles();
 loadWifi();
-
-function t3kStatus() {
-  fetch("/api/t3k/status").then(r=>r.json()).then(j=>{
-    const el = document.getElementById("t3k-status");
-    if (!j.configured) el.textContent = "client_id mancante in config/tone3000.json";
-    else el.textContent = j.connected ? "account collegato" : "account non collegato";
-  }).catch(()=>{});
-}
-document.getElementById("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then(t3kStatus);
 t3kStatus();
 </script><script src="ui.js"></script>
 </body></html>

@@ -28,9 +28,18 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
   **posizione** nella catena (`pre-amplificatore` / `dopo IR`). Cambiare
   posizione invia `set` con `slot:"mod"` e `position`: il motore salva il preset
   e lo ricarica (~300 ms), quindi la UI resta in attesa del nuovo stato.
-- **Live bidirezionale**: la pagina legge lo stato dal motore 4 volte al secondo;
-  le manopole mandano `param`, gli switch mandano `set`. Se accendi un effetto
-  dal pedale, la UI lo mostra.
+- **Live bidirezionale**: la pagina riceve lo stato dal motore su
+  `GET /api/events` (SSE, Server-Sent Events): il motore manda uno snapshot in
+  broadcast quando cambia e la UI lo disegna subito. Le manopole mandano
+  `param`, gli switch mandano `set`. Il polling `GET /api/state` ogni 400 ms
+  resta come fallback se `EventSource` non è disponibile o cade. Se accendi un
+  effetto dal pedale, la UI lo mostra.
+- **Accordatore**: voce **Accordatore** nel rack "Opzioni generali"; apre una
+  modale grande e centrata (nota gigante, ottava, ago dei cent -50..+50 verde in
+  centro, frequenza, riferimento effettivo, confidenza, toggle **Muto**).
+  L'analisi è sul segnale **dry** e si aggiorna a 10-20 Hz via SSE. Si chiude
+  con la X, il pulsante Chiudi, `Esc` o un clic sullo sfondo; chiudendo, il
+  motore spegne l'accordatore e toglie il muto, così non si resta in silenzio.
 - **EQ globale**: unità nel rack "Opzioni generali", fra Boost e Auto-engage, con
   cinque slider verticali compatti (80 / 250 / 800 / 2.5k / 8k Hz, -12..+12 dB,
   passo 0.5). Il pulsante on/off manda `{"cmd":"eq","on":...}`, ogni slider manda
@@ -79,6 +88,73 @@ Sempre sotto i 720 px:
 - header, rack e fondo usano `env(safe-area-inset-*)` con `viewport-fit=cover`,
   quindi la UI non finisce sotto notch/home indicator.
 
+## Accordatore
+
+La voce **Accordatore** sta nel rack "Opzioni generali" (accanto a **Salva
+opzioni**). La modale occupa quasi tutto lo schermo anche su iPhone verticale:
+overlay scuro, nota gigante con ottava, ago dei cent fra -50 e +50 che diventa
+verde entro ±5 cent, frequenza in Hz, riferimento effettivo e confidenza.
+
+- **Sorgente**: il motore copia l'input **prima** della catena in un ring buffer
+  lock-free; un thread dedicato analizza finestre da 4096 campioni (85 ms a
+  48 kHz) ~15 volte al secondo con una YIN/autocorrelazione. Il segnale
+  processato (drive, delay, riverbero...) non entra mai nell'analisi.
+- **Aggiornamento**: gli eventi SSE arrivano dal broadcast del motore. La
+  lettura viene pubblicata solo se cambia oltre una piccola isteresi (0.02% di
+  frequenza, 5% di confidenza), quindi niente spam: al massimo ~15-20 eventi/s.
+- **Muto**: `{"cmd":"tuner","mute":true}` porta l'uscita a zero con una rampa
+  breve (~4 ms); l'analisi resta sul dry e continua a funzionare. Senza muto
+  l'accordatore non cambia il suono. `on` e `mute` non sono persistiti: il
+  motore riparte spento e non muto.
+- **Riferimento e transpose**: si impostano in `settings.html` (o via comando
+  `tuner`) e si persistono in `config/presets.json` → blocco `tuner`. Il
+  riferimento effettivo è `reference_hz * 2^(transpose/12)`; il transpose cambia
+  **solo la lettura**, non il suono. Per chi suona un semitono sotto:
+  `transpose: -1` con riferimento 440 **oppure** `reference_hz: 415.3`: in
+  entrambi i casi un La reale a 415.3 Hz viene letto **A4 0 cent**. Con
+  `transpose: -1` un La a 440 Hz viene invece letto **A#4 0 cent**.
+- **Gamma**: il riferimento accetta 415.0..450.0 Hz (default 440, passo 0.1).
+  La specifica indicava 430..450, ma 415.3 Hz deve essere utilizzabile per
+  l'esempio del semitono sotto, quindi il limite inferiore è 415.0. I valori
+  fuori intervallo sono clampati.
+- **CPU**: misurata sul Pi Zero 2W con `./build/tuner_bench` (2000 analisi su
+  una nota G3 con armoniche): **1,02 ms per analisi**, cioè **~1,5% di un core a
+  15 Hz** (~2,0% a 20 Hz). In silenzio il gate RMS esce prima della YIN, quindi
+  il costo è ancora minore. La misura si rifà con
+  `./scripts/cross-build.sh && scp build-arm64/tuner_bench pi@…:/tmp/ && /tmp/tuner_bench`.
+- **Impostazioni**: `settings.html` ha i campi "Riferimento A4 (Hz)" e
+  "Transpose (semitoni)" con il riferimento effettivo calcolato live. Il
+  pulsante **Salva accordatore** manda prima `tuner` (live) e poi
+  `save_options` (persistenza); anche il cambio campo (blur/Invio) salva. La
+  voce **Salva opzioni** della pedaliera persiste gli stessi valori.
+
+## Eventi SSE (`GET /api/events`)
+
+`web/server.py` espone `GET /api/events` come `text/event-stream`. Per ogni
+client apre una connessione persistente al socket di controllo del motore e
+inoltra ogni riga di stato come:
+
+```
+data: {"slot":0,"tuner":{"on":true,"note":"A4",...},...}
+
+```
+
+Il flusso è pensato per la UI: `EventSource` è il canale principale, il polling
+`/api/state` ogni 400 ms resta come fallback.
+
+- **Heartbeat**: un commento `: heartbeat` ogni ~15 s tiene viva la connessione
+  attraverso proxy e NAT. Verso il motore parte invece `{"cmd":"ping"}` ogni
+  ~4 s: il motore chiude i client che non mandano comandi da ~10 s, e il ping
+  evita che una connessione SSE venga scartata.
+- **Re-exec del motore**: il bridge SSE resta aperto e si riconnette da solo
+  alla socket ctl quando il motore rinasce (cambio preset, ~0,3-1 s): la UI non
+  vede una disconnessione e il rotellone copre la pausa. Il browser riconnette
+  comunque da solo se cade il web server (`retry: 1500`).
+- **Chiusura**: se il client chiude, `read` sul socket HTTP torna 0 e il thread
+  termina subito; nessun client appeso.
+- **Uso da terminale**: `curl -N http://127.0.0.1:8080/api/events` stampa gli
+  eventi in tempo reale (Ctrl-C per uscire).
+
 ## Reti WiFi
 
 In Settings si aggiungono/rimuovono le reti conosciute (`config/wifi.json`:
@@ -109,9 +185,10 @@ Con sudo: `sudo systemctl restart namzero-web`.
 
 | Metodo | Percorso | Note |
 |---|---|---|
-| GET | `/api/state` | snapshot dello stato |
+| GET | `/api/state` | snapshot dello stato (fallback del polling) |
+| GET | `/api/events` | SSE: `data:` con lo snapshot a ogni cambiamento, heartbeat 15 s |
 | GET | `/api/presets` | elenco preset: `[{"slot":0,"name":"vox_wah"}, ...]` da `config/presets.json` |
-| POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`) |
+| POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`, `tuner`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |
 | GET/POST | `/api/wifi` | reti conosciute |
@@ -123,7 +200,8 @@ Il socket di controllo è `/tmp/namzero-lite-ctl.sock` (righe JSON).
 
 Il motore ascolta su `/tmp/namzero-lite-ctl.sock` (righe JSON). La web UI apre
 una connessione per richiesta: manda il comando, poi `{"cmd":"state"}`, legge
-l'ultima riga disponibile e chiude.
+l'ultima riga disponibile e chiude. L'unica eccezione è SSE: `/api/events` tiene
+una connessione aperta finché il client resta collegato.
 
 - Il motore accetta **tutte** le connessioni pendenti a ogni poll (backlog 64,
   fino a 128 client simultanei), legge da ognuno senza bloccarsi e tiene un
@@ -136,7 +214,8 @@ l'ultima riga disponibile e chiude.
   stanno leggendo i broadcast). Viene chiuso anche chi non smaltisce l'uscita
   (buffer oltre 1 MiB).
 - Al cambio preset il motore fa re-exec: la socket viene chiusa e riaperta in
-  ~0,3-0,5 s. Il client deve riconnettersi (la web UI ritenta per ~1 s).
+  ~0,3-0,5 s. Il client deve riconnettersi: la web UI (EventSource) lo fa da
+  sola, il bridge SSE riconnette la socket ctl senza chiudere lo stream.
 
 ## Cambio preset e systemd
 

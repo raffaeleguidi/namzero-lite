@@ -209,6 +209,7 @@ preset. Il deploy **non** sovrascrive questo file.
 | `autoengage` | `threshold`, `release_threshold`, `engage_ms`, `release_ms` | auto-engage del wah |
 | `boost` | `on`, `db` | boost di fine catena |
 | `eq` | `on`, `gains`, `volume_db` | EQ grafico globale a 5 bande + volume globale |
+| `tuner` | `reference_hz`, `transpose` | accordatore: riferimento del La4 e trasposizione della lettura |
 
 ### eq
 
@@ -236,6 +237,44 @@ Dal vivo il comando `{"cmd":"eq","on":bool}` accende/spegne, mentre
 Per renderli permanenti serve **Salva opzioni** (o `s`): il motore li rilegge da
 `presets.json` al prossimo avvio. `defaults` con `slot:"eq"` riporta anche il
 volume a +6 dB.
+
+### tuner
+
+Blocco dell'accordatore, valido per tutti i preset. **Non** è un effetto della
+catena: il motore analizza sempre il segnale **dry** (input prima di
+gate/comp/filter/drive/...), quindi l'accordatore funziona anche con il preset
+distorto o con l'uscita muta.
+
+```json
+"tuner": {
+  "reference_hz": 440.0,
+  "transpose": 0
+}
+```
+
+| Chiave | Default | Note |
+|--------|---------|------|
+| `reference_hz` | **440.0** | frequenza del La4, 415.0..450.0 Hz (clamp); il valore 415.3 è il La4 un semitono sotto |
+| `transpose` | **0** | semitoni, -6..+6; cambia **solo la lettura della nota**, non il suono |
+
+Il riferimento effettivo usato per nota e cent è
+`reference_hz * 2^(transpose/12)`. Due modi equivalenti per chi suona un semitono
+sotto: `transpose: -1` con riferimento 440, oppure `reference_hz: 415.3` con
+transpose 0. In entrambi i casi un La4 reale a 415.3 Hz viene letto come **A4 a
+0 cent**; con `transpose: -1` e 440 Hz reali la lettura è **A#4 0 cent**.
+
+Nota sulla gamma: la specifica iniziale indicava 430..450 Hz, ma chiedeva anche
+che 415.3 Hz fosse utilizzabile; il limite inferiore effettivo è quindi 415.0 Hz.
+Tutti i valori fuori intervallo vengono clampati dal motore e dalla UI.
+
+`on` e `mute` **non** stanno in `presets.json`: dopo un riavvio (o un cambio
+preset, che fa re-exec) l'accordatore riparte spento e non muto. È voluto: non
+si deve restare in silenzio senza capire perché. I comandi live sono
+`{"cmd":"tuner","on":bool}`, `{"cmd":"tuner","mute":bool}`,
+`{"cmd":"tuner","reference_hz":float}` e `{"cmd":"tuner","transpose":int}`;
+**Salva opzioni** scrive solo `reference_hz` e `transpose`. Se il blocco manca
+valgono i default (440 / 0), quindi la config viva esistente continua a
+funzionare dopo l'aggiornamento.
 
 ## Cosa non e' un preset
 

@@ -34,11 +34,17 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
   `presets.json` con **Salva opzioni**
 - **Volume globale** nello stesso rack (-24..+24 dB, default +6 dB): gain master
   sempre applicato, anche a EQ spento, si somma al boost
+- **Accordatore** sul segnale **dry** (prima della catena): rilevatore
+  YIN/autocorrelazione a ~15 Hz su finestre da 4096 campioni, nota/ottava/cent e
+  confidenza; riferimento A4 415..450 Hz e transpose -6..+6 in `presets.json`;
+  **Muto** con fade ~4 ms per accordare in silenzio. Modale grande nella web UI,
+  aggiornata via SSE. Costo misurato sul Pi: ~1,0 ms per analisi (~1,5% di un
+  core a 15 Hz) ([docs/web.md](docs/web.md))
 - Tasti `+`/`-` per il volume dell'ampli (salvato nel preset con `s`)
 
 **Preset**
 - `config/presets.json`: 8 slot (0-7) verso i file, opzioni globali (gate,
-  boost, auto-engage, EQ, volume), `start_slot`
+  boost, auto-engage, EQ, volume, tuner), `start_slot`
 - Combo preset nella web UI (lista da `GET /api/presets`); tasti `0`-`9` e
   navigazione blu dell'XTONE per cambiare slot; banner
   `[N] - file.json (modello.nam)` a ogni caricamento
@@ -59,12 +65,15 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 
 **Sistema**
 - **Web UI** locale (porta 8080): pedaliera con manopole live, stato
-  bidirezionale, salvataggio preset e upload NAM/IR ([docs/web.md](docs/web.md))
+  bidirezionale via **SSE** (`GET /api/events`, polling come fallback),
+  accordatore modale a 10-20 Hz, salvataggio preset e upload NAM/IR
+  ([docs/web.md](docs/web.md))
 - Servizi systemd per motore, bridge e web UI, governor persistente, capability
   (`install.sh`); G-Board e bridge sono opzionali
 - Build sul Pi (`build.sh`) o **cross-compilazione dal Mac** in container
   (`cross-build.sh` + `deploy.sh`)
-- Test: C++ (ctest), decoder bridge Python, verifica preset
+- Test: C++ (ctest, incluso `tuner_test` sul rilevatore), stress runtime
+  (`test/ctl_stress.py`: ctl + SSE), decoder bridge Python, verifica preset
 
 ## Prossimi passi
 

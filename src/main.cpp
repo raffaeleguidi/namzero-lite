@@ -37,6 +37,7 @@
 #include "dsp/eq_slot.h"
 #include "dsp/looper_slot.h"
 #include "dsp/reverb_slot.h"
+#include "dsp/tuner.h"
 #include "control/midi.h"
 #include "control/midi_config.h"
 #include "control/delay_modes.h"
@@ -1106,6 +1107,39 @@ int main(int argc, char** argv) {
     }
     volume_db.store(static_cast<float>(cfg.eq_volume_db), std::memory_order_relaxed);
 
+    // Accordatore: riferimento e transpose vivono in presets.json (blocco
+    // "tuner") e non nel preset del singolo slot, come le altre opzioni
+    // generali. on/mute NON si persistono: dopo un riavvio il motore riparte
+    // spento e non muto (evita di restare in silenzio senza capire perche').
+    double tuner_ref = namzero::kTunerRefDefault;
+    int tuner_tr = 0;
+    {
+        std::ifstream tin("config/presets.json");
+        nlohmann::json tj;
+        if (tin && (tin >> tj) && tj.contains("tuner") && tj["tuner"].is_object()) {
+            const auto& t = tj["tuner"];
+            if (t.contains("reference_hz") && t["reference_hz"].is_number()) {
+                tuner_ref = std::clamp(t["reference_hz"].get<double>(),
+                                       namzero::kTunerRefMin, namzero::kTunerRefMax);
+            }
+            if (t.contains("transpose") && t["transpose"].is_number()) {
+                tuner_tr = std::clamp(
+                    static_cast<int>(std::lround(t["transpose"].get<double>())),
+                    namzero::kTunerTransposeMin, namzero::kTunerTransposeMax);
+            }
+        }
+    }
+    std::atomic<double> tuner_reference_hz{tuner_ref};
+    std::atomic<int> tuner_transpose{tuner_tr};
+    std::atomic<bool> tuner_on{false};
+    std::atomic<bool> tuner_muted{false};
+    // Ultima lettura grezza del rilevatore: il thread di analisi la scrive, il
+    // thread ctl la legge per costruire lo snapshot (nota e cent si calcolano
+    // li' con il riferimento corrente, cosi' cambiarli ha effetto immediato).
+    std::mutex tuner_mtx;
+    namzero::TunerPitch tuner_reading;
+    std::printf("tuner: riferimento %.1f Hz, transpose %+d\n", tuner_ref, tuner_tr);
+
     // Unico punto che scrive master_gain: base (gain_db del preset) * volume
     // globale * boost. Va usato da startup, comandi boost/volume e MIDI, cosi'
     // i due guadagni non si perdono a vicenda.
@@ -1611,6 +1645,11 @@ int main(int argc, char** argv) {
     std::vector<int32_t> out_i32(samples, 0);
     std::vector<float> buf(samples, 0.0f);
 
+    // Accordatore: il thread audio copia qui il segnale DRY (input PRIMA della
+    // catena). Il ring e' lock-free e non alloca: il thread di analisi legge
+    // gli ultimi 4096 campioni ~15 volte al secondo.
+    namzero::TunerTap tuner_tap;
+
     if (!io.prime_playback(2 * io.period_frames())) {
         std::fprintf(stderr,
                      "attenzione: priming del playback fallito, "
@@ -1779,6 +1818,40 @@ int main(int argc, char** argv) {
         sl["reverb"]["mix"] = cfg.reverb_mix;
         sl["reverb"]["size"] = cfg.reverb_size;
         sl["reverb"]["damp"] = cfg.reverb_damp;
+        // Accordatore: lo snapshot contiene il riferimento impostato e quello
+        // effettivo (base * 2^(transpose/12)). Se e' spento o non c'e' una nota
+        // stabile, note/freq/cents restano neutri: la UI mostra "—".
+        {
+            const bool on = tuner_on.load(std::memory_order_relaxed);
+            const bool muted = tuner_muted.load(std::memory_order_relaxed);
+            const double ref = tuner_reference_hz.load(std::memory_order_relaxed);
+            const int tr = tuner_transpose.load(std::memory_order_relaxed);
+            nlohmann::json& t = s["tuner"];
+            t["on"] = on;
+            t["muted"] = muted;
+            t["reference_hz"] = ref;
+            t["transpose"] = tr;
+            t["effective_reference_hz"] = namzero::tuner_effective_reference(ref, tr);
+            namzero::TunerPitch p;
+            {
+                std::lock_guard<std::mutex> lk(tuner_mtx);
+                p = tuner_reading;
+            }
+            const auto note = namzero::tuner_note_from_freq(p.freq, ref, tr);
+            if (on && p.voiced && note.valid) {
+                t["note"] = note.name + std::to_string(note.octave);
+                // 0.1 Hz / 0.1 cent: abbastanza fine per l'ago, abbastanza
+                // grossolano da non far ballare lo snapshot a ogni campione.
+                t["cents"] = std::round(note.cents * 10.0) / 10.0;
+                t["freq"] = std::round(p.freq * 10.0) / 10.0;
+                t["confidence"] = std::round(p.confidence * 100.0) / 100.0;
+            } else {
+                t["note"] = "";
+                t["cents"] = 0.0;
+                t["freq"] = 0.0;
+                t["confidence"] = 0.0;
+            }
+        }
         return s.dump();
     };
 
@@ -1795,6 +1868,28 @@ int main(int argc, char** argv) {
             // Lo stato va a tutti: chi si e' appena collegato (o ha aperto la
             // connessione insieme a un cambio preset) non deve aspettare.
             ctl.broadcast(build_state());
+        } else if (cmd == "ping") {
+            // Keepalive della connessione SSE: nessuna azione, serve solo a
+            // far vedere al motore che il client e' ancora vivo (idle 10 s).
+        } else if (cmd == "tuner") {
+            // Tre forme indipendenti, combinabili in un solo messaggio:
+            // {"on":bool}, {"mute":bool}, {"reference_hz":float} (415..450),
+            // {"transpose":int} (-6..+6). Nessun re-exec: l'analisi legge gli
+            // atomici al giro successivo e lo snapshot cambia da solo.
+            if (j.contains("on")) tuner_on.store(j.value("on", false));
+            if (j.contains("mute")) tuner_muted.store(j.value("mute", false));
+            if (j.contains("reference_hz")) {
+                const double v = std::clamp(j.value("reference_hz", tuner_ref),
+                                            namzero::kTunerRefMin,
+                                            namzero::kTunerRefMax);
+                tuner_reference_hz.store(v, std::memory_order_relaxed);
+            }
+            if (j.contains("transpose")) {
+                const int v = std::clamp(
+                    static_cast<int>(std::lround(j.value("transpose", 0.0))),
+                    namzero::kTunerTransposeMin, namzero::kTunerTransposeMax);
+                tuner_transpose.store(v, std::memory_order_relaxed);
+            }
         } else if (cmd == "slot") {
             const int n = j.value("n", -1);
             if (n >= 0 && n < 10) {
@@ -1822,6 +1917,14 @@ int main(int argc, char** argv) {
                 gj["eq"]["on"] = cfg.eq_on;
                 gj["eq"]["gains"] = cfg.eq_gains;
                 gj["eq"]["volume_db"] = cfg.eq_volume_db;
+                // Blocco tuner: solo riferimento e transpose (on/mute non si
+                // persistono, vedi il commento all'avvio).
+                nlohmann::json tuner_json;
+                tuner_json["reference_hz"] =
+                    tuner_reference_hz.load(std::memory_order_relaxed);
+                tuner_json["transpose"] =
+                    tuner_transpose.load(std::memory_order_relaxed);
+                gj["tuner"] = tuner_json;
                 std::ofstream gout("config/presets.json");
                 if (!gout) throw std::runtime_error("presets.json non scrivibile");
                 gout << gj.dump(2) << '\n';
@@ -2281,7 +2384,8 @@ int main(int argc, char** argv) {
     // dell'espressione. Qui la tastiera ne regola al massimo la posizione.
     std::thread kb_thread([&chain, &cfg, &preset_path, &ctrl_mtx, &switch_slot, &current_slot, &apply_leds, looper_ptr,
                            drive_ptr, amp_ptr, i_gate, i_comp, i_drive, i_mod,
-                           i_delay, i_ir, i_reverb, mod_ptr, filter_ptr, delay_slot]() {
+                           i_delay, i_ir, i_reverb, mod_ptr, filter_ptr, delay_slot,
+                           &tuner_reference_hz, &tuner_transpose]() {
         termios oldt{};
         const bool is_tty = (tcgetattr(STDIN_FILENO, &oldt) == 0);
         if (is_tty) {
@@ -2494,6 +2598,12 @@ int main(int argc, char** argv) {
                     gj["eq"]["on"] = cfg.eq_on;
                     gj["eq"]["gains"] = cfg.eq_gains;
                     gj["eq"]["volume_db"] = cfg.eq_volume_db;
+                    nlohmann::json tuner_json;
+                    tuner_json["reference_hz"] =
+                        tuner_reference_hz.load(std::memory_order_relaxed);
+                    tuner_json["transpose"] =
+                        tuner_transpose.load(std::memory_order_relaxed);
+                    gj["tuner"] = tuner_json;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {
@@ -2546,6 +2656,77 @@ int main(int argc, char** argv) {
             }
             seen_clients = accepted;
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
+
+    // Accordatore: thread dedicato (~15 Hz). Analizza il DRY e pubblica la
+    // lettura con isteresi: lo snapshot cambia solo quando serve, cosi' il
+    // broadcast SSE resta fluido senza spam.
+    std::atomic<bool> tuner_stop{false};
+    const bool tuner_verbose = cfg.stats;
+    std::thread tuner_thread([&]() {
+        namzero::TunerDetector detector;
+        std::array<float, namzero::TunerDetector::kWindow> window{};
+        uint64_t analyses = 0;
+        uint64_t total_us = 0;
+        bool was_on = false;
+        auto on_since = std::chrono::steady_clock::now();
+        while (g_running.load() && !tuner_stop.load()) {
+            for (int i = 0; i < 3 && g_running.load() && !tuner_stop.load(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            if (!g_running.load() || tuner_stop.load()) break;
+            const bool on = tuner_on.load(std::memory_order_relaxed);
+            if (!on) {
+                was_on = false;
+                continue;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (!was_on) {
+                was_on = true;
+                on_since = now;
+            }
+            // La finestra e' 85 ms: dopo l'accensione si aspetta che il ring
+            // contenga solo audio nuovo (niente nota fantasma da dati vecchi).
+            if (now - on_since < std::chrono::milliseconds(120)) continue;
+
+            tuner_tap.read_latest(window.data(), window.size());
+            const auto t0 = std::chrono::steady_clock::now();
+            const auto p = detector.analyze(window.data(), window.size(), io.rate());
+            const auto t1 = std::chrono::steady_clock::now();
+            const auto us = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
+            ++analyses;
+            total_us += us;
+
+            {
+                std::lock_guard<std::mutex> lk(tuner_mtx);
+                const namzero::TunerPitch& pub = tuner_reading;
+                bool changed = p.voiced != pub.voiced;
+                if (!changed && p.voiced) {
+                    const double df = std::fabs(p.freq - pub.freq);
+                    // Isteresi: 0.02% di frequenza (circa 0.35 cent a 440 Hz)
+                    // e 5% di confidenza. Sotto questa soglia la lettura
+                    // pubblicata non cambia e il broadcast non parte.
+                    changed = df > std::max(0.02, pub.freq * 0.0002) ||
+                              std::fabs(p.confidence - pub.confidence) > 0.05;
+                }
+                if (changed) tuner_reading = p;
+            }
+            if (tuner_verbose && analyses % 100 == 0) {
+                const double avg_us = static_cast<double>(total_us) / analyses;
+                std::printf("tuner: %" PRIu64
+                            " analisi, media %.2f ms (~%.1f%% di un core)\n",
+                            analyses, avg_us / 1000.0, avg_us * 15.0 / 1e4);
+                std::fflush(stdout);
+            }
+        }
+        if (analyses > 0) {
+            const double avg_us = static_cast<double>(total_us) / analyses;
+            std::printf("tuner: %" PRIu64
+                        " analisi, media %.2f ms (~%.1f%% di un core a 15 Hz)\n",
+                        analyses, avg_us / 1000.0, avg_us * 15.0 / 1e4);
+            std::fflush(stdout);
         }
     });
 
@@ -2913,6 +3094,13 @@ int main(int argc, char** argv) {
         }
     });
 
+    // Muto dell'accordatore: l'uscita va a zero (e torna) con una rampa
+    // esponenziale da ~4 ms, abbastanza breve da non sentire il click ma non
+    // istantanea. L'analisi resta sul DRY, quindi funziona anche mutati.
+    const float mute_coef =
+        1.0f - std::exp(-1.0f / (0.004f * static_cast<float>(io.rate())));
+    float mute_gain = 1.0f;
+
     while (g_running.load()) {
         const int pending = switch_slot.load();
         if (pending >= 0) {
@@ -2937,12 +3125,20 @@ int main(int argc, char** argv) {
 
         for (std::size_t i = 0; i < samples; ++i) buf[i] = to_float(in_i32[i]);
 
+        // Copia DRY: PRIMA della catena, cosi' il tuner vede la chitarra e non
+        // il segnale processato (distorsione, delay, riverbero...).
+        if (tuner_on.load(std::memory_order_relaxed)) tuner_tap.push(buf.data(), frames);
+
         timespec t0{};
         timespec t1{};
         clock_gettime(CLOCK_MONOTONIC, &t0);
         chain.process(buf.data(), frames);
+        const float mg = master_gain.load(std::memory_order_relaxed);
+        const float mute_target = tuner_muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f;
         for (std::size_t i = 0; i < samples; ++i) {
-            buf[i] = soft_clip(buf[i] * master_gain.load(std::memory_order_relaxed));
+            mute_gain += (mute_target - mute_gain) * mute_coef;
+            if (std::fabs(mute_target - mute_gain) < 1e-4f) mute_gain = mute_target;
+            buf[i] = soft_clip(buf[i] * mg) * mute_gain;
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
         store_max(stats.max_us, elapsed_us(t0, t1));
@@ -3000,10 +3196,12 @@ int main(int argc, char** argv) {
     const bool abnormal_stop = g_running.load();
     g_running.store(false);
     stats_stop.store(true);
+    tuner_stop.store(true);
     if (stats_thread.joinable()) stats_thread.join();
     if (kb_thread.joinable()) kb_thread.join();
     if (midi_thread.joinable()) midi_thread.join();
     if (ctl_thread.joinable()) ctl_thread.join();
+    if (tuner_thread.joinable()) tuner_thread.join();
     for (auto& m : midis) m->close();
 
     io.close();

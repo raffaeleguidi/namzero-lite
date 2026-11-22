@@ -90,6 +90,47 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 .act.primary { border-color:var(--acc); color:var(--acc); }
 .act.saved { background:var(--acc); border-color:var(--acc); color:#16181d; }
 .act.err { background:#b00020; border-color:#b00020; color:#fff; }
+/* Accordatore: overlay scuro e pannello grande centrato, quasi a tutto
+   schermo anche su iPhone verticale. La nota e' il riferimento visivo;
+   l'ago si muove fra -50 e +50 cent e diventa verde in centro. */
+#tuner-modal { position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center;
+  padding:calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+  background:rgba(6,8,12,.88); backdrop-filter:blur(4px); }
+#tuner-modal.hidden { display:none; }
+.tuner-panel { width:min(92vw,560px); max-height:100%; overflow:auto; background:linear-gradient(#20242e,#171a21);
+  border:1px solid #3a4150; border-radius:18px; padding:14px 18px 18px; box-shadow:0 24px 60px rgba(0,0,0,.6); }
+.tuner-head { display:flex; align-items:center; justify-content:space-between; color:#8b93a7;
+  font-size:12px; letter-spacing:2px; text-transform:uppercase; }
+.tuner-head button { width:44px; height:44px; border-radius:50%; border:1px solid #3a4150; background:#12151b;
+  color:#e6e9ef; font-size:20px; cursor:pointer; }
+.tuner-note { display:flex; align-items:baseline; justify-content:center; gap:4px; margin:6px 0 0;
+  font-variant-numeric:tabular-nums; line-height:1; }
+#tuner-note { font-size:clamp(96px,32vw,240px); font-weight:700; color:#e6e9ef; letter-spacing:-4px; }
+#tuner-octave { font-size:clamp(36px,10vw,72px); color:#8b93a7; font-weight:600; }
+.tuner-cents-row { display:flex; align-items:center; gap:10px; margin-top:10px; color:#8b93a7; font-size:12px; }
+.tuner-meter { position:relative; flex:1; height:26px; border-radius:13px; background:#12151b; border:1px solid #2c3240; overflow:hidden; }
+.tuner-meter::before { content:""; position:absolute; left:50%; top:0; bottom:0; width:2px;
+  background:#3a4150; transform:translateX(-1px); }
+.tuner-meter .tuner-zone { position:absolute; left:45%; width:10%; top:0; bottom:0; background:rgba(79,209,197,.18); }
+#tuner-needle { position:absolute; top:3px; bottom:3px; width:4px; margin-left:-2px; background:#f6c453;
+  border-radius:2px; box-shadow:0 0 10px rgba(246,196,83,.7); transition:left .06s linear, background .15s; }
+#tuner-modal.in-tune #tuner-needle { background:#4fd1c5; box-shadow:0 0 12px rgba(79,209,197,.9); }
+#tuner-cents-label { text-align:center; margin-top:4px; font-size:15px; color:#8b93a7; font-variant-numeric:tabular-nums; }
+.tuner-info { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:14px; }
+.tuner-info div { background:#12151b; border:1px solid #2c3240; border-radius:10px; padding:8px; text-align:center; }
+.tuner-info span { display:block; font-size:10px; text-transform:uppercase; letter-spacing:1px; color:#8b93a7; }
+.tuner-info b { font-size:18px; font-variant-numeric:tabular-nums; }
+.tuner-actions { display:flex; gap:10px; margin-top:14px; }
+.tuner-actions .act { flex:1; min-height:48px; font-size:15px; }
+#tuner-mute.on { background:#2563eb; border-color:#2563eb; color:#fff; }
+.tuner-hint { margin:10px 0 0; text-align:center; color:#8b93a7; font-size:12px; min-height:16px; }
+@media (max-width:720px) {
+  #tuner-modal { padding:calc(4px + env(safe-area-inset-top)) calc(4px + env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) calc(4px + env(safe-area-inset-left)); }
+  .tuner-panel { width:100%; height:100%; max-height:100%; border-radius:14px;
+    padding:10px 12px 14px; display:flex; flex-direction:column; justify-content:center; }
+  #tuner-note { font-size:clamp(104px,38vw,200px); }
+  .tuner-info b { font-size:15px; }
+}
 /* Progressiva: sotto i 720 px l'header resta su una riga (titolo, [slot] +
    combo, hamburger) e undo/Salva/settings passano nel menu. Il resto del layout
    si impila e i pedali restano scrollabili dentro main, mai la pagina. */
@@ -147,8 +188,33 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 </header>
 <main id="board"></main>
 <div id="spinner" class="hidden"><div class="ring"></div></div>
+<div id="tuner-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="tuner-title">
+  <div class="tuner-panel">
+    <div class="tuner-head">
+      <span id="tuner-title">Accordatore</span>
+      <button id="tuner-close" type="button" aria-label="chiudi accordatore">✕</button>
+    </div>
+    <div class="tuner-note"><span id="tuner-note">—</span><span id="tuner-octave"></span></div>
+    <div class="tuner-cents-row">
+      <span>−50</span>
+      <div class="tuner-meter"><div class="tuner-zone"></div><div id="tuner-needle" style="left:50%"></div></div>
+      <span>+50</span>
+    </div>
+    <div id="tuner-cents-label">—</div>
+    <div class="tuner-info">
+      <div><span>Frequenza</span><b id="tuner-freq">—</b></div>
+      <div><span>Riferimento</span><b id="tuner-ref">440.0</b></div>
+      <div><span>Confidenza</span><b id="tuner-conf">—</b></div>
+    </div>
+    <div class="tuner-actions">
+      <button class="act" id="tuner-mute" type="button">Muto</button>
+      <button class="act primary" id="tuner-close2" type="button">Chiudi</button>
+    </div>
+    <p class="tuner-hint" id="tuner-hint">Suona una corda…</p>
+  </div>
+</div>
 <section id="rack">
-  <div class="rack-title">Opzioni generali <button class="act" id="save-options" style="margin-left:auto;padding:2px 10px;font-size:12px">Salva opzioni</button></div>
+  <div class="rack-title">Opzioni generali <button class="act" id="tuner-open" type="button" style="margin-left:auto;padding:2px 10px;font-size:12px">Accordatore</button><button class="act" id="save-options" style="margin-left:8px;padding:2px 10px;font-size:12px">Salva opzioni</button></div>
   <div id="rack-units"></div>
 </section>
 
@@ -420,6 +486,7 @@ function inverseOf(cmd) {
 let pendingSlot = null;
 let pendingOldPreset = null;
 let pendingPoll = false;
+let pendingPollAt = 0;
 function send(cmd, record = true) {
   if (cmd && cmd.cmd === "slot") {
     pendingSlot = cmd.n;
@@ -430,6 +497,7 @@ function send(cmd, record = true) {
                      (cmd.cmd === "set" && typeof cmd.position === "string"))) {
     pendingSlot = null;
     pendingPoll = true;
+    pendingPollAt = performance.now();
     showSpinner();
   }
   if (record) {
@@ -453,7 +521,12 @@ function render(st, fromPoll = false) {
         hideSpinner();
       }
     } else if (pendingPoll) {
-      if (fromPoll) { pendingPoll = false; hideSpinner(); }
+      // Il re-exec dura ~0,3-1 s. Con gli eventi SSE lo stato nuovo arriva
+      // senza poll: dopo ~1,1 s si toglie comunque il rotellone.
+      if (fromPoll || performance.now() - pendingPollAt > 1100) {
+        pendingPoll = false;
+        hideSpinner();
+      }
     } else {
       hideSpinner();
     }
@@ -548,7 +621,98 @@ function render(st, fromPoll = false) {
     if (document.activeElement !== k.inp) k.inp.value = v;
     k.out.textContent = (+v).toFixed(k.step < 0.1 ? 2 : 1) + k.unit;
   });
+  renderTuner(st.tuner);
 }
+
+// ── Accordatore ─────────────────────────────────────────────────────────────
+// La modale si aggiorna sugli eventi SSE (10-20 Hz). Il poll /api/state resta
+// solo come fallback quando EventSource non e' disponibile o e' caduto.
+const tunerModal = document.getElementById("tuner-modal");
+const tunerNoteEl = document.getElementById("tuner-note");
+const tunerOctaveEl = document.getElementById("tuner-octave");
+const tunerNeedleEl = document.getElementById("tuner-needle");
+const tunerCentsEl = document.getElementById("tuner-cents-label");
+const tunerFreqEl = document.getElementById("tuner-freq");
+const tunerRefEl = document.getElementById("tuner-ref");
+const tunerConfEl = document.getElementById("tuner-conf");
+const tunerMuteBtn = document.getElementById("tuner-mute");
+const tunerHintEl = document.getElementById("tuner-hint");
+let tunerOpen = false;
+let tunerClosing = false;
+let lastTunerEnableAt = 0;
+
+function splitTunerNote(note) {
+  const m = /^([A-G]#?)(-?\d+)$/.exec(note || "");
+  return m ? {name:m[1], octave:m[2]} : {name:"—", octave:""};
+}
+function tunerCmd(payload, rerender = true) {
+  return fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"},
+                            body:JSON.stringify(payload)})
+    .then(r => r.json()).then(j => {
+      if (rerender && j && !j.error) render(j);
+      return j;
+    }).catch(() => null);
+}
+function renderTuner(t) {
+  if (!t || !tunerModal) return;
+  const note = splitTunerNote(t.note);
+  tunerNoteEl.textContent = note.name;
+  tunerOctaveEl.textContent = note.octave;
+  const cents = Number(t.cents) || 0;
+  const hasNote = !!t.note;
+  // -50 cent -> 0%, 0 -> 50%, +50 -> 100%.
+  tunerNeedleEl.style.left = Math.max(0, Math.min(100, cents + 50)) + "%";
+  tunerModal.classList.toggle("in-tune", hasNote && Math.abs(cents) <= 5);
+  tunerCentsEl.textContent = hasNote
+    ? (cents >= 0 ? "+" : "") + cents.toFixed(1) + " cent"
+    : "—";
+  tunerFreqEl.textContent = t.freq > 0 ? (+t.freq).toFixed(1) : "—";
+  const ref = Number(t.effective_reference_hz || t.reference_hz || 440);
+  let refTxt = ref.toFixed(1) + " Hz";
+  if (t.transpose) refTxt += " (" + (t.transpose > 0 ? "+" : "") + t.transpose + " st)";
+  tunerRefEl.textContent = refTxt;
+  tunerConfEl.textContent = hasNote ? Math.round((Number(t.confidence) || 0) * 100) + "%" : "—";
+  tunerMuteBtn.classList.toggle("on", !!t.muted);
+  tunerMuteBtn.textContent = t.muted ? "Muto ON" : "Muto";
+  tunerHintEl.textContent = t.muted
+    ? "Uscita muta: accorda in silenzio"
+    : (hasNote ? "Accorda al centro (verde)" : "Suona una corda…");
+  // Se il motore fa re-exec mentre la modale e' aperta, l'accordatore torna
+  // off: lo si riaccende senza che l'utente debba chiudere e riaprire.
+  if (tunerOpen && !t.on && !tunerClosing &&
+      performance.now() - lastTunerEnableAt > 900) {
+    lastTunerEnableAt = performance.now();
+    tunerCmd({cmd:"tuner", on:true});
+  }
+}
+function openTuner() {
+  tunerOpen = true;
+  tunerClosing = false;
+  tunerModal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  lastTunerEnableAt = performance.now();
+  tunerCmd({cmd:"tuner", on:true});
+  refresh();
+}
+function closeTuner() {
+  if (!tunerOpen) return;
+  tunerOpen = false;
+  tunerClosing = true;
+  tunerModal.classList.add("hidden");
+  document.body.style.overflow = "";
+  lastTunerEnableAt = performance.now();
+  // Chiudendo si spegne l'accordatore e si toglie il muto: non si deve
+  // restare in silenzio senza capire perche'.
+  tunerCmd({cmd:"tuner", on:false, mute:false});
+  setTimeout(() => { tunerClosing = false; }, 800);
+}
+document.getElementById("tuner-open").onclick = openTuner;
+document.getElementById("tuner-close").onclick = closeTuner;
+document.getElementById("tuner-close2").onclick = closeTuner;
+tunerModal.addEventListener("click", (e) => { if (e.target === tunerModal) closeTuner(); });
+tunerMuteBtn.onclick = () => tunerCmd({cmd:"tuner", mute: !(last?.tuner?.muted)});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tunerOpen) closeTuner(); });
+
 let failCount = 0;
 function refresh() {
   fetch("/api/state").then(r => r.json()).then(j => {
@@ -652,7 +816,45 @@ saveBtn.onclick = () => {
   (j.files||[]).forEach(f => card._file.append(el("option", {value:f, textContent:f})));
 }).catch(()=>{}));
 
-refresh(); setInterval(refresh, 400);
+// ── SSE: canale principale, poll come fallback ──────────────────────────────
+// EventSource riceve lo snapshot dal motore appena cambia (accordatore a
+// 10-20 Hz compreso). Il browser riconnette da solo se il web server cade;
+// durante il re-exec del motore il bridge SSE del server resta aperto e si
+// riconnette alla socket ctl, quindi la UI non perde eventi.
+let es = null;
+let esConnected = false;
+let esRetryTimer = null;
+function scheduleReconnect() {
+  if (esRetryTimer) return;
+  esRetryTimer = setTimeout(() => { esRetryTimer = null; connectSSE(); }, 1500);
+}
+function connectSSE() {
+  if (typeof EventSource === "undefined") return;  // solo poll
+  if (es) { try { es.close(); } catch (e) {} es = null; }
+  try { es = new EventSource("/api/events"); } catch (e) { scheduleReconnect(); return; }
+  es.onopen = () => { esConnected = true; };
+  es.onmessage = (ev) => {
+    esConnected = true;
+    try {
+      const st = JSON.parse(ev.data);
+      if (st && !st.error) render(st, false);
+    } catch (e) {}
+  };
+  es.onerror = () => {
+    esConnected = false;
+    // CONNECTING: il browser sta gia' ritentando. CLOSED: va ricreato.
+    if (es && es.readyState === EventSource.CLOSED) scheduleReconnect();
+  };
+}
+connectSSE();
+
+refresh();
+setInterval(() => {
+  // Poll di sicurezza: solo se EventSource non e' aperto. Con SSE attivo la
+  // modale dell'accordatore vive di eventi, non di polling (anche in silenzio,
+  // quando lo stato non cambia per qualche secondo).
+  if (!esConnected) refresh();
+}, 400);
 </script>
 <script src="ui.js"></script>
 </body>

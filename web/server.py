@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 import secrets
+import select
 import socket
 import time
 import urllib.parse
@@ -43,7 +44,7 @@ def _lan_ip():
 # Comandi idempotenti: se il re-exec chiude la connessione a meta' richiesta si
 # possono ripetere senza applicarli due volte (looper e rename restano fuori).
 _RETRYABLE = {"state", "slot", "reload", "param", "set", "file", "save",
-              "save_options", "defaults", "boost", "autoengage", "eq"}
+              "save_options", "defaults", "boost", "autoengage", "eq", "tuner"}
 
 
 def _ctl_once(payload):
@@ -211,7 +212,114 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Location", location)
         self.end_headers()
 
+    # ── Server-Sent Events ──────────────────────────────────────────────────
+    # Una connessione ctl persistente per ogni client SSE. Il motore manda lo
+    # stato in broadcast quando cambia; qui ogni riga diventa "data: <json>".
+    # Il bridge resta connesso anche durante il re-exec del motore: se la
+    # socket cade si riconnette in background e il browser non se ne accorge.
+    # Il keepalive verso il motore ("ping") e' separato dall'heartbeat SSE:
+    # il motore chiude i client che non mandano comandi da ~10 s, quindi il
+    # ping parte ogni 4 s; il commento ": heartbeat" va al browser ogni 15 s.
+    def _sse(self):
+        self.close_connection = True
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            self.wfile.write(b"retry: 1500\n\n")
+            self.wfile.flush()
+        except OSError:
+            return
+
+        sock = None
+        buf = b""
+        last_beat = time.time()
+        last_ping = 0.0
+        try:
+            while True:
+                if sock is None:
+                    try:
+                        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        sock.settimeout(2.5)
+                        sock.connect(CTL)
+                        buf = b""
+                        last_ping = 0.0
+                    except OSError:
+                        if sock is not None:
+                            sock.close()
+                        sock = None
+                        # Motore in re-exec o non ancora partito: si riprova
+                        # senza chiudere lo stream SSE.
+                        time.sleep(0.2)
+                        now = time.time()
+                        if now - last_beat >= 15.0:
+                            self.wfile.write(b": heartbeat\n\n")
+                            self.wfile.flush()
+                            last_beat = now
+                        continue
+
+                try:
+                    # Si aspetta sia il motore sia il client: se il browser
+                    # chiude la connessione, recv() torna 0 e si esce subito
+                    # (senza aspettare l'heartbeat dei 15 s).
+                    ready, _, _ = select.select([sock, self.connection], [], [], 0.25)
+                except OSError:
+                    ready = []
+                if self.connection in ready:
+                    try:
+                        junk = self.connection.recv(4096)
+                    except OSError:
+                        junk = b""
+                    if not junk:
+                        return
+                    ready = [s for s in ready if s is not self.connection]
+                if sock in ready:
+                    try:
+                        data = sock.recv(65536)
+                    except OSError:
+                        data = b""
+                    if not data:
+                        # Motore riavviato (o socket chiusa): si riconnette.
+                        sock.close()
+                        sock = None
+                        continue
+                    buf += data
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        self.wfile.write(b"data: " + line + b"\n\n")
+                        self.wfile.flush()
+
+                now = time.time()
+                if now - last_ping >= 4.0:
+                    try:
+                        sock.sendall(b'{"cmd":"ping"}\n')
+                    except OSError:
+                        sock.close()
+                        sock = None
+                    last_ping = now
+                if now - last_beat >= 15.0:
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+                    last_beat = now
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+
     def do_GET(self):
+        if self.path.split("?", 1)[0] == "/api/events":
+            self._sse()
+            return
         if self.path.startswith("/api/presets"):
             try:
                 self._json(presets_list())
