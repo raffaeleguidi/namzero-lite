@@ -97,8 +97,25 @@ verde entro ±5 cent, frequenza in Hz, riferimento effettivo e confidenza.
 
 - **Sorgente**: il motore copia l'input **prima** della catena in un ring buffer
   lock-free; un thread dedicato analizza finestre da 4096 campioni (85 ms a
-  48 kHz) ~15 volte al secondo con una YIN/autocorrelazione. Il segnale
-  processato (drive, delay, riverbero...) non entra mai nell'analisi.
+  48 kHz) ~15 volte al secondo con una YIN. Prima della decimazione x4 c'è un
+  filtro anti-alias FIR (63 tap, taglio ~3,6 kHz a 48 kHz): senza, le armoniche
+  dei cantini fra 6 e 12 kHz si ripiegavano nella banda e la CMNDF perdeva la
+  nota o la spostava. Il segnale processato (drive, delay, riverbero...) non
+  entra mai nell'analisi.
+- **Accuratezza cantini e gate**: su Si3 (246,94 Hz) e Mi4 (329,63 Hz) con
+  attacco, decadimento e armoniche realistici la lettura resta entro pochi cent
+  per tutta la durata del decay; `tuner_test` verifica almeno il 90% di 1,5 s.
+  Il gate RMS è **adattivo** con pavimento a circa -70 dBFS (prima era fisso a
+  -56 dBFS): la coda debole dei cantini non sparisce più appena scende sotto
+  la vecchia soglia. Il rumore di fondo stimato alza la soglia solo piano e
+  solo finché resta sotto -54 dBFS.
+- **Hold**: quando la confidenza scende (corda che si spegne o rumore) la nota
+  e l'ago restano per **~600 ms** con la confidenza in fade, poi la UI torna a
+  "—". Una nuova nota forte (confidenza ≥0,90) sostituisce subito la
+  precedente; una più debole deve confermarsi per due analisi (~130 ms). Così
+  non si vede la corda vecchia quando se ne suona un'altra. Spegnendo
+  l'accordatore l'hold viene azzerato, quindi riaccendendolo in silenzio non
+  ricompare l'ultima nota.
 - **Aggiornamento**: gli eventi SSE arrivano dal broadcast del motore. La
   lettura viene pubblicata solo se cambia oltre una piccola isteresi (0.02% di
   frequenza, 5% di confidenza), quindi niente spam: al massimo ~15-20 eventi/s.
@@ -118,9 +135,13 @@ verde entro ±5 cent, frequenza in Hz, riferimento effettivo e confidenza.
   l'esempio del semitono sotto, quindi il limite inferiore è 415.0. I valori
   fuori intervallo sono clampati.
 - **CPU**: misurata sul Pi Zero 2W con `./build/tuner_bench` (2000 analisi su
-  una nota G3 con armoniche): **1,02 ms per analisi**, cioè **~1,5% di un core a
-  15 Hz** (~2,0% a 20 Hz). In silenzio il gate RMS esce prima della YIN, quindi
-  il costo è ancora minore. La misura si rifà con
+  G3 e su Mi4, entrambi con armoniche): **~0,90 ms per analisi**, cioè **~1,3%
+  di un core a 15 Hz** (~1,8% a 20 Hz). Il filtro anti-alias costa poco perché
+  si calcolano solo le uscite decimate e l'accumulo è in float (vettorizzato
+  NEON); la YIN in float è più veloce della versione precedente in double,
+  quindi il totale non è peggiorato (prima: ~1,02 ms, ~1,5%). In silenzio il
+  gate RMS esce prima della YIN, quindi il costo è ancora minore. La misura si
+  rifà con
   `./scripts/cross-build.sh && scp build-arm64/tuner_bench pi@…:/tmp/ && /tmp/tuner_bench`.
 - **Impostazioni**: `settings.html` ha i campi "Riferimento A4 (Hz)" e
   "Transpose (semitoni)" con il riferimento effettivo calcolato live. Il

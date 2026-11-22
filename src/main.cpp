@@ -2671,6 +2671,7 @@ int main(int argc, char** argv) {
         uint64_t total_us = 0;
         bool was_on = false;
         auto on_since = std::chrono::steady_clock::now();
+        auto last_analysis = std::chrono::steady_clock::now();
         while (g_running.load() && !tuner_stop.load()) {
             for (int i = 0; i < 3 && g_running.load() && !tuner_stop.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -2678,13 +2679,18 @@ int main(int argc, char** argv) {
             if (!g_running.load() || tuner_stop.load()) break;
             const bool on = tuner_on.load(std::memory_order_relaxed);
             if (!on) {
+                // Spento: azzera l'hold, altrimenti riaccendendolo in silenzio
+                // si vedrebbe per 600 ms l'ultima nota rimasta in memoria.
+                detector.reset();
                 was_on = false;
+                last_analysis = std::chrono::steady_clock::now();
                 continue;
             }
             const auto now = std::chrono::steady_clock::now();
             if (!was_on) {
                 was_on = true;
                 on_since = now;
+                last_analysis = now;
             }
             // La finestra e' 85 ms: dopo l'accensione si aspetta che il ring
             // contenga solo audio nuovo (niente nota fantasma da dati vecchi).
@@ -2692,7 +2698,13 @@ int main(int argc, char** argv) {
 
             tuner_tap.read_latest(window.data(), window.size());
             const auto t0 = std::chrono::steady_clock::now();
-            const auto p = detector.analyze(window.data(), window.size(), io.rate());
+            // dt reale fra le analisi: l'hold (600 ms) e il gate adattivo
+            // seguono il tempo vero, non il numero di frame.
+            const double dt =
+                std::chrono::duration<double>(t0 - last_analysis).count();
+            last_analysis = t0;
+            const auto p = detector.analyze(window.data(), window.size(),
+                                            io.rate(), dt);
             const auto t1 = std::chrono::steady_clock::now();
             const auto us = static_cast<uint64_t>(
                 std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());

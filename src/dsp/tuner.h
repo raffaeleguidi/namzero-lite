@@ -6,10 +6,29 @@
 // catena) in un ring buffer lock-free con TunerTap. Un thread dedicato legge
 // l'ultima finestra e chiama TunerDetector::analyze() ~15 volte al secondo.
 //
-// Il rilevatore e' una YIN semplificata: decimazione x4 (48 kHz -> 12 kHz),
-// funzione di differenza, cumulative mean normalized difference (CMNDF) e
-// interpolazione parabolica del minimo. Costa poche centinaia di migliaia di
-// operazioni per analisi, quindi resta sotto l'1% di CPU su un Pi Zero 2W.
+// Il rilevatore e' una YIN: filtro anti-alias FIR e decimazione x4
+// (48 kHz -> 12 kHz), funzione di differenza, cumulative mean normalized
+// difference (CMNDF) e interpolazione parabolica del minimo.
+//
+// Perche' il filtro anti-alias: la sola media boxcar x4 non attenua le
+// armoniche fra 6 e 12 kHz, che nei cantini sono molto energetiche e si
+// ripiegano nella banda 0-6 kHz come componenti non armoniche: la CMNDF
+// perde il minimo giusto e la nota sparisce o si sposta. Il FIR Blackman
+// (63 tap, taglio ~3.6 kHz a 48 kHz) le elimina prima della decimazione.
+//
+// Il gate RMS e' adattivo e basso (pavimento 0.0003, circa -70 dBFS): i
+// cantini sono piu' deboli dei bassi e decadono prima, con la vecchia soglia
+// fissa a 0.0015 la nota spariva dopo poche centinaia di ms. In piu' la
+// lettura resta agganciata per kHoldSeconds (600 ms) dopo che la confidenza
+// scende, con la confidenza in fade: la nota e l'ago non saltano via al
+// primo frame incerto. Una nuova nota forte sostituisce subito quella
+// vecchia, una piu' debole si conferma in due analisi: l'hold non mostra la
+// corda precedente quando se ne suona un'altra.
+//
+// Costo: ~0,9 ms per analisi su Pi Zero 2W (~1,3% di un core a 15 Hz),
+// misurato con ./build/tuner_bench (G3 e Mi4). Il filtro calcola solo le
+// uscite decimate e la funzione di differenza accumula in float (NEON):
+// nonostante il FIR in piu' il totale e' un po' piu' basso di prima.
 
 #include <algorithm>
 #include <array>
@@ -140,52 +159,129 @@ class TunerDetector {
 public:
     static constexpr std::size_t kWindow = 4096;  // 85 ms a 48 kHz
     static constexpr std::size_t kDecim = 4;
-    static constexpr std::size_t kDecWindow = kWindow / kDecim;  // 1024 @ 12 kHz
     static constexpr std::size_t kMaxLag = 512;
-    static constexpr double kRmsMin = 0.0015;  // circa -56 dBFS: sotto = silenzio
-    static constexpr double kThreshold = 0.15;   // CMNDF: primo minimo valido
-    static constexpr double kFallback = 0.45;    // oltre: niente nota
 
-    TunerPitch analyze(const float* x, std::size_t n, double rate) {
+    // Anti-alias: FIR Blackman simmetrica, 63 tap, taglio al 7.5% del rate
+    // (~3.6 kHz a 48 kHz; stopband da ~5.9 kHz, cioe' sopra il Nyquist della
+    // banda decimata). Si calcolano solo le uscite che servono (una ogni 4
+    // campioni), quindi il costo e' 63 * 1009 moltiplicazioni per analisi.
+    static constexpr std::size_t kAaTaps = 63;
+    static constexpr std::size_t kAaCenter = (kAaTaps - 1) / 2;
+    static constexpr double kAaCutoffFrac = 0.075;
+    // Prima uscita decimata con tutti i tap dentro la finestra (`center` e'
+    // 31, non multiplo di 4).
+    static constexpr std::size_t kAaFirst = (kAaCenter + kDecim - 1) / kDecim;
+    // Ultima uscita decimata: l'ultimo tap deve cadere entro kWindow-1.
+    static constexpr std::size_t kDecValid =
+        (kWindow - 1 - kAaCenter) / kDecim - kAaFirst + 1;
+
+    // Gate: pavimento assoluto basso + rumore di fondo stimato. La stima sale
+    // solo se il livello resta sotto kNoiseTrackMax, altrimenti in una stanza
+    // rumorosa la soglia taglierebbe anche le note vere.
+    static constexpr double kRmsFloor = 0.0003;   // ~-70 dBFS
+    static constexpr double kNoiseGate = 2.0;     // 2x il rumore stimato
+    static constexpr double kNoiseTrackMax = 0.002;  // sopra: non e' rumore
+    static constexpr double kNoiseDownTau = 0.4;  // s, insegue il silenzio
+    static constexpr double kNoiseUpTau = 5.0;    // s, si adatta piano
+
+    static constexpr double kThreshold = 0.15;  // CMNDF: primo minimo valido
+    static constexpr double kFallback = 0.45;   // oltre: niente nota
+    static constexpr double kMinConfidence = 0.55;  // per una nota nuova fresca
+    // Cambio nota: una nota diversa da quella agganciata deve essere forte
+    // (kImmediateConfidence) oppure confermarsi per kConfirmFrames frame con
+    // confidenza >= kConfirmConfidence. Serve a non scambiare per "nuova
+    // corda" un frame di rumore nella coda del cantino, che ha poca energia e
+    // puo' far scegliere alla YIN un lag sbagliato.
+    static constexpr double kImmediateConfidence = 0.90;
+    static constexpr double kConfirmConfidence = 0.75;
+    static constexpr int kConfirmFrames = 2;
+    static constexpr double kSamePitchRatio = 0.03;   // ~50 cent
+    static constexpr double kSwitchRmsFrac = 0.03;    // -30 dB dal picco nota
+    static constexpr double kPeakReleaseTau = 2.0;    // s
+
+    // Hold: la lettura resta per 600 ms dopo che la confidenza scende, con
+    // fade lineare. 400-700 ms e' il compromesso fra "non sparisce subito" e
+    // "non mostra una nota vecchia".
+    static constexpr double kHoldSeconds = 0.6;
+
+    TunerDetector() = default;
+
+    // hold=false serve ai test che vogliono misurare la sola detezione, senza
+    // l'estensione artificiale della coda.
+    explicit TunerDetector(bool hold) : hold_enabled_(hold) {}
+
+    // Da chiamare quando l'accordatore viene spento: senza questo, riaccendendolo
+    // in silenzio si vedrebbe per 600 ms l'ultima nota tenuta in memoria.
+    void reset() {
+        have_note_ = false;
+        hold_elapsed_ = 0.0;
+        held_freq_ = 0.0;
+        held_conf_ = 0.0;
+        noise_rms_ = 0.0;
+        note_peak_rms_ = 0.0;
+        pending_count_ = 0;
+    }
+
+    // dt e' il tempo dall'analisi precedente (per il fade dell'hold e per il
+    // rumore di fondo). Default 1/15 s: il thread tuner gira a ~15 Hz.
+    TunerPitch analyze(const float* x, std::size_t n, double rate,
+                       double dt = 1.0 / 15.0) {
         TunerPitch out;
         if (x == nullptr || n < kWindow || rate <= 0.0) return out;
+        if (!(dt > 0.0)) dt = 1.0 / 15.0;
+        dt = std::clamp(dt, 0.001, 0.5);
+        configure(rate);
 
-        // Decimazione boxcar x4: 48 kHz -> 12 kHz. Il filtro ha zeri a 12k,
-        // 24k, ... e attenua abbastanza le armoniche alte per la YIN.
+        // Anti-alias FIR + decimazione x4. L'uscita i e' centrata sul campione
+        // (kAaFirst+i)*kDecim: si usa la forma non causale, che e' simmetrica e
+        // non introduce ritardo di gruppo (irrilevante per la YIN, ma comoda).
         double sum_sq = 0.0;
-        for (std::size_t i = 0; i < kDecWindow; ++i) {
-            const float* p = x + i * kDecim;
-            float v = 0.0f;
-            for (std::size_t j = 0; j < kDecim; ++j) v += p[j];
-            v *= 1.0f / static_cast<float>(kDecim);
-            dec_[i] = v;
-            sum_sq += static_cast<double>(v) * v;
+        for (std::size_t i = 0; i < kDecValid; ++i) {
+            const float* p = x + (kAaFirst + i) * kDecim - kAaCenter;
+            float acc = 0.0f;
+            for (std::size_t k = 0; k < kAaTaps; ++k) {
+                acc += aa_[k] * p[k];
+            }
+            dec_[i] = acc;
+            sum_sq += static_cast<double>(acc) * acc;
         }
-        out.rms = std::sqrt(sum_sq / static_cast<double>(kDecWindow));
-        if (out.rms < kRmsMin) return out;
+        out.rms = std::sqrt(sum_sq / static_cast<double>(kDecValid));
+
+        const double gate = std::max(kRmsFloor, kNoiseGate * noise_rms_);
+        if (out.rms < gate) {
+            update_noise(out.rms, false, dt);
+            hold_or_publish(out, false, 0.0, 0.0, dt);
+            return out;
+        }
 
         // Toglie la continua: un offset di ingresso falserebbe il minimo.
         double mean = 0.0;
-        for (float v : dec_) mean += v;
-        mean /= static_cast<double>(kDecWindow);
-        for (float& v : dec_) v = static_cast<float>(v - mean);
+        for (std::size_t i = 0; i < kDecValid; ++i) mean += dec_[i];
+        mean /= static_cast<double>(kDecValid);
+        for (std::size_t i = 0; i < kDecValid; ++i) {
+            dec_[i] = static_cast<float>(dec_[i] - mean);
+        }
 
         const double dr = rate / static_cast<double>(kDecim);
         std::size_t min_lag = static_cast<std::size_t>(std::floor(dr / kTunerMaxHz));
         if (min_lag < 1) min_lag = 1;
         std::size_t max_lag = static_cast<std::size_t>(std::ceil(dr / kTunerMinHz));
         max_lag = std::min(max_lag, kMaxLag);
-        if (max_lag <= min_lag + 2 || max_lag >= kDecWindow) return out;
+        if (max_lag <= min_lag + 2 || max_lag + 1 >= kDecValid) {
+            update_noise(out.rms, false, dt);
+            hold_or_publish(out, false, 0.0, 0.0, dt);
+            return out;
+        }
 
-        // Funzione di differenza. Si usano kDecWindow - max_lag campioni per
+        // Funzione di differenza. Si usano kDecValid - max_lag campioni per
         // ogni lag, cosi' tutti i lag guardano la stessa porzione di segnale.
-        const std::size_t w = kDecWindow - max_lag;
+        const std::size_t w = kDecValid - max_lag;
         for (std::size_t tau = 0; tau <= max_lag; ++tau) {
-            double sum = 0.0;
+            float sum = 0.0f;
             const float* a = dec_.data();
             const float* b = dec_.data() + tau;
             for (std::size_t i = 0; i < w; ++i) {
-                const double d = static_cast<double>(a[i]) - b[i];
+                const float d = a[i] - b[i];
                 sum += d * d;
             }
             diff_[tau] = sum;
@@ -214,7 +310,11 @@ public:
                 break;
             }
         }
-        if (best_val > kFallback) return out;
+        if (best_val > kFallback) {
+            update_noise(out.rms, false, dt);
+            hold_or_publish(out, false, 0.0, 0.0, dt);
+            return out;
+        }
 
         double shift = 0.0;
         if (best > min_lag && best < max_lag) {
@@ -226,17 +326,164 @@ public:
             shift = std::clamp(shift, -0.5, 0.5);
         }
         const double period = static_cast<double>(best) + shift;
-        if (period <= 0.0) return out;
-        out.freq = dr / period;
-        out.confidence = std::clamp(1.0 - best_val, 0.0, 1.0);
-        out.voiced = out.freq >= kTunerMinHz && out.freq <= kTunerMaxHz;
+        if (period <= 0.0) {
+            update_noise(out.rms, false, dt);
+            hold_or_publish(out, false, 0.0, 0.0, dt);
+            return out;
+        }
+        const double freq = dr / period;
+        const double confidence = std::clamp(1.0 - best_val, 0.0, 1.0);
+        const bool fresh = freq >= kTunerMinHz && freq <= kTunerMaxHz;
+        update_noise(out.rms, fresh, dt);
+        hold_or_publish(out, fresh, freq, confidence, dt);
         return out;
     }
 
 private:
-    std::array<float, kDecWindow> dec_{};
+    // Coefficienti del FIR in ordine "forward" rispetto al buffer p[] usato in
+    // analyze(): aa_[k] = h[kAaTaps-1-k], cosi' il ciclo interno legge in
+    // avanti ed e' piu' facile da vettorizzare.
+    void configure(double rate) {
+        if (rate == cfg_rate_) return;
+        cfg_rate_ = rate;
+        constexpr double kPi = 3.14159265358979323846;
+        const double fc = kAaCutoffFrac * rate;
+        const double center = static_cast<double>(kAaCenter);
+        std::array<float, kAaTaps> h{};
+        double sum = 0.0;
+        for (std::size_t k = 0; k < kAaTaps; ++k) {
+            const double t = static_cast<double>(k) - center;
+            double s = 1.0;
+            if (std::fabs(t) > 1e-12) {
+                const double x = 2.0 * kPi * fc * t / rate;
+                s = std::sin(x) / x;
+            }
+            const double ph = 2.0 * kPi * static_cast<double>(k) /
+                              static_cast<double>(kAaTaps - 1);
+            const double window = 0.42 - 0.5 * std::cos(ph) + 0.08 * std::cos(2.0 * ph);
+            h[k] = 2.0 * fc / rate * s * window;
+            sum += h[k];
+        }
+        for (std::size_t k = 0; k < kAaTaps; ++k) {
+            aa_[k] = h[kAaTaps - 1 - k] / sum;
+        }
+    }
+
+    // Stima del rumore di fondo: scende in fretta verso il silenzio, sale
+    // piano e solo quando il livello e' abbastanza basso da essere rumore.
+    void update_noise(double rms, bool voiced, double dt) {
+        if (voiced) return;
+        if (rms < noise_rms_) {
+            noise_rms_ += (rms - noise_rms_) * std::min(1.0, dt / kNoiseDownTau);
+        } else if (rms < kNoiseTrackMax) {
+            noise_rms_ += (rms - noise_rms_) * std::min(1.0, dt / kNoiseUpTau);
+        }
+    }
+
+    // Se la detezione e' fresca e abbastanza sicura, pubblica la nuova nota.
+    // Altrimenti tiene l'ultima per kHoldSeconds con confidenza in fade.
+    // Una nuova nota forte sostituisce subito la precedente; una piu' debole
+    // deve confermarsi un paio di frame, cosi' la coda rumorosa del cantino
+    // non fa saltare l'ago su una nota fantasma. L'hold non sopravvive al
+    // cambio di corda perche' una nuova nota confermata lo azzera.
+    void hold_or_publish(TunerPitch& out, bool fresh, double freq,
+                         double confidence, double dt) {
+        if (note_peak_rms_ > 0.0) {
+            note_peak_rms_ *= std::exp(-dt / kPeakReleaseTau);
+        }
+        if (fresh && confidence >= kMinConfidence) {
+            const bool significant_level =
+                note_peak_rms_ <= 0.0 || out.rms >= kSwitchRmsFrac * note_peak_rms_;
+            if (!have_note_) {
+                const int count = confirm(freq);
+                if (confidence >= kImmediateConfidence || count >= kConfirmFrames) {
+                    accept(out, freq, confidence);
+                    return;
+                }
+            } else {
+                const double ratio = freq / held_freq_;
+                if (std::fabs(ratio - 1.0) <= kSamePitchRatio) {
+                    // Stessa nota: si aggiorna la frequenza (l'ago segue) e si
+                    // tiene la confidenza migliore vista, cosi' un frame
+                    // rumoroso non abbassa la soglia per il cambio nota.
+                    held_freq_ = freq;
+                    held_conf_ = std::max(held_conf_, confidence);
+                    hold_elapsed_ = 0.0;
+                    pending_count_ = 0;
+                    out.voiced = true;
+                    out.freq = freq;
+                    out.confidence = confidence;
+                    return;
+                }
+                if (significant_level) {
+                    const bool strong = confidence >= kImmediateConfidence;
+                    const int count = confirm(freq);
+                    if (strong ||
+                        (count >= kConfirmFrames &&
+                         confidence >= kConfirmConfidence)) {
+                        accept(out, freq, confidence);
+                        return;
+                    }
+                }
+            }
+        }
+        if (hold_enabled_ && have_note_) {
+            hold_elapsed_ += dt;
+            const double fade = 1.0 - hold_elapsed_ / kHoldSeconds;
+            if (fade > 0.0) {
+                out.voiced = true;
+                out.freq = held_freq_;
+                out.confidence = held_conf_ * fade;
+                return;
+            }
+            have_note_ = false;
+            note_peak_rms_ = 0.0;
+        }
+        pending_count_ = 0;
+        out.voiced = false;
+        out.freq = 0.0;
+        out.confidence = 0.0;
+    }
+
+    // Conta i frame consecutivi in cui la stessa candidata (entro il 3%) e'
+    // stata proposta. Un cambio corda vero resta stabile, il rumore no.
+    int confirm(double freq) {
+        if (pending_count_ > 0 &&
+            std::fabs(freq / pending_freq_ - 1.0) <= kSamePitchRatio) {
+            ++pending_count_;
+        } else {
+            pending_freq_ = freq;
+            pending_count_ = 1;
+        }
+        return pending_count_;
+    }
+
+    void accept(TunerPitch& out, double freq, double confidence) {
+        have_note_ = true;
+        hold_elapsed_ = 0.0;
+        held_freq_ = freq;
+        held_conf_ = confidence;
+        note_peak_rms_ = std::max(note_peak_rms_, out.rms);
+        pending_count_ = 0;
+        out.voiced = true;
+        out.freq = freq;
+        out.confidence = confidence;
+    }
+
+    std::array<float, kAaTaps> aa_{};
+    std::array<float, kDecValid> dec_{};
     std::array<double, kMaxLag + 2> diff_{};
     std::array<double, kMaxLag + 2> cmndf_{};
+    double cfg_rate_ = 0.0;
+    double noise_rms_ = 0.0;
+    double note_peak_rms_ = 0.0;
+    bool hold_enabled_ = true;
+    bool have_note_ = false;
+    double hold_elapsed_ = 0.0;
+    double held_freq_ = 0.0;
+    double held_conf_ = 0.0;
+    double pending_freq_ = 0.0;
+    int pending_count_ = 0;
 };
 
 }  // namespace namzero
