@@ -1,9 +1,11 @@
 # Preset
 
-Un preset e' un file JSON in `config/presets/` che descrive **tutto** lo stato del
-motore: dispositivo audio, parametri di ogni slot, comportamento. Si carica con
-`-p`/`--preset`; i flag da riga di comando e `-p` sono alternativi (mescolarli
-renderebbe ambiguo chi vince, e i due percorsi divergerebbero in silenzio).
+Un preset e' un file JSON in `config/presets/` che descrive lo stato degli slot
+e il comportamento del motore. L'**interfaccia audio** non e' piu' una scelta del
+singolo preset: vive nel blocco `audio` di `config/presets.json` (vedi sotto), e'
+globale e si applica a tutti i preset. Un preset si carica con `-p`/`--preset`;
+i flag da riga di comando e `-p` sono alternativi (mescolarli renderebbe ambiguo
+chi vince, e i due percorsi divergerebbero in silenzio).
 
 Il preset viene letto **una volta sola, all'avvio**: modificare il file con il
 programma in esecuzione non cambia niente. Per sentire le modifiche va riavviato.
@@ -17,8 +19,6 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 {
   "version": 1,
   "name": "VOX AC30 + tremolo + delay",
-  "audio": { "device": "hw:XTONE", "rate": 48000,
-             "period_frames": 64, "periods": 3, "gain_db": 0.0 },
   "slots": {
     "gate":   { "on": true,  "threshold_db": -55, "attack_ms": 2, "release_ms": 120 },
     "comp":   { "on": false, "threshold_db": -18, "ratio": 3,
@@ -42,15 +42,24 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 }
 ```
 
-### audio
+### audio (compatibilita' nel singolo preset)
+
+I file preset possono ancora contenere un blocco `audio`: viene usato solo
+avviando con `-p` **senza** blocco `audio` in `config/presets.json` (per esempio
+un preset portabile). Con la config viva normale il blocco globale vince su
+`device`, `period_frames` e `periods`.
 
 | Chiave | Default | Note |
 |--------|---------|------|
 | `device` | `hw:XTONE` | PCM ALSA, **per nome** (l'indice cambia al boot) |
-| `rate` | 48000 | Hz |
+| `rate` | 48000 | **ignorato**: il motore usa sempre 48000 Hz |
 | `period_frames` | 64 | frame per periodo |
 | `periods` | 3 | periodi nel buffer |
 | `gain_db` | 0.0 | gain master, dopo la catena |
+
+Da riga di comando gli stessi valori si passano con `--device`, `--buffer`,
+`--periods` e `--input`; questi override valgono per l'avvio corrente e **non**
+vengono persistiti.
 
 ### gate
 
@@ -225,11 +234,54 @@ preset. Il deploy **non** sovrascrive questo file.
 
 | Blocco | Chiavi | Note |
 |--------|---------|------|
+| `audio` | `device`, `buffer`, `periods`, `input` | interfaccia audio usata dal motore |
 | `gate` | `threshold_db`, `attack_ms`, `release_ms` | parametri del gate globale |
 | `autoengage` | `threshold`, `release_threshold`, `engage_ms`, `release_ms` | auto-engage del wah |
 | `boost` | `on`, `db` | boost di fine catena |
 | `eq` | `on`, `gains`, `volume_db` | EQ grafico globale a 5 bande + volume globale |
 | `tuner` | `reference_hz`, `transpose` | accordatore: riferimento del La4 e trasposizione della lettura |
+
+### audio
+
+Interfaccia audio globale, usata dal motore all'avvio e modificabile dalla web
+UI (**Impostazioni → Interfaccia audio → Applica**). E' l'ultimo elemento di
+sistema configurabile senza ricompilare.
+
+```json
+"audio": {
+  "device": "hw:XTONE",
+  "buffer": 64,
+  "periods": 3,
+  "input": 0
+}
+```
+
+| Chiave | Default | Note |
+|--------|---------|------|
+| `device` | `hw:XTONE` | PCM ALSA, per **nome** (`hw:XTONE`, `hw:CARD=XTONE,DEV=0`, `plughw:...`, `default`) |
+| `buffer` | 64 | frame per periodo, 16..2048 (clamp) |
+| `periods` | 3 | periodi nel buffer, 2..8 (clamp) |
+| `input` | 0 | canale di cattura usato come ingresso: 0 = L, 1 = R (0..1) |
+
+Il **rate non e' configurabile**: tutta la catena (NAM, IR, delay, accordatore)
+assume **48000 Hz**. Un device che accetta solo 44.1 kHz si indica con
+`plughw:CARD,DEV` (es. `plughw:XTONE`): ALSA converte, il motore resta a 48 kHz.
+Il valore `rate` eventualmente presente nei vecchi preset viene ignorato con un
+avviso.
+
+**Apertura e fallback**: il motore prova il device configurato, poi `default`,
+poi `hw:XTONE` (i doppioni si saltano). Se uno dei successivi si apre, il motore
+suona e lo stato riporta `audio.fallback: true` con il device reale. Se **nessuno**
+si apre, il motore resta attivo **senza audio** (modalita' offline): la web UI
+resta raggiungibile, `/api/state` mostra `audio.open: false` con l'errore e da
+Impostazioni si puo' correggere il device e premere **Applica**. Senza questa
+modalita' systemd riavvierebbe il motore in loop e non ci sarebbe modo di
+rimandare il reload dalla UI.
+
+La scrittura e' fatta dalla web UI (`POST /api/audio`) in modo atomico (file
+temporaneo + `os.replace`), con backup `config/presets.json.bak`. **Salva
+opzioni** (comando `save_options`) e il tasto `s` riscrivono lo stesso blocco
+quando salvano le altre opzioni globali.
 
 ### eq
 

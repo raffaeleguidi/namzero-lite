@@ -6,13 +6,18 @@
 #include <cstdint>
 #include <string>
 
+#include "audio/audio_defaults.h"
+
 namespace namzero {
 
 struct AudioConfig {
     std::string device = "hw:XTONE";
-    unsigned rate = 48000;
+    unsigned rate = kAudioRate;
     unsigned period_frames = 64;
     unsigned periods = 3;
+    // Canale di cattura (0 = L, 1 = R) che il chiamante usa come ingresso.
+    // AlsaDuplex apre comunque 2 canali: la selezione avviene nel loop audio.
+    unsigned input = 0;
 };
 
 // Full-duplex I/O su un'unica scheda ALSA.
@@ -28,6 +33,16 @@ public:
 
     bool open(const AudioConfig& cfg, std::string& err);
     void close();
+
+    // true solo se capture e playback sono aperti davvero. In modalita'
+    // "offline" (nessun device apribile) il motore resta vivo per la UI ma
+    // non legge/scrive audio.
+    bool online() const { return capture_ != nullptr && playback_ != nullptr; }
+
+    // Imposta i parametri nominali senza aprire ALSA: serve alla modalita'
+    // offline, cosi' catena, stato e UI hanno comunque rate/periodo coerenti.
+    void configure_offline(unsigned rate, unsigned period_frames, unsigned periods,
+                           unsigned input);
 
     // Restituisce il numero di frame letti/scritti, oppure un errno negativo
     // (es. -EPIPE su xrun). Bloccante: attende il periodo completo.
@@ -48,6 +63,7 @@ public:
     unsigned period_frames() const { return period_frames_; }
     unsigned periods() const { return periods_; }
     unsigned buffer_frames() const { return buffer_frames_; }
+    unsigned input_channel() const { return input_; }
     const std::string& device() const { return device_; }
 
 private:
@@ -67,6 +83,7 @@ private:
     unsigned period_frames_ = 0;
     unsigned periods_ = 0;
     unsigned buffer_frames_ = 0;
+    unsigned input_ = 0;
 };
 
 }  // namespace namzero

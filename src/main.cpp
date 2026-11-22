@@ -69,6 +69,12 @@ struct Config {
     unsigned rate = 48000;
     unsigned period = 64;
     unsigned periods = 3;
+    unsigned input_channel = 0;
+    // Flag CLI: se impostati vincono sul blocco audio di presets.json.
+    bool cli_device_set = false;
+    bool cli_buffer_set = false;
+    bool cli_periods_set = false;
+    bool cli_input_set = false;
     double gain_db = 0.0;
 
     // slot
@@ -158,6 +164,90 @@ struct Config {
     bool help = false;
 };
 
+// Blocco "audio" di config/presets.json: la UI lo legge e lo scrive; il
+// motore lo usa come fonte di verita' all'avvio (i flag CLI vincono).
+nlohmann::json audio_json(const Config& c) {
+    nlohmann::json a;
+    a["device"] = c.device;
+    a["buffer"] = c.period;
+    a["periods"] = c.periods;
+    a["input"] = c.input_channel;
+    return a;
+}
+
+// Blocco audio di config/presets.json. Si legge a parte (come eq/tuner/boost)
+// perche' e' un'opzione globale, non un parametro del singolo preset. Un
+// valore scritto male non deve impedire l'avvio: si avvisa e si usa il default.
+struct AudioFileConfig {
+    namzero::AudioSettings settings;
+    bool present = false;
+};
+
+AudioFileConfig load_audio_block(const std::string& path) {
+    AudioFileConfig out;
+    std::ifstream in(path);
+    if (!in) return out;
+    nlohmann::json j;
+    try {
+        in >> j;
+    } catch (...) {
+        return out;  // il JSON rotto e' gia' segnalato da load_presets_config
+    }
+    if (!j.is_object() || !j.contains("audio")) return out;
+    const auto& a = j["audio"];
+    if (!a.is_object()) {
+        std::fprintf(stderr, "presets.json: \"audio\" deve essere un oggetto, uso i default\n");
+        return out;
+    }
+    out.present = true;
+    if (a.contains("device")) {
+        if (!a["device"].is_string()) {
+            std::fprintf(stderr, "presets.json: audio.device deve essere una stringa\n");
+        } else {
+            std::string dev = a["device"].get<std::string>();
+            const auto b = dev.find_first_not_of(" \t\r\n");
+            const auto e = dev.find_last_not_of(" \t\r\n");
+            dev = (b == std::string::npos) ? std::string{} : dev.substr(b, e - b + 1);
+            if (dev.empty()) {
+                std::fprintf(stderr,
+                             "presets.json: audio.device vuoto, uso hw:XTONE\n");
+            } else if (dev.size() > 128) {
+                std::fprintf(stderr,
+                             "presets.json: audio.device troppo lungo, uso hw:XTONE\n");
+            } else {
+                out.settings.device = dev;
+            }
+        }
+    }
+    const auto get_uint = [&](const char* key, unsigned lo, unsigned hi,
+                              unsigned& dst) {
+        if (!a.contains(key)) return;
+        if (!a[key].is_number_integer()) {
+            std::fprintf(stderr,
+                         "presets.json: audio.%s deve essere un intero, uso %u\n",
+                         key, dst);
+            return;
+        }
+        const long long raw = a[key].get<long long>();
+        long long v = raw;
+        if (v < static_cast<long long>(lo) || v > static_cast<long long>(hi)) {
+            v = std::clamp(v, static_cast<long long>(lo),
+                           static_cast<long long>(hi));
+            std::fprintf(stderr,
+                         "presets.json: audio.%s=%lld fuori da %u..%u, uso %lld\n",
+                         key, raw, lo, hi, v);
+        }
+        dst = static_cast<unsigned>(v);
+    };
+    get_uint("buffer", namzero::kAudioBufferMin, namzero::kAudioBufferMax,
+             out.settings.buffer);
+    get_uint("periods", namzero::kAudioPeriodsMin, namzero::kAudioPeriodsMax,
+             out.settings.periods);
+    get_uint("input", namzero::kAudioInputMin, namzero::kAudioInputMax,
+             out.settings.input);
+    return out;
+}
+
 // Limiti del volume globale (presets.json -> eq.volume_db), in dB.
 constexpr double kVolumeMinDb = -24.0;
 constexpr double kVolumeMaxDb = 24.0;
@@ -211,10 +301,11 @@ void usage() {
         "Uso: namzero-lite [--preset file.json] | [opzioni]\n"
         "\n"
         "  -p, --preset <file>  carica un preset JSON (alternativo agli altri flag)\n"
-        "  --device <hw:ID>     PCM ALSA (default hw:XTONE)\n"
-        "  --rate <hz>          sample rate (default 48000)\n"
+        "  --device <hw:ID>     PCM ALSA (default da config/presets.json, poi hw:XTONE)\n"
+        "  --rate <hz>          legacy: il motore usa sempre 48000 Hz\n"
         "  --buffer <frame>     frame per periodo (default 64)\n"
         "  --periods <n>        periodi nel buffer (default 3)\n"
+        "  --input <0|1>        canale di ingresso dalla capture (default 0)\n"
         "  --gain <db>          gain master (default 0)\n"
         "  --nam <file.nam>     modello NAM nello slot amp\n"
         "  --nam-slim <0..1>    sottomodello (default 0.49 = lite)\n"
@@ -682,6 +773,7 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
             const char* v = next("--device");
             if (v == nullptr) return false;
             cfg.device = v;
+            cfg.cli_device_set = true;
         } else if (a == "--rate") {
             const char* v = next("--rate");
             if (v == nullptr || !parse_uint(v, cfg.rate)) {
@@ -694,12 +786,21 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
                 err = "valore non valido per --buffer";
                 return false;
             }
+            cfg.cli_buffer_set = true;
         } else if (a == "--periods") {
             const char* v = next("--periods");
             if (v == nullptr || !parse_uint(v, cfg.periods)) {
                 err = "valore non valido per --periods";
                 return false;
             }
+            cfg.cli_periods_set = true;
+        } else if (a == "--input") {
+            const char* v = next("--input");
+            if (v == nullptr || !parse_uint(v, cfg.input_channel)) {
+                err = "valore non valido per --input (0 o 1)";
+                return false;
+            }
+            cfg.cli_input_set = true;
         } else if (a == "--gain") {
             const char* v = next("--gain");
             if (v == nullptr || !parse_float(v, cfg.gain_db)) {
@@ -934,6 +1035,12 @@ int main(int argc, char** argv) {
     // processo ri-eseguito con NAMZERO_SLOT.
     std::atomic<int> current_slot{0};
     std::atomic<int> ae_rev{0};  // cambia quando la UI tocca l'auto-engage
+    // Identifica questa esecuzione attraverso il re-exec (il PID non cambia):
+    // la web UI aspetta un boot_id diverso prima di dire "audio applicato".
+    const auto audio_boot_id =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
 
     if (!parse_args(argc, argv, cfg, midi_cli, preset_path, saw_flag, err)) {
         std::fprintf(stderr, "errore: %s\n\n", err.c_str());
@@ -1026,6 +1133,67 @@ int main(int argc, char** argv) {
         } else {
             std::printf("\n[-] - %s (%s)\n\n", base.c_str(), amp_name.c_str());
         }
+    }
+
+    // --- interfaccia audio: presets.json e' la fonte di verita' -------------
+    // Precedenza: default compilati < audio nel preset < blocco audio di
+    // config/presets.json < flag CLI. Il rate resta 48 kHz: NAM, IR, delay e
+    // accordatore assumono quel valore; per device solo-44.1k si usa plughw.
+    const AudioFileConfig audio_file = load_audio_block("config/presets.json");
+    if (audio_file.present) {
+        if (!cfg.cli_device_set) cfg.device = audio_file.settings.device;
+        if (!cfg.cli_buffer_set) cfg.period = audio_file.settings.buffer;
+        if (!cfg.cli_periods_set) cfg.periods = audio_file.settings.periods;
+        if (!cfg.cli_input_set) cfg.input_channel = audio_file.settings.input;
+    }
+    {
+        const auto trim = [](std::string s) {
+            const auto b = s.find_first_not_of(" \t\r\n");
+            if (b == std::string::npos) return std::string{};
+            const auto e = s.find_last_not_of(" \t\r\n");
+            return s.substr(b, e - b + 1);
+        };
+        cfg.device = trim(cfg.device);
+        if (cfg.device.empty()) {
+            std::fprintf(stderr,
+                         "audio: device vuoto, uso hw:XTONE "
+                         "(correggilo da Impostazioni > Interfaccia audio)\n");
+            cfg.device = "hw:XTONE";
+        }
+        if (cfg.device.size() > 128) {
+            std::fprintf(stderr, "audio: device troppo lungo, uso hw:XTONE\n");
+            cfg.device = "hw:XTONE";
+        }
+        const unsigned old_buffer = cfg.period;
+        const unsigned old_periods = cfg.periods;
+        const unsigned old_input = cfg.input_channel;
+        cfg.period = namzero::clamp_audio_buffer(cfg.period);
+        cfg.periods = namzero::clamp_audio_periods(cfg.periods);
+        cfg.input_channel = namzero::clamp_audio_input(cfg.input_channel);
+        if (old_buffer != cfg.period) {
+            std::fprintf(stderr, "audio: buffer %u fuori da %u..%u, uso %u\n",
+                         old_buffer, namzero::kAudioBufferMin,
+                         namzero::kAudioBufferMax, cfg.period);
+        }
+        if (old_periods != cfg.periods) {
+            std::fprintf(stderr, "audio: periods %u fuori da %u..%u, uso %u\n",
+                         old_periods, namzero::kAudioPeriodsMin,
+                         namzero::kAudioPeriodsMax, cfg.periods);
+        }
+        if (old_input != cfg.input_channel) {
+            std::fprintf(stderr, "audio: input %u fuori da %u..%u, uso %u\n",
+                         old_input, namzero::kAudioInputMin,
+                         namzero::kAudioInputMax, cfg.input_channel);
+        }
+        if (cfg.rate != namzero::kAudioRate) {
+            std::fprintf(stderr,
+                         "audio: rate %u non supportato: il motore resta a %u Hz. "
+                         "Per un device solo-44.1k usa plughw:CARD,DEV\n",
+                         cfg.rate, namzero::kAudioRate);
+            cfg.rate = namzero::kAudioRate;
+        }
+        std::printf("audio: config device=%s buffer=%u periods=%u input=%u\n",
+                    cfg.device.c_str(), cfg.period, cfg.periods, cfg.input_channel);
     }
 
     // Un tipo scritto male non deve diventare un modello a caso: si torna al
@@ -1504,15 +1672,55 @@ int main(int argc, char** argv) {
     acfg.rate = cfg.rate;
     acfg.period_frames = cfg.period;
     acfg.periods = cfg.periods;
+    acfg.input = cfg.input_channel;
 
     namzero::AlsaDuplex io;
-    if (!io.open(acfg, err)) {
-        std::fprintf(stderr, "audio: %s\n", err.c_str());
-        return 1;
+    // Fallback: device configurato -> "default" -> "hw:XTONE". Un device
+    // sbagliato non deve zittire la chitarra: si prova il successivo, con log
+    // esplicito. Se NESSUNO si apre il motore resta vivo in modalita' offline
+    // (niente audio) per far correggere la config dalla web UI: senza questo
+    // systemd lo riavvierebbe in loop e la UI non potrebbe rimandare il reload.
+    bool audio_online = false;
+    std::string audio_used;
+    std::string audio_error;
+    for (const auto& candidate : namzero::audio_device_candidates(cfg.device)) {
+        namzero::AudioConfig try_cfg = acfg;
+        try_cfg.device = candidate;
+        std::string open_err;
+        if (io.open(try_cfg, open_err)) {
+            audio_online = true;
+            audio_used = candidate;
+            if (candidate != cfg.device) {
+                std::fprintf(stderr,
+                             "audio: il device configurato \"%s\" non si apre "
+                             "(ultimo errore: %s); fallback su \"%s\"\n",
+                             cfg.device.c_str(), audio_error.c_str(), candidate.c_str());
+            }
+            break;
+        }
+        if (!audio_error.empty()) audio_error += " | ";
+        audio_error += candidate + ": " + open_err;
+        std::fprintf(stderr, "audio: apertura \"%s\" fallita: %s\n",
+                     candidate.c_str(), open_err.c_str());
     }
-    std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi\n",
-                io.device().c_str(), io.rate(), io.period_frames(),
-                io.buffer_frames(), io.periods());
+    if (!audio_online) {
+        io.configure_offline(cfg.rate, cfg.period, cfg.periods, cfg.input_channel);
+        std::fprintf(stderr,
+                     "audio: nessun device apribile (%s).\n"
+                     "       il motore resta attivo SENZA audio per permettere la "
+                     "correzione da Impostazioni > Interfaccia audio;\n"
+                     "       scegli il device giusto (o plughw:CARD,DEV) e premi Applica.\n",
+                     audio_error.c_str());
+    } else {
+        if (audio_used != cfg.device) {
+            std::fprintf(stderr,
+                         "audio: in uso \"%s\" (fallback; il configurato resta \"%s\")\n",
+                         audio_used.c_str(), cfg.device.c_str());
+        }
+        std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi | input %u\n",
+                    io.device().c_str(), io.rate(), io.period_frames(),
+                    io.buffer_frames(), io.periods(), io.input_channel());
+    }
     chain.prepare(io.rate(), io.period_frames());
 
     // MIDI: si apre prima di costruire la catena, perche' se il pedale c'e'
@@ -1706,7 +1914,7 @@ int main(int argc, char** argv) {
     // gli ultimi 4096 campioni ~15 volte al secondo.
     namzero::TunerTap tuner_tap;
 
-    if (!io.prime_playback(2 * io.period_frames())) {
+    if (audio_online && !io.prime_playback(2 * io.period_frames())) {
         std::fprintf(stderr,
                      "attenzione: priming del playback fallito, "
                      "possibile underrun iniziale\n");
@@ -1848,6 +2056,21 @@ int main(int argc, char** argv) {
         // risultante (base * volume * boost): serve ai test e alla diagnostica.
         s["eq"]["volume"] = volume_db.load(std::memory_order_relaxed);
         s["master_gain"] = master_gain.load(std::memory_order_relaxed);
+        // Interfaccia audio: configurata vs realmente aperta. "fallback" e'
+        // vero quando il device configurato non si e' aperto e si sta usando
+        // "default"/"hw:XTONE"; "open" falso = motore in modalita' offline.
+        s["audio"] = {
+            {"config_device", cfg.device},
+            {"device", audio_online ? io.device() : std::string{}},
+            {"open", audio_online},
+            {"fallback", audio_online && io.device() != cfg.device},
+            {"rate", io.rate()},
+            {"buffer", io.period_frames()},
+            {"periods", io.periods()},
+            {"input", cfg.input_channel},
+            {"error", audio_online ? std::string{} : audio_error},
+            {"boot_id", audio_boot_id},
+        };
         if (looper_ptr != nullptr) {
             s["looper"]["state"] = namzero::LooperSlot::state_name(looper_ptr->state());
             s["looper"]["pos"] = looper_ptr->position_seconds();
@@ -2018,6 +2241,8 @@ int main(int argc, char** argv) {
                 tuner_json["transpose"] =
                     tuner_transpose.load(std::memory_order_relaxed);
                 gj["tuner"] = tuner_json;
+                // Interfaccia audio: la config live (non il fallback usato).
+                gj["audio"] = audio_json(cfg);
                 std::ofstream gout("config/presets.json");
                 if (!gout) throw std::runtime_error("presets.json non scrivibile");
                 gout << gj.dump(2) << '\n';
@@ -2721,6 +2946,7 @@ int main(int argc, char** argv) {
                     tuner_json["transpose"] =
                         tuner_transpose.load(std::memory_order_relaxed);
                     gj["tuner"] = tuner_json;
+                    gj["audio"] = audio_json(cfg);
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {
@@ -3284,6 +3510,13 @@ int main(int argc, char** argv) {
                 break;
             }
         }
+        if (!audio_online) {
+            // Modalita' offline: nessun device apribile. Si resta vivi per la
+            // web UI (ctl/socket), che puo' correggere il blocco audio e
+            // chiedere un reload -> re-exec -> nuovo tentativo di apertura.
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
         const long n = io.read_i32(in_i32.data(), frames);
         if (n < 0) {
             if (io.recover(static_cast<int>(n), /*capture_side=*/true)) {
@@ -3295,7 +3528,15 @@ int main(int argc, char** argv) {
         }
         if (static_cast<std::size_t>(n) != frames) continue;
 
-        for (std::size_t i = 0; i < samples; ++i) buf[i] = to_float(in_i32[i]);
+        // Un solo canale d'ingresso (config audio.input) entra nella catena,
+        // duplicato su L/R: l'XTONE porta la chitarra su un canale solo e il
+        // vecchio pass-through stereo lasciava l'altro muto.
+        const std::size_t in_ch = io.input_channel();
+        for (std::size_t i = 0; i < frames; ++i) {
+            const float mono = to_float(in_i32[i * 2 + in_ch]);
+            buf[i * 2] = mono;
+            buf[i * 2 + 1] = mono;
+        }
 
         // Copia DRY: PRIMA della catena, cosi' il tuner vede la chitarra e non
         // il segnale processato (distorsione, delay, riverbero...).

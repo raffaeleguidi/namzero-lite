@@ -21,9 +21,44 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   border:1px solid #4fd1c5; border-radius:6px; text-decoration:none; font-size:13px;
   cursor:pointer; font:inherit; font-size:13px; }
 .btn:active { background:#12151b; }
+.field select { width:190px; max-width:100%; padding:4px 6px; background:#12151b; color:#e6e9ef;
+  border:1px solid #2c3240; border-radius:6px; font-size:14px; }
+.err { color:#f6a5a5; }
+#spinner { position:fixed; inset:0; background:rgba(8,10,14,.6); display:flex;
+  align-items:center; justify-content:center; z-index:50; backdrop-filter:blur(2px); }
+#spinner.hidden { display:none; }
+#spinner .ring { width:64px; height:64px; border:5px solid rgba(255,255,255,.15);
+  border-top-color:#4fd1c5; border-radius:50%; animation:spinner-spin .8s linear infinite; }
+@keyframes spinner-spin { to { transform:rotate(360deg); } }
 </style></head><body>
 <header><h1>Impostazioni</h1><a href="index.html">← pedaliera</a></header>
 <main>
+<section>
+  <h2>Interfaccia audio</h2>
+  <p id="audio-status" class="hint">Stato: …</p>
+  <div class="field"><label for="audio-device">Device</label>
+    <select id="audio-device"></select></div>
+  <div class="field"><label for="audio-custom">PCM manuale</label>
+    <input id="audio-custom" class="wide" placeholder="es. plughw:XTONE (vuoto = select)"></div>
+  <div class="field"><label for="audio-buffer">Buffer (frame)</label>
+    <input id="audio-buffer" type="number" min="16" max="2048" step="1" value="64"></div>
+  <div class="field"><label for="audio-periods">Periodi</label>
+    <input id="audio-periods" type="number" min="2" max="8" step="1" value="3"></div>
+  <div class="field"><label>Frequenza</label>
+    <span class="hint">48000 Hz (fissa)</span></div>
+  <div class="field"><label for="audio-input">Ingresso</label>
+    <select id="audio-input"></select></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+    <button class="btn" id="audio-apply">Applica</button>
+    <span id="audio-msg" class="hint"></span>
+  </div>
+  <p class="hint">Applica salva il blocco <code>audio</code> in
+  <code>config/presets.json</code> e ricarica il motore. Il rate interno resta
+  48 kHz: se il device accetta solo 44.1 kHz scegli la voce
+  <b>plughw</b> (ALSA converte). In caso di errore il motore prova
+  <code>default</code> e poi <code>hw:XTONE</code>; se nessuno si apre resta
+  attivo senza audio, così puoi correggere da qui.</p>
+</section>
 <section>
   <h2>Accordatore</h2>
   <div class="field"><label for="tuner-ref">Riferimento A4 (Hz)</label>
@@ -76,7 +111,184 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   è attivo viene riavviato).</p>
 </div></section>
 </main>
+<div id="spinner" class="hidden"><div class="ring"></div></div>
 <script>
+// ── Interfaccia audio ──────────────────────────────────────────────────────
+// Config in config/presets.json (blocco "audio"); Applica salva e ricarica il
+// motore. La UI segue il ritorno con /api/state e mostra fallback/errore.
+const AUDIO_BUFFER_MIN = 16, AUDIO_BUFFER_MAX = 2048;
+const AUDIO_PERIODS_MIN = 2, AUDIO_PERIODS_MAX = 8;
+let audioDevices = [];
+
+function audioMsg(text, isError) {
+  const el = $("audio-msg");
+  el.textContent = text || "";
+  el.className = "hint" + (isError ? " err" : "");
+}
+function audioStatusText(a) {
+  if (!a) return {text: "Stato: non disponibile", err: true};
+  if (a.open) {
+    let text = "In uso: " + (a.device || a.config_device) +
+      " · " + (a.rate || 48000) + " Hz · buffer " + a.buffer + " × " + a.periods;
+    if (a.input !== undefined) text += " · ingresso " + (Number(a.input) + 1);
+    if (a.fallback) text += " · FALLBACK (configurato: " + a.config_device + ")";
+    return {text: "Stato: " + text, err: false};
+  }
+  return {text: "Audio non disponibile: " + (a.error || "nessun device apribile") +
+    ". Correggi device/buffer e premi Applica.", err: true};
+}
+function renderAudioStatus(a) {
+  const st = audioStatusText(a);
+  const el = $("audio-status");
+  el.textContent = st.text;
+  el.className = "hint" + (st.err ? " err" : "");
+}
+function fillAudioInputs(inputs, current) {
+  const sel = $("audio-input");
+  sel.innerHTML = "";
+  const list = (inputs && inputs.length) ? inputs :
+    [{index: 0, label: "Canale 1 (L)"}, {index: 1, label: "Canale 2 (R)"}];
+  list.forEach(i => {
+    const o = document.createElement("option");
+    o.value = String(i.index);
+    o.textContent = i.label;
+    sel.append(o);
+  });
+  sel.value = String(current === undefined ? 0 : current);
+}
+function fillAudioDevices(devices, current) {
+  const sel = $("audio-device");
+  sel.innerHTML = "";
+  const seen = new Set();
+  const add = (value, label) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    sel.append(o);
+  };
+  add("default", "default — PCM di sistema");
+  (devices || []).forEach(d => {
+    const base = d.label || (d.id + " — " + d.name);
+    add(d.pcm, base + " — hw");
+    add(d.plughw, base + " — plughw (conversione)");
+  });
+  // Un device configurato a mano (es. hw:CARD=XTONE,DEV=0) resta selezionabile.
+  add(current, (current || "") + " (configurato)");
+  sel.value = current && seen.has(current) ? current : "default";
+}
+function audioNumber(id, min, max, label) {
+  const n = Number($(id).value);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new Error(label + " deve essere un intero fra " + min + " e " + max);
+  }
+  return n;
+}
+function readAudioForm() {
+  const custom = $("audio-custom").value.trim();
+  const device = custom || $("audio-device").value;
+  if (!device) throw new Error("scegli un device o scrivi un PCM ALSA");
+  if (/\s/.test(device)) throw new Error("il device non puo' contenere spazi");
+  return {
+    device: device,
+    buffer: audioNumber("audio-buffer", AUDIO_BUFFER_MIN, AUDIO_BUFFER_MAX, "buffer"),
+    periods: audioNumber("audio-periods", AUDIO_PERIODS_MIN, AUDIO_PERIODS_MAX, "periodi"),
+    input: audioNumber("audio-input", 0, 1, "ingresso"),
+  };
+}
+function showSpinner(ms) {
+  const el = $("spinner");
+  el.classList.remove("hidden");
+  clearTimeout(showSpinner.timer);
+  showSpinner.timer = setTimeout(() => el.classList.add("hidden"), ms || 15000);
+}
+function hideSpinner() {
+  clearTimeout(showSpinner.timer);
+  $("spinner").classList.add("hidden");
+}
+// Aspetta che /api/state riporti la nuova config: e' la verifica del ritorno
+// dopo il re-exec del motore (che chiude e riapre ALSA).
+function waitAudioState(device, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 8000);
+  return new Promise(resolve => {
+    const tick = () => {
+      fetch("/api/state").then(r => r.json()).then(st => {
+        const a = st && st.audio;
+        if (a && a.config_device === device) {
+          renderAudioStatus(a);
+          resolve(a);
+        } else if (Date.now() < deadline) {
+          setTimeout(tick, 350);
+        } else {
+          resolve(null);
+        }
+      }).catch(() => {
+        if (Date.now() < deadline) setTimeout(tick, 500);
+        else resolve(null);
+      });
+    };
+    tick();
+  });
+}
+function applyAudio() {
+  let form;
+  try {
+    form = readAudioForm();
+  } catch (err) {
+    audioMsg("Errore: " + err.message, true);
+    return;
+  }
+  audioMsg("Applico…", false);
+  showSpinner(15000);
+  fetch("/api/audio", {method:"POST", headers:{"Content-Type":"application/json"},
+                       body:JSON.stringify(form)})
+    .then(r => r.json().then(j => ({ok:r.ok, j})))
+    .then(({ok, j}) => {
+      if (!ok || j.error) throw new Error(j.error || "errore nel salvataggio");
+      if (j.status) renderAudioStatus(j.status);
+      return waitAudioState(form.device, 8000).then(a => {
+        if (a) renderAudioStatus(a);
+        if (!j.reloaded) {
+          audioMsg("Salvato, ma reload non confermato: " + (j.warning || "riavvia il motore"), true);
+        } else if (a && !a.open) {
+          audioMsg("Salvato, ma audio non disponibile: " + (a.error || "device non apribile"), true);
+        } else if (a && a.fallback) {
+          audioMsg("Salvato; in uso il fallback " + a.device, true);
+        } else {
+          audioMsg("Applicato ✓", false);
+          setTimeout(() => { if ($("audio-msg").textContent === "Applicato ✓") audioMsg("", false); }, 2000);
+        }
+      });
+    })
+    .catch(err => { audioMsg("Errore: " + err.message, true); })
+    .finally(hideSpinner);
+}
+function loadAudioForm() {
+  Promise.all([
+    fetch("/api/audio").then(r => r.json()),
+    fetch("/api/audio/devices").then(r => r.json()).catch(() => ({devices: []})),
+  ]).then(([a, d]) => {
+    if (!a || a.error) throw new Error(a && a.error ? a.error : "config audio non leggibile");
+    audioDevices = d.devices || [];
+    fillAudioDevices(audioDevices, a.device);
+    $("audio-custom").value = "";
+    $("audio-buffer").value = a.buffer;
+    $("audio-periods").value = a.periods;
+    fillAudioInputs(a.inputs, a.input);
+    renderAudioStatus(a.status);
+  }).catch(err => {
+    audioMsg("Errore: " + err.message, true);
+    renderAudioStatus(null);
+  });
+}
+function refreshAudioStatus() {
+  fetch("/api/audio").then(r => r.json()).then(a => {
+    if (a && !a.error) renderAudioStatus(a.status);
+  }).catch(() => {});
+}
+setInterval(refreshAudioStatus, 5000);
+
 // ── Accordatore: riferimento/transpose ─────────────────────────────────────
 // I valori arrivano dallo stato del motore (blocco "tuner", salvato in
 // config/presets.json). Il salvataggio manda prima il comando tuner (live) e
@@ -283,6 +495,9 @@ function t3kStatus() {
 }
 $("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then(t3kStatus);
 
+$("audio-apply").onclick = applyAudio;
+
+loadAudioForm();
 loadTuner();
 loadFiles();
 loadWifi();

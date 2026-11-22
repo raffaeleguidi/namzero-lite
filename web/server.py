@@ -10,8 +10,10 @@ import http.server
 import ipaddress
 import json
 import os
+import re
 import secrets
 import select
+import shutil
 import socket
 import subprocess
 import time
@@ -21,6 +23,10 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
 CTL = "/tmp/namzero-lite-ctl.sock"
+# Config viva delle opzioni globali (slot, gate, eq, tuner, audio). L'override
+# da ambiente serve solo ai test: in produzione resta config/presets.json.
+PRESETS_CFG = (os.environ.get("NAMZERO_PRESETS_CONFIG")
+               or os.path.join(ROOT, "config/presets.json"))
 # Override solo per test: la config viva resta config/wifi.json.
 WIFI = os.environ.get("NAMZERO_WIFI_CONFIG") or os.path.join(ROOT, "config/wifi.json")
 WIFI_AP_DEFAULT = {"enabled": True, "ssid": "namzero-lite",
@@ -181,7 +187,7 @@ def presets_list():
     Legge la config viva (config/presets.json) e ricava il nome dal path
     "presets/<nome>.json". Gli slot vuoti/null vengono saltati.
     """
-    with open(os.path.join(ROOT, "config/presets.json")) as f:
+    with open(PRESETS_CFG) as f:
         cfg = json.load(f)
     out = []
     for slot, entry in enumerate(cfg.get("slots", [])):
@@ -193,6 +199,226 @@ def presets_list():
         if name:
             out.append({"slot": slot, "name": name})
     return out
+
+
+# ── Interfaccia audio ──────────────────────────────────────────────────────
+
+AUDIO_DEFAULTS = {"device": "hw:XTONE", "buffer": 64, "periods": 3, "input": 0}
+AUDIO_RATE = 48000  # fisso: NAM/IR/accordatore assumono 48 kHz
+AUDIO_LIMITS = {"buffer": (16, 2048), "periods": (2, 8), "input": (0, 1)}
+AUDIO_INPUTS = [
+    {"index": 0, "label": "Canale 1 (L)"},
+    {"index": 1, "label": "Canale 2 (R)"},
+]
+
+
+def _read_presets():
+    """Legge config/presets.json. File assente = oggetto vuoto; JSON rotto = errore."""
+    try:
+        with open(PRESETS_CFG) as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("presets.json: la radice deve essere un oggetto")
+    return raw
+
+
+def audio_config():
+    """Config audio normalizzata (default se il blocco manca o e' incompleto)."""
+    cfg = dict(AUDIO_DEFAULTS)
+    raw = _read_presets()
+    block = raw.get("audio")
+    if not isinstance(block, dict):
+        return cfg
+    device = block.get("device")
+    if isinstance(device, str) and device.strip():
+        cfg["device"] = device.strip()
+    for key in ("buffer", "periods", "input"):
+        value = block.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            cfg[key] = max(AUDIO_LIMITS[key][0], min(AUDIO_LIMITS[key][1], value))
+        elif value is not None:
+            # Tipo sbagliato nel file: si resta al default invece di far
+            # fallire la UI; il motore fa lo stesso clamp.
+            cfg[key] = AUDIO_DEFAULTS[key]
+    return cfg
+
+
+def _validate_audio(data, current):
+    """Valida il POST e restituisce il blocco normalizzato.
+
+    Solleva ValueError con un messaggio mostrabile nella UI.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("corpo JSON non valido")
+    out = dict(current)
+
+    if "device" in data:
+        device = data["device"]
+        if not isinstance(device, str):
+            raise ValueError("device deve essere una stringa")
+        device = device.strip()
+        if not device:
+            raise ValueError("device non puo' essere vuoto (es. hw:XTONE)")
+        if len(device) > 128:
+            raise ValueError("device troppo lungo (max 128 caratteri)")
+        if any(ch.isspace() or ord(ch) < 32 for ch in device):
+            raise ValueError("device non puo' contenere spazi o caratteri di controllo")
+        out["device"] = device
+
+    for key in ("buffer", "periods", "input"):
+        if key not in data:
+            continue
+        value = data[key]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("%s deve essere un intero" % key)
+        lo, hi = AUDIO_LIMITS[key]
+        if not lo <= value <= hi:
+            raise ValueError("%s deve stare fra %d e %d" % (key, lo, hi))
+        out[key] = value
+    return out
+
+
+def _write_audio(cfg):
+    """Salva il solo blocco audio, in modo atomico, con backup del file vivo."""
+    raw = _read_presets()
+    raw["audio"] = {"device": cfg["device"],
+                    "buffer": cfg["buffer"],
+                    "periods": cfg["periods"],
+                    "input": cfg["input"]}
+    tmp = PRESETS_CFG + ".tmp"
+    try:
+        parent = os.path.dirname(PRESETS_CFG)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        if os.path.exists(PRESETS_CFG):
+            shutil.copy2(PRESETS_CFG, PRESETS_CFG + ".bak")
+            mode = os.stat(PRESETS_CFG).st_mode & 0o777
+        else:
+            mode = 0o644
+        with open(tmp, "w") as f:
+            json.dump(raw, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, mode)
+        os.replace(tmp, PRESETS_CFG)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+_APLAY_RE = re.compile(
+    r"^\s*card\s+(\d+):\s+(\S+)\s+\[([^\]]*)\],\s*"
+    r"device\s+(\d+):\s+(.*?)\s+\[([^\]]*)\]\s*$")
+
+
+def parse_aplay_l(text):
+    """Estrae le card da `aplay -l` senza grep fragili.
+
+    Formato di riferimento:
+      card 1: XTONE [XTONE], device 0: USB Audio [USB Audio]
+    Restituisce dict con card/device/name/id e i nomi PCM pronti per la UI.
+    """
+    devices = []
+    for line in (text or "").splitlines():
+        match = _APLAY_RE.match(line)
+        if not match:
+            continue
+        card, card_id, card_name, dev, dev_name, dev_id = match.groups()
+        card = int(card)
+        dev = int(dev)
+        card_id = card_id.strip()
+        name = (dev_name or card_name or card_id).strip()
+        pcm = "hw:%s" % card_id if dev == 0 else "hw:%s,%d" % (card_id, dev)
+        plughw = ("plughw:%s" % card_id if dev == 0
+                  else "plughw:%s,%d" % (card_id, dev))
+        devices.append({
+            "card": card,
+            "device": dev,
+            "name": name,
+            "id": card_id,
+            "pcm": pcm,
+            "plughw": plughw,
+            "label": "%s — %s (card %d, device %d)" % (card_id, name, card, dev),
+        })
+    return devices
+
+
+def audio_devices():
+    """Elenco device da `aplay -l`, con `default` in testa."""
+    devices = []
+    error = ""
+    try:
+        proc = subprocess.run(["aplay", "-l"], capture_output=True, text=True,
+                              timeout=3)
+        if proc.returncode == 0:
+            devices = parse_aplay_l(proc.stdout)
+        else:
+            error = (proc.stderr or proc.stdout or "").strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        error = str(exc)
+    # "default" non compare in aplay -l ma e' un PCM ALSA valido e utile come
+    # fallback/alternativa: la UI lo mostra sempre in testa.
+    devices.insert(0, {
+        "card": None, "device": None,
+        "name": "PCM di sistema (ALSA default)",
+        "id": "default", "pcm": "default", "plughw": "default",
+        "label": "default — PCM di sistema",
+    })
+    return {"devices": devices, "error": error}
+
+
+def _audio_status():
+    """Stato audio dal motore, senza i retry lunghi pensati per il cambio preset.
+
+    Se il motore non risponde si restituisce open=false con il motivo: la web
+    UI resta usabile e mostra l'errore.
+    """
+    try:
+        st = _ctl_once(None)
+    except Exception as exc:
+        return {"open": False, "error": "motore non raggiungibile: %s" % exc}
+    audio = st.get("audio") if isinstance(st, dict) else None
+    if not isinstance(audio, dict):
+        return {"open": False, "error": "stato audio assente nel motore"}
+    return audio
+
+
+def _audio_reload(cfg):
+    """Chiede al motore il reload e aspetta che rinasca con la nuova config.
+
+    Il re-exec mantiene il PID: si usa audio.boot_id per distinguere il nuovo
+    processo da quello vecchio. Timeout ~8 s; la config e' gia' salvata anche
+    se il reload non riesce.
+    """
+    before = _audio_status().get("boot_id")
+    try:
+        ctl({"cmd": "reload"})
+    except Exception as exc:
+        return {
+            "reloaded": False,
+            "warning": ("motore non raggiungibile (%s): config salvata, "
+                        "sara' applicata al prossimo avvio" % exc),
+            "status": _audio_status(),
+        }
+
+    deadline = time.time() + 8.0
+    last = None
+    while time.time() < deadline:
+        last = _audio_status()
+        same_boot = before is not None and last.get("boot_id") == before
+        if (last.get("config_device") == cfg["device"] and not same_boot
+                and "open" in last):
+            return {"reloaded": True, "status": last}
+        time.sleep(0.15)
+    return {
+        "reloaded": False,
+        "warning": "il motore non ha confermato la nuova interfaccia audio",
+        "status": last or _audio_status(),
+    }
 
 
 # ── WiFi: config e stato NM ────────────────────────────────────────────────
@@ -447,6 +673,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.split("?", 1)[0] == "/api/events":
             self._sse()
             return
+        path = self.path.split("?", 1)[0]
+        if path == "/api/audio/devices":
+            try:
+                self._json(audio_devices())
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
+        if path == "/api/audio":
+            try:
+                cfg = audio_config()
+                status = _audio_status()
+                self._json({"ok": True, **cfg, "rate": AUDIO_RATE,
+                            "inputs": AUDIO_INPUTS, "status": status})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
         if self.path.startswith("/api/presets"):
             try:
                 self._json(presets_list())
@@ -569,6 +811,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             if self.path.startswith("/api/cmd"):
                 self._json(ctl(json.loads(body)))
+                return
+            if self.path.split("?", 1)[0] == "/api/audio":
+                try:
+                    data = json.loads(body or b"{}")
+                except ValueError:
+                    self._json({"error": "JSON non valido"}, 400)
+                    return
+                try:
+                    cfg = _validate_audio(data, audio_config())
+                except ValueError as exc:
+                    self._json({"error": str(exc)}, 400)
+                    return
+                try:
+                    _write_audio(cfg)
+                except Exception as exc:
+                    self._json({"error": "salvataggio presets.json: %s" % exc}, 500)
+                    return
+                result = _audio_reload(cfg)
+                self._json({"ok": True, "audio": cfg, "rate": AUDIO_RATE,
+                            **result})
                 return
             if self.path.startswith("/api/save"):
                 self._json(ctl({"cmd": "save"}))

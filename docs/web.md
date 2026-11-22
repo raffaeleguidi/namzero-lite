@@ -165,6 +165,102 @@ verde entro ±5 cent, frequenza in Hz, riferimento effettivo e confidenza.
   `save_options` (persistenza); anche il cambio campo (blur/Invio) salva. La
   voce **Salva opzioni** della pedaliera persiste gli stessi valori.
 
+## Interfaccia audio
+
+La sezione **Interfaccia audio** di `settings.html` e' l'ultimo pezzo di sistema
+configurabile senza ricompilare: device ALSA, buffer, periodi, canale d'ingresso
+e pulsante **Applica**.
+
+- **Device**: select popolata da `GET /api/audio/devices`, che parsa `aplay -l`
+  (card, device, nome, id) e mostra per ogni card sia `hw:...` sia
+  `plughw:...`. `default` e' sempre in testa; il campo **PCM manuale** accetta
+  qualunque nome ALSA (per esempio `hw:CARD=XTONE,DEV=0`).
+- **Buffer / periodi**: 16..2048 frame e 2..8 periodi. Fuori range il POST
+  risponde 400 e la UI non salva. Il motore fa comunque clamp all'avvio.
+- **Frequenza**: mostrata fissa a **48000 Hz**. Non e' configurabile: NAM, IR,
+  delay e accordatore assumono 48 kHz. Per un device che accetta solo 44.1 kHz
+  si sceglie `plughw:CARD,DEV`: ALSA converte, il motore resta a 48 kHz.
+- **Ingresso**: canale della capture usato dalla catena, 0 = L, 1 = R. AlsaIo
+  apre sempre 2 canali; il loop audio prende il canale scelto e lo duplica su
+  L/R. Per interfacce con piu' di 2 canali serve un nome/plugin ALSA che ne
+  esponga 2.
+- **Stato**: la riga in cima mostra il device **realmente aperto**, rate,
+  buffer/periodi e ingresso. Se il configurato non si apre ma parte un fallback
+  mostra `FALLBACK`; se nessun device si apre mostra l'errore in rosso.
+
+### API
+
+`GET /api/audio` restituisce la config salvata e lo stato del motore:
+
+```json
+{
+  "ok": true,
+  "device": "hw:XTONE",
+  "buffer": 64,
+  "periods": 3,
+  "input": 0,
+  "rate": 48000,
+  "inputs": [{"index": 0, "label": "Canale 1 (L)"},
+             {"index": 1, "label": "Canale 2 (R)"}],
+  "status": {"config_device": "hw:XTONE", "device": "hw:XTONE",
+             "open": true, "fallback": false, "rate": 48000,
+             "buffer": 64, "periods": 3, "input": 0,
+             "error": "", "boot_id": 123456789}
+}
+```
+
+`status` e' il blocco `audio` di `/api/state`; `boot_id` cambia a ogni re-exec
+(il PID no) e serve alla UI per capire quando il motore e' davvero rinato.
+
+`GET /api/audio/devices` restituisce:
+
+```json
+{"devices": [
+  {"card": null, "device": null, "name": "PCM di sistema (ALSA default)",
+   "id": "default", "pcm": "default", "plughw": "default",
+   "label": "default — PCM di sistema"},
+  {"card": 1, "device": 0, "name": "USB Audio", "id": "XTONE",
+   "pcm": "hw:XTONE", "plughw": "plughw:XTONE",
+   "label": "XTONE — USB Audio (card 1, device 0)"}
+], "error": ""}
+```
+
+Il parsing e' testuale su `aplay -l` (regex sulle righe `card N: ID [Nome],
+device M: ...`): niente `grep` fragili, le righe `Subdevices` vengono ignorate.
+Se `aplay` manca o fallisce si restituisce comunque `default` e il campo
+`error`.
+
+`POST /api/audio` accetta `{"device": "...", "buffer": 64, "periods": 3,
+"input": 0}`:
+
+1. valida (device non vuoto, senza spazi/controlli, max 128 caratteri; buffer
+   16..2048; periods 2..8; input 0..1) e risponde **400** con `{"error": "..."}`
+   se qualcosa non va;
+2. salva **solo** il blocco `audio` in `config/presets.json`, in modo atomico
+   (file temporaneo + `os.replace`) e con backup `config/presets.json.bak`; le
+   altre chiavi restano intatte;
+3. manda `{"cmd":"reload"}` al motore e aspetta fino a ~8 s che lo stato
+   riporti la nuova config con un `boot_id` diverso. Risponde 200 con
+   `{"ok":true,"audio":{...},"reloaded":true|false,"status":{...},"warning":"..."}`.
+   Se il motore non risponde, la config resta salvata e verra' applicata al
+   prossimo avvio.
+
+La UI mostra il **rotellone** durante il reload e lo toglie quando
+`/api/state` riporta `audio.config_device` uguale al device scelto (o allo
+scadere del timeout), poi mostra esito, fallback o errore.
+
+### Fallback e modalita' offline
+
+All'apertura il motore prova il device configurato, poi `default`, poi
+`hw:XTONE` (doppioni saltati), con log esplicito su stderr/journal. Se uno dei
+successivi si apre si suona lo stesso e lo stato segnala `fallback: true`.
+
+Se **nessuno** si apre il motore non esce: resta attivo **senza audio** con il
+socket di controllo e la web UI funzionanti, `/api/state` riporta
+`audio.open: false` e `audio.error`, e da Impostazioni si corregge il device e
+si preme **Applica** (che fa re-exec e riprova). Questo evita il crash loop di
+systemd (`Restart=on-failure`) con un device sbagliato.
+
 ## Eventi SSE (`GET /api/events`)
 
 `web/server.py` espone `GET /api/events` come `text/event-stream`. Per ogni
@@ -293,10 +389,11 @@ validare hotspot, DHCP e raggiungibilità della web dal telefono.
 
 ## Caricamento
 
-Cambio preset, cambio modello/IR e spostamento del mod ricostruiscono il motore
-(re-exec, ~0,5-2 s): la pagina mostra un **rotellone** a tutto schermo e lo toglie
-solo quando lo stato riporta il nuovo slot **e** il nuovo path preset (o, per i
-cambi file/posizione, al primo stato dopo il riavvio). Timeout di sicurezza 6 s.
+Cambio preset, cambio modello/IR, spostamento del mod e **Applica** nella
+sezione Interfaccia audio ricostruiscono il motore (re-exec, ~0,5-2 s): la
+pagina mostra un **rotellone** a tutto schermo e lo toglie solo quando lo stato
+riporta il nuovo slot **e** il nuovo path preset (o, per i cambi file/posizione,
+al primo stato dopo il riavvio). Timeout di sicurezza 6 s (8 s per l'audio).
 
 I file statici (`index.html`, `ui.js`) sono riletti da disco a ogni richiesta,
 quindi una modifica alla UI si vede ricaricando la pagina. `GET /api/presets`
@@ -317,6 +414,9 @@ Con sudo: `sudo systemctl restart namzero-web`.
 | GET | `/api/state` | snapshot dello stato (fallback del polling) |
 | GET | `/api/events` | SSE: `data:` con lo snapshot a ogni cambiamento, heartbeat 15 s |
 | GET | `/api/presets` | elenco preset: `[{"slot":0,"name":"vox_wah"}, ...]` da `config/presets.json` |
+| GET | `/api/audio` | config audio + ingressi + stato del motore (`open`, `fallback`, errore) |
+| GET | `/api/audio/devices` | device da `aplay -l` con card/device/nome/id e nomi `hw`/`plughw` |
+| POST | `/api/audio` | valida e salva il blocco `audio`, poi reload del motore (200/400) |
 | POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`, `tuner`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |
@@ -352,9 +452,11 @@ una connessione aperta finché il client resta collegato.
 
 Il re-exec usa `execv`, quindi **il PID non cambia**: systemd (`Type=simple`,
 `Restart=on-failure`) non vede un riavvio e non incrementa `NRestarts`. Se il
-motore esce davvero per un errore (device audio perso, `execv` fallito) esce con
-codice 1, cosi' `Restart=on-failure` lo rilancia; un'uscita richiesta con
-`q`/Ctrl-C resta codice 0 e il servizio si ferma.
+motore esce davvero per un errore (device audio perso **durante** il
+funzionamento, `execv` fallito) esce con codice 1, cosi' `Restart=on-failure` lo
+rilancia; un'uscita richiesta con `q`/Ctrl-C resta codice 0 e il servizio si
+ferma. All'avvio, se **nessun** device audio si apre, non esce: resta in
+modalita' offline (vedi sopra) per non entrare in crash loop.
 
 Un'uscita 0 (`q`/Ctrl-C, SIGTERM gestito) non fa scattare `Restart=on-failure`;
 un errore (codice 1) o un crash con segnale non gestito si'.

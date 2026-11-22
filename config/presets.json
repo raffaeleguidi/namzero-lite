@@ -1,4 +1,10 @@
 {
+  "audio": {
+    "device": "hw:XTONE",
+    "buffer": 64,
+    "periods": 3,
+    "input": 0
+  },
   "gate": {
     "threshold_db": -70,
     "attack_ms": 2,

@@ -1,8 +1,8 @@
 # namzero-lite
 
 Motore audio realtime per chitarra su Raspberry Pi Zero 2W con XSONIC XTONE come
-interfaccia audio: modelli NAM *lite*, catena a slot fissi con bypass, controllo
-MIDI da footswitch.
+interfaccia audio di default (ora **configurabile dalla web UI**): modelli NAM
+*lite*, catena a slot fissi con bypass, controllo MIDI da footswitch.
 
 Il piano di progetto completo è in [PLAN.md](PLAN.md). Dettagli su
 [preset e parametri](docs/presets.md), [controllo MIDI](docs/midi.md),
@@ -16,7 +16,14 @@ preset è il prossimo passo.
 ## Cosa c'è già
 
 **Audio**
-- I/O ALSA full-duplex su XTONE, periodo configurabile (default 64 frame @ 48 kHz)
+- I/O ALSA full-duplex su XTONE (default) o su qualunque PCM ALSA scelto dalla
+  UI; periodo e periodi configurabili (default 64 frame @ 48 kHz)
+- **Interfaccia audio configurabile** in Impostazioni: elenco device da
+  `aplay -l`, PCM manuale, buffer 16..2048, periodi 2..8, canale d'ingresso 0/1,
+  **Applica** = salva in `presets.json` + reload. Rate interno **fisso 48 kHz**
+  (per device solo-44.1k si usa `plughw:CARD,DEV`). Se il device non si apre:
+  fallback `default` -> `hw:XTONE`, poi modalita' offline senza crash loop, cosi'
+  la UI puo' correggere ([docs/web.md](docs/web.md))
 - Thread realtime: `SCHED_FIFO`, `mlockall`, nessuna allocazione nel loop; recupero
   automatico dagli xrun e statistiche
 - Catena a slot fissi con bypass in crossfade di 5 ms (anti-click)
@@ -72,8 +79,8 @@ preset è il prossimo passo.
 **Sistema**
 - **Web UI** locale (porta 8080): pedaliera con manopole live, stato
   bidirezionale via **SSE** (`GET /api/events`, polling come fallback),
-  accordatore modale a 10-20 Hz, salvataggio preset e upload NAM/IR
-  ([docs/web.md](docs/web.md))
+  accordatore modale a 10-20 Hz, salvataggio preset, upload NAM/IR e sezione
+  **Interfaccia audio** con stato del device/fallback ([docs/web.md](docs/web.md))
 - **WiFi**: reti note con priorità e **AP di fallback** (`namzero-wifi`). Se
   all'avvio nessuna rete nota è raggiungibile entro ~10 s avvia un hotspot
   WPA2 con DHCP condiviso; in AP ricontrolla ogni ~50 s e torna in STA appena
@@ -85,7 +92,9 @@ preset è il prossimo passo.
   (`cross-build.sh` + `deploy.sh`)
 - Test: C++ (ctest, incluso `tuner_test` sul rilevatore), stress runtime
   (`test/ctl_stress.py`: ctl + SSE), test runtime G-Board
-  (`test/gboard_cc_runtime.py`, `test/gboard_pc_runtime.py`), decoder bridge
+  (`test/gboard_cc_runtime.py`, `test/gboard_pc_runtime.py`), test audio web
+  (`test/audio_web_test.py`: parsing `aplay -l`, validazione, API) e runtime
+  (`test/audio_runtime.py`: salvataggio + reload sul Pi), decoder bridge
   Python, verifica preset, decisioni WiFi/AP (`test/wifi_manager_test.py`,
   dry-run senza `nmcli`)
 
@@ -141,6 +150,9 @@ aplay -l; arecord -l
 
 # senza privilegi realtime (solo per test a buffer grandi)
 ./build/namzero-lite --no-rt --buffer 256
+
+# interfaccia audio da riga di comando (override dell'avvio, non persistito)
+./build/namzero-lite --device plughw:XTONE --buffer 128 --periods 4 --input 0
 ```
 
 Statistiche ogni 5 secondi: blocchi elaborati, xrun, tempo massimo di
@@ -150,10 +162,11 @@ elaborazione del blocco.
 
 | Opzione | Default | Note |
 |---------|---------|------|
-| `--device` | `hw:XTONE` | PCM ALSA (capture e playback sullo stesso device) |
-| `--rate` | `48000` | Hz |
-| `--buffer` | `64` | frame per periodo |
-| `--periods` | `3` | periodi nel buffer |
+| `--device` | `hw:XTONE` | PCM ALSA (capture e playback sullo stesso device); vince su `presets.json` |
+| `--rate` | `48000` | legacy: il motore usa sempre 48000 Hz |
+| `--buffer` | `64` | frame per periodo, 16..2048 |
+| `--periods` | `3` | periodi nel buffer, 2..8 |
+| `--input` | `0` | canale di cattura usato come ingresso (0 = L, 1 = R) |
 | `--gain` | `0.0` | dB sul master |
 | `--prio` | `80` | priorità FIFO del thread audio |
 | `--no-rt` | off | non impostare priorità realtime |
