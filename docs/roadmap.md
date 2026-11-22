@@ -6,7 +6,12 @@
   analisi del dry, nota/cent/frequenza a 10–20 Hz via `/api/events`, transpose/ref
   personalizzabili, mute.
 
-## Fatto di recente
+## Fatto
+
+- **Preset dai PC della G-Board**: Program mode = slot 0–7, Control/CC mode = effetti
+  (CC 50–57), LED invariati, `preset_pc`/`pc_effects`, test 99+30 — `32504b5`.
+- **Fuzz octaver + flag Ottava**: `octave` (mix) + `octave_on` separato, toggle in UI,
+  fade senza click — `2ece6ad`, `3f7586e`. di recente
 
 - **AP di fallback WiFi**: il servizio `namzero-wifi` collega le reti note e,
   se nessuna è raggiungibile entro ~10 s, avvia un hotspot WPA2
@@ -22,13 +27,7 @@
 
 ## Da fare (ordine proposto)
 
-1. **Cambio preset dai PC della G-Board**: i PC 0-7 (liberi dopo il passaggio a
-   CC degli effetti) selezionano gli **slot 0-7**. La G-Board in **Program
-   mode** = preset, in **Control/CC mode** = effetti (CC 50-57). Config
-   `gboard.preset_pc` (default on); i vecchi PC-effetto deprecati (restano solo
-   come fallback LED), i CC restano gli ingressi effetti. Flash del LED sullo
-   slot come oggi; test runtime (PC -> slot, `.last_slot`, re-exec) e doc.
-2. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
+1. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
    collegate (da `aplay -l`), scelta del device, **kHz**, **ingressi** (canale
    d'ingresso per chitarra/dry del tuner), buffer/periodi; “Applica” = salva +
    reload. Il motore resta a 48 kHz internamente: per device che accettano solo
