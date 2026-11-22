@@ -196,6 +196,39 @@ e pulsante **Applica**.
 - `http://namzero-lite.local:8080` — mDNS (iPhone/macOS; Android dipende);
 - `http://10.42.0.1:8080` — IP dell'AP, sempre valido.
 
+### Misurare le performance durante il test AP
+
+`scripts/measure_ap.py` campiona %CPU del motore, load, temperatura, stato
+WiFi (STA/AP, SSID, client AP) e legge xrun/max blocco dal log del motore.
+Nessun sudo, nessuna modifica alla rete.
+
+Prima di uscire (l'AP partirà da solo fuori casa):
+
+```bash
+cd ~/namzero-lite
+nohup python3 scripts/measure_ap.py --seconds 1800 >/tmp/ap-bench.txt 2>&1 &
+```
+
+Al rientro: `cat /tmp/ap-bench.txt` (riepilogo: CPU media/max, xrun nel
+periodo, max blocco, modi WiFi visti, verdetto). Opzioni: `--log /tmp/engine.log`
+se il motore gira a mano, `--interval`, `--out`.
+
+Se il Pi viene spento/riacceso fuori casa, avvia la misura con un oneshot:
+
+```ini
+# /etc/systemd/system/namzero-apbench.service
+[Unit]
+Description=AP bench
+After=network.target namzero-lite.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/pi/namzero-lite/scripts/measure_ap.py --seconds 1800 --out /home/pi/ap-bench.txt
+[Install]
+WantedBy=multi-user.target
+```
+
+`sudo systemctl enable --now namzero-apbench` (poi `disable` quando non serve).
+
 ## API
 
 `GET /api/audio` restituisce la config salvata e lo stato del motore:
@@ -422,6 +455,39 @@ Con sudo: `sudo systemctl restart namzero-web`.
   i client dell'AP usano il DNS dell'AP e risolvono il nome;
 - `http://namzero-lite.local:8080` — mDNS (iPhone/macOS; Android dipende);
 - `http://10.42.0.1:8080` — IP dell'AP, sempre valido.
+
+### Misurare le performance durante il test AP
+
+`scripts/measure_ap.py` campiona %CPU del motore, load, temperatura, stato
+WiFi (STA/AP, SSID, client AP) e legge xrun/max blocco dal log del motore.
+Nessun sudo, nessuna modifica alla rete.
+
+Prima di uscire (l'AP partirà da solo fuori casa):
+
+```bash
+cd ~/namzero-lite
+nohup python3 scripts/measure_ap.py --seconds 1800 >/tmp/ap-bench.txt 2>&1 &
+```
+
+Al rientro: `cat /tmp/ap-bench.txt` (riepilogo: CPU media/max, xrun nel
+periodo, max blocco, modi WiFi visti, verdetto). Opzioni: `--log /tmp/engine.log`
+se il motore gira a mano, `--interval`, `--out`.
+
+Se il Pi viene spento/riacceso fuori casa, avvia la misura con un oneshot:
+
+```ini
+# /etc/systemd/system/namzero-apbench.service
+[Unit]
+Description=AP bench
+After=network.target namzero-lite.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/pi/namzero-lite/scripts/measure_ap.py --seconds 1800 --out /home/pi/ap-bench.txt
+[Install]
+WantedBy=multi-user.target
+```
+
+`sudo systemctl enable --now namzero-apbench` (poi `disable` quando non serve).
 
 ## API
 
