@@ -25,7 +25,7 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
                 "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
     "drive":  { "on": false, "type": "fuzz", "amount": 0.15, "tone": 0.5,
                 "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0,
-                "octave": 0.0 },
+                "octave": 0.0, "octave_on": false },
     "filter": { "on": false, "type": "wah", "range": 12, "rate_hz": 1.0,
                 "depth": 0.5, "q": 3.0, "mix": 1.0,
                 "low_hz": 350, "high_hz": 2200, "position": 0.5 },
@@ -84,6 +84,7 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 | `mid_db` | 4.0 | solo klon: gobba a 800 Hz |
 | `low_db` | 5.0 | solo fuzz: low-shelf a 110 Hz |
 | `octave` | 0.0 | solo fuzz: 0..1, quota di ottava stile Octavia |
+| `octave_on` | false | solo fuzz: interruttore dell'ottava, separato dal mix |
 
 `octave` raddrizza il fuzz a onda intera, toglie la continua con un passa-alto a
 200 Hz e miscela il risultato al fuzz: non è un pitch shifter, è l'armonica a
@@ -91,6 +92,16 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 l'ottava. Il parametro è significativo solo con `type: "fuzz"`: con `klon` e
 `tubescreamer` viene ignorato ma resta salvato. I preset senza `octave` valgono
 `0` (migrazione automatica).
+
+`octave_on` è l'interruttore: l'ottava si applica **solo** con
+`octave_on: true` e `type: "fuzz"`. Con `octave_on: false` il ramo è bypassato
+anche se `octave` è 1: il valore del mix resta salvato e torna effettivo appena
+si riaccende, senza essere azzerato. I preset vecchi senza la chiave partono
+spenti (`false`), conservando il mix che avevano. In catena lo spegnimento fa
+un fade di ~8 ms, quindi non produce click. Da web UI il mix è la manopola
+Octave e l'interruttore è il toggle Octave ON/OFF accanto; via socket si
+comandano con `param` `key:"octave"` e `key:"octave_on"` (bool, con clamp;
+`set` accetta anche `octave_on`).
 
 ### filter (wah / whammy)
 

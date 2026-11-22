@@ -39,13 +39,14 @@ std::vector<float> sine(double f0, float amp) {
 
 // Ampiezza a una frequenza con la formula di Goertzel: basta una passata e
 // non serve una FFT da 96k punti per due sole righe dello spettro.
-double mag_at(const std::vector<float>& x, double f) {
+double mag_range(const std::vector<float>& x, double f, std::size_t begin,
+                 std::size_t end) {
     const double w = 2.0 * M_PI * f / kFs;
     const double coeff = 2.0 * std::cos(w);
     double s0 = 0.0;
     double s1 = 0.0;
     double s2 = 0.0;
-    for (std::size_t i = kSkip; i < kFrames; ++i) {
+    for (std::size_t i = begin; i < end; ++i) {
         s0 = x[i * 2] + coeff * s1 - s2;
         s2 = s1;
         s1 = s0;
@@ -53,8 +54,13 @@ double mag_at(const std::vector<float>& x, double f) {
     return std::sqrt(s1 * s1 + s2 * s2 - coeff * s1 * s2);
 }
 
+double mag_at(const std::vector<float>& x, double f) {
+    return mag_range(x, f, kSkip, kFrames);
+}
+
 std::vector<float> run(namzero::DriveSlot::Type type, float octave, float drive = 0.3f,
-                       const std::vector<float>& in = sine(kF0, kAmp)) {
+                       const std::vector<float>& in = sine(kF0, kAmp),
+                       bool octave_on = true) {
     namzero::DriveSlot slot;
     slot.set_type(type);
     slot.set_drive(drive);
@@ -64,6 +70,7 @@ std::vector<float> run(namzero::DriveSlot::Type type, float octave, float drive 
     slot.set_mid_db(4.0f);
     slot.set_low_db(5.0f);
     slot.set_octave(octave);
+    slot.set_octave_on(octave_on);
     slot.prepare(kFs, 64);
     std::vector<float> out = in;
     slot.process(out.data(), kFrames);
@@ -117,6 +124,69 @@ int main() {
     CHECK(f2_half > 3.0 * f2_0);
     CHECK(f2_half < f2_1 * 0.8);
     CHECK(mag_at(half, kF0) > 0.25 * mag_at(oct0, kF0));
+
+    // Interruttore spento: il ramo e' bypassato anche col mix a 1. L'uscita
+    // deve essere identica a quella di un fuzz senza ottava, mentre il mix
+    // resta memorizzato nello slot (non viene azzerato).
+    const auto off_mix1 = run(namzero::DriveSlot::Type::kFuzz, 1.0f, 0.3f, in, false);
+    const double r_off = second_ratio(off_mix1);
+    const double f2_off = mag_at(off_mix1, 2.0 * kF0);
+    CHECK(all_finite(off_mix1));
+    CHECK(r_off < 0.01);
+    CHECK(f2_off < 2.0 * f2_0);
+    double bypass_diff = 0.0;
+    for (std::size_t i = 0; i < oct0.size(); ++i) {
+        bypass_diff = std::max(bypass_diff,
+                               std::fabs(static_cast<double>(oct0[i]) - off_mix1[i]));
+    }
+    CHECK(bypass_diff < 1e-6);
+    {
+        namzero::DriveSlot slot;
+        CHECK(!slot.octave_on());  // default: spenta
+        slot.set_octave(0.8f);
+        slot.set_octave_on(false);
+        CHECK(std::fabs(slot.octave() - 0.8f) < 1e-6f);
+        CHECK(!slot.octave_on());
+        slot.set_octave_on(true);
+        CHECK(slot.octave_on());
+        CHECK(std::fabs(slot.octave() - 0.8f) < 1e-6f);
+    }
+
+    // Spegnimento mentre suona (mix 1): il fade di ~8 ms evita il click e,
+    // passata la rampa, il ramo viene davvero saltato (niente 2f).
+    {
+        namzero::DriveSlot slot;
+        slot.set_type(namzero::DriveSlot::Type::kFuzz);
+        slot.set_drive(0.3f);
+        slot.set_tone(0.5f);
+        slot.set_low_db(5.0f);
+        slot.set_octave(1.0f);
+        slot.set_octave_on(true);
+        slot.prepare(kFs, 64);
+        std::vector<float> out = in;
+        const std::size_t half = kFrames / 2;
+        const std::size_t block = 64;
+        for (std::size_t off = 0; off < half; off += block) {
+            slot.process(out.data() + off * 2, std::min(block, half - off));
+        }
+        slot.set_octave_on(false);
+        for (std::size_t off = half; off < kFrames; off += block) {
+            slot.process(out.data() + off * 2, std::min(block, kFrames - off));
+        }
+        CHECK(all_finite(out));
+        const double steady = std::max(max_step(oct0), max_step(oct1));
+        const double turned_off = max_step(out);
+        CHECK(turned_off < steady * 2.5 + 0.005);
+        for (float v : out) CHECK(std::fabs(v) < 4.0f);
+        // 0,1 s dopo lo spegnimento la rampa e' finita: resta solo il fuzz.
+        const double tail_f1 = mag_range(out, kF0, half + 4800, kFrames);
+        const double tail_f2 = mag_range(out, 2.0 * kF0, half + 4800, kFrames);
+        CHECK(tail_f1 > 0.0);
+        CHECK(tail_f2 / tail_f1 < 0.01);
+        std::printf("octave_on: salto massimo allo spegnimento %.4f "
+                    "(stazionario %.4f), 2f/fond dopo il fade %.4f\n",
+                    turned_off, steady, tail_f1 > 0.0 ? tail_f2 / tail_f1 : -1.0);
+    }
 
     // Clamp 0..1 del parametro.
     {

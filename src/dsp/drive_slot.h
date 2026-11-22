@@ -44,10 +44,15 @@ public:
     // la continua con un passa-alto e lo miscela al fuzz. 0 = solo fuzz,
     // 1 = solo ottava. Significativo solo per kFuzz: klon e tubescreamer lo
     // ignorano (il valore resta comunque salvato nel preset).
+    //
+    // Il mix (set_octave) e l'interruttore (set_octave_on) sono indipendenti:
+    // a interruttore spento il ramo e' bypassato ma il mix resta memorizzato,
+    // cosi' riaccendendo si ritrova la manopola com'era.
     void set_octave(float o) {
         const float v = std::isfinite(o) ? clamp(o, 0.0f, 1.0f) : 0.0f;
         octave_.store(v, std::memory_order_relaxed);
     }
+    void set_octave_on(bool on) { octave_on_.store(on, std::memory_order_relaxed); }
 
     float drive() const { return drive_.load(std::memory_order_relaxed); }
     float tone() const { return tone_.load(std::memory_order_relaxed); }
@@ -56,6 +61,7 @@ public:
     float mid_db() const { return mid_db_.load(std::memory_order_relaxed); }
     float low_db() const { return low_db_.load(std::memory_order_relaxed); }
     float octave() const { return octave_.load(std::memory_order_relaxed); }
+    bool octave_on() const { return octave_on_.load(std::memory_order_relaxed); }
 
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
@@ -70,8 +76,11 @@ public:
         dc_y_l_ = dc_y_r_ = 0.0f;
         oct_dc_l_ = oct_dc_r_ = 0.0f;
         // All'accensione l'ottava parte gia' al valore del preset: il fade-in
-        // dello smussamento serve ai cambi a runtime, non all'avvio.
-        oct_smooth_ = octave_.load(std::memory_order_relaxed);
+        // dello smussamento serve ai cambi a runtime, non all'avvio. Se
+        // l'interruttore e' spento si parte da 0 anche col mix salvato.
+        oct_smooth_ = octave_on_.load(std::memory_order_relaxed)
+                          ? octave_.load(std::memory_order_relaxed)
+                          : 0.0f;
         mid_l_.reset();
         mid_r_.reset();
         low_l_.reset();
@@ -199,8 +208,13 @@ private:
         const float level = db_to_lin(level_db_.load(std::memory_order_relaxed));
         // Compensa il guadagno: senza, alzare il drive fa solo piu' volume.
         const float norm = level / std::tanh(pre);
-        const float oct_target = octave_.load(std::memory_order_relaxed);
-        // A octave 0 e smussamento esaurito non si paga nulla: il ramo si
+        // L'interruttore decide se il ramo esiste, il mix quanto pesa. Con
+        // l'interruttore spento il target e' 0 anche se il mix salvato e' 1:
+        // cosi' lo smussamento fa il fade-out (~8 ms) senza click e poi il
+        // ramo si salta del tutto. Il mix resta intatto nello slot.
+        const bool enabled = octave_on_.load(std::memory_order_relaxed);
+        const float oct_target = enabled ? octave_.load(std::memory_order_relaxed) : 0.0f;
+        // A target 0 e smussamento esaurito non si paga nulla: il ramo si
         // salta del tutto. Appena il target sale, la rampa riparte da zero.
         const bool oct_on = oct_target > 0.0f || oct_smooth_ > 1e-4f;
         if (!oct_on) {
@@ -348,6 +362,7 @@ private:
     std::atomic<float> mid_db_{4.0f};
     std::atomic<float> low_db_{5.0f};
     std::atomic<float> octave_{0.0f};
+    std::atomic<bool> octave_on_{false};
 
     float fs_ = 48000.0f;
     float tone_coef_ = 0.2f;

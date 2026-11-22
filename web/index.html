@@ -39,6 +39,18 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 .pedal .knob input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .pedal .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
 .pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
+/* Ottava del fuzz: manopola del mix e interruttore indipendente sulla stessa
+   riga. Spegnendo l'interruttore il mix resta visibile e salvato: si spegne
+   solo l'effetto, non si azzera il valore. */
+.octave-row { display:flex; align-items:flex-end; gap:6px; margin-top:6px; }
+.octave-row .knob { flex:1 1 auto; margin-top:0; }
+.octave-toggle { flex:0 0 auto; margin-bottom:1px; padding:3px 7px; border-radius:9px;
+  border:1px solid rgba(0,0,0,.25); background:rgba(255,255,255,.45); color:#16181d;
+  cursor:pointer; font:inherit; font-size:10px; font-weight:600; letter-spacing:.3px;
+  white-space:nowrap; }
+.octave-toggle.on { background:#2563eb; border-color:#2563eb; color:#fff;
+  box-shadow:0 0 8px rgba(37,99,235,.45); }
+.octave-toggle:focus-visible { outline:2px solid #2563eb; outline-offset:1px; }
 .pedal .foot { display:flex; justify-content:flex-start; margin-top:8px; }
 #rack { margin:0 16px 16px; background:linear-gradient(#2b303b,#22262f); border:1px solid #3a4150; border-radius:10px; padding:10px 16px 14px; box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
 .rack-title { display:flex; align-items:center; font-size:11px; letter-spacing:2px; color:#8b93a7; text-transform:uppercase; margin-bottom:8px; }
@@ -162,6 +174,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
   #loop-row { flex-wrap:wrap; gap:8px; }
   #loop-state { min-width:0; flex:1 1 100%; }
   #loop-row .act { min-width:44px; min-height:44px; }
+  .octave-toggle { min-height:40px; padding:0 10px; font-size:12px; }
   .eq-bands { gap:6px; }
   .eq-band { width:44px; }
   .eq-band .eq-slider { width:44px; height:108px; }
@@ -295,9 +308,23 @@ SLOTS.forEach(s => {
   s.knobs.forEach(([key,label,min,max,step,unit]) => {
     const wrap = el("div", {className:"knob"});
     if (s.id === "filter") wrap._group = FILTER_KNOB_GROUP[key] || "both";
+    // L'ottava ha due comandi indipendenti sulla stessa riga: il mix (slider)
+    // e l'interruttore. La riga intera e' "solo fuzz": sulle altre facce
+    // sparisce, ma il mix resta nel preset.
+    let node = wrap;
     if (s.id === "drive" && key === "octave") {
-      wrap._fuzzOnly = true;
-      wrap.title = "ottava del fuzz (Octavia): solo con tipo fuzz";
+      const row = el("div", {className:"octave-row"});
+      row._fuzzOnly = true;
+      row.title = "ottava del fuzz (Octavia): solo con tipo fuzz";
+      const toggle = el("button", {className:"octave-toggle", type:"button",
+                                   textContent:"Octave OFF",
+                                   title:"accende/spegne l'ottava; il mix resta salvato"});
+      toggle.setAttribute("aria-pressed", "false");
+      toggle.onclick = () => send({cmd:"param", slot:"drive", key:"octave_on",
+                                   value:!last?.slots?.drive?.octave_on});
+      row.append(wrap, toggle);
+      card._octaveToggle = toggle;
+      node = row;
     }
     const lab = el("span", {textContent:label});
     const out = el("output");
@@ -305,8 +332,8 @@ SLOTS.forEach(s => {
     let t = null;
     inp.oninput = () => { out.textContent = (+inp.value).toFixed(step < 0.1 ? 2 : 1) + unit;
       clearTimeout(t); t = setTimeout(() => send({cmd:"param", slot:s.id, key, value:+inp.value}), 60); };
-    wrap.append(lab, out, inp); card.append(wrap);
-    (card._knobs || (card._knobs = [])).push(wrap);
+    wrap.append(lab, out, inp); card.append(node);
+    (card._knobs || (card._knobs = [])).push(node);
     knobs.push({slot:s.id, key, inp, out, step, unit});
   });
   const foot = el("div", {className:"foot"}); foot.append(reset); card.append(foot);
@@ -572,6 +599,17 @@ function render(st, fromPoll = false) {
     }
     if (card._id === "filter") applyFilterKnobs(card, s.type);
     if (card._id === "drive") applyDriveKnobs(card, s.type);
+    if (card._octaveToggle) {
+      // Il toggle riflette l'interruttore, non il mix: a ottava spenta lo
+      // slider resta al valore conservato e si vede che non ha effetto.
+      const on = !!s.octave_on;
+      card._octaveToggle.classList.toggle("on", on);
+      card._octaveToggle.textContent = on ? "Octave ON" : "Octave OFF";
+      card._octaveToggle.setAttribute("aria-pressed", on ? "true" : "false");
+      card._octaveToggle.title = on
+        ? "ottava accesa: lo slider decide quanto pesa"
+        : "ottava spenta: lo slider resta salvato ma non ha effetto";
+    }
     if (card._select && s.type) card._select.value = s.type;
     if (card._select && s.mode) card._select.value = s.mode;
     if (card._pos && typeof s.position === "string") card._pos.value = s.position;

@@ -16,11 +16,16 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 - **Pedaliera**: gate, comp, filter, drive, mod, amp, IR, delay, riverbero, boost;
   ogni slot ha le manopole dei parametri principali e, dove ha senso, lo stomp.
 - **Drive**: selettore del tipo (`fuzz`/`klon`/`tubescreamer`) e manopole
-  amount, tone, blend, level, mid, low. La manopola **Octave** (0..1) compare
-  **solo con tipo `fuzz`**: è l'ottava stile Octavia (raddrizzamento a onda
-  intera + passa-alto, non un pitch shifter). Passa da `param` con
-  `key:"octave"` (clamp 0..1); il valore resta nel preset anche sugli altri
-  tipi, dove viene ignorato. Cambiando tipo il render la mostra/nasconde subito.
+  amount, tone, blend, level, mid, low. Con tipo `fuzz` compaiono la manopola
+  **Octave** (0..1) e, accanto, il piccolo interruttore **Octave ON/OFF**:
+  l'ottava è quella stile Octavia (raddrizzamento a onda intera + passa-alto,
+  non un pitch shifter). Il mix passa da `param` con `key:"octave"` (clamp 0..1),
+  l'interruttore da `param` con `key:"octave_on"` (bool; accetta anche 1/0, con
+  clamp). I due comandi sono indipendenti: spegnendo l'interruttore lo slider
+  **resta visibile e conserva il suo valore**, ma l'ottava non viene applicata;
+  riaccendendolo si ritrova il mix com'era. Il valore resta nel preset anche
+  sugli altri tipi, dove viene ignorato. Cambiando tipo il render mostra/nasconde
+  subito manopola e interruttore.
 - **Filter**: card dedicata prima del drive, con un selettore **Tipo**
   (`wah`/`whammy`). Con `wah` mostra rate, depth, q, mix, low_hz e high_hz; con
   `whammy` mostra range (semitoni, -24..+24) e mix. La manopola **Pos** resta
@@ -86,6 +91,9 @@ Sempre sotto i 720 px:
 - i campi numerici e le select passano a `font-size:16px`, così iOS non fa zoom
   al focus;
 - i pulsanti on/off e i comandi del looper hanno un touch target di ~40-44 px;
+  il piccolo toggle **Octave ON/OFF** del drive sale a ~40 px di altezza;
+- la riga Octave (slider + toggle) resta sulla stessa riga e non va a capo: lo
+  slider continua a mostrare il mix conservato anche a ottava spenta;
 - il rack impila le unità a larghezza piena e gli slider EQ restano toccabili
   (bande più larghe, thumb da 20 px);
 - i pedali restano in una fila scrollabile **dentro `main`**: la pagina non

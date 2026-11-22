@@ -20,7 +20,9 @@ Verifica:
       con il CC 7 iniettato sulla socket BLE del motore, pedale a fondo ->
       pitch up, save e reload del preset;
   d) comandi di gruppo: param, save, save_options, looper, file, defaults;
-     drive.octave del fuzz: param, clamp 0..1, save/reload, migrazione, defaults;
+     drive.octave del fuzz: mix, clamp 0..1, interruttore octave_on separato
+     (param e set, clamp bool, mix conservato da spento), save/reload,
+     migrazione dei preset vecchi (octave_on assente -> false), defaults;
   e) EQ globale: band live, clamp, save_options, riavvio che la riapplica,
      defaults; volume globale live, clamp, persistenza, somma col boost;
   f) timeout dei client inattivi (~10 s);
@@ -589,6 +591,36 @@ def main():
                         timeout=4, label="octave 0.55")
         check("drive.octave 0.55", abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6)
 
+        # Interruttore separato dal mix: da spento bypassa l'ottava ma il mix
+        # resta salvato. Il clamp booleano accetta anche 1/0 e la forma via set.
+        send_cmd({"cmd": "param", "slot": "drive", "key": "octave_on", "value": 1})
+        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is True,
+                        timeout=4, label="param drive octave_on 1")
+        check("param drive.octave_on 1 -> true",
+              st["slots"]["drive"]["octave_on"] is True)
+
+        send_cmd({"cmd": "param", "slot": "drive", "key": "octave_on", "value": 0})
+        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is False,
+                        timeout=4, label="param drive octave_on 0")
+        check("drive.octave_on false conserva il mix",
+              st["slots"]["drive"]["octave_on"] is False and
+              abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6)
+
+        send_cmd({"cmd": "param", "slot": "drive", "key": "octave_on", "value": True})
+        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is True,
+                        timeout=4, label="param drive octave_on true")
+        check("param drive.octave_on true", st["slots"]["drive"]["octave_on"] is True)
+
+        send_cmd({"cmd": "set", "slot": "drive", "octave_on": False})
+        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is False,
+                        timeout=4, label="set drive octave_on false")
+        check("set drive.octave_on false", st["slots"]["drive"]["octave_on"] is False)
+
+        send_cmd({"cmd": "set", "slot": "drive", "octave_on": True})
+        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is True,
+                        timeout=4, label="set drive octave_on true")
+        check("set drive.octave_on true", st["slots"]["drive"]["octave_on"] is True)
+
         # Klon e tubescreamer ignorano l'ottava (il suono si verifica in
         # drive_octave_test), ma il valore deve restare nello stato e nel preset.
         for dtype in ("klon", "tubescreamer"):
@@ -605,16 +637,32 @@ def main():
             send_cmd({"cmd": "save"})
             time.sleep(0.25)
             dp = json.load(open(os.path.join(repo, initial_preset)))["slots"]["drive"]
-            check("save scrive drive.octave",
+            check("save scrive drive.octave e octave_on",
                   dp.get("type") == "fuzz" and
-                  abs(float(dp.get("octave", -1)) - 0.55) < 1e-6,
+                  abs(float(dp.get("octave", -1)) - 0.55) < 1e-6 and
+                  dp.get("octave_on") is True,
                   json.dumps(dp))
 
             st = wait_reexec({"cmd": "reload"},
                              lambda s: s["slots"]["drive"].get("type") == "fuzz" and
-                             abs(s["slots"]["drive"].get("octave", -1) - 0.55) < 1e-6,
+                             abs(s["slots"]["drive"].get("octave", -1) - 0.55) < 1e-6 and
+                             s["slots"]["drive"].get("octave_on") is True,
                              "reload drive octave", timeout=20)
-            check("reload conserva drive.octave",
+            check("reload conserva drive.octave e octave_on",
+                  abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6 and
+                  st["slots"]["drive"]["octave_on"] is True)
+
+            # Migrazione: un preset vecchio senza "octave_on" parte spento,
+            # conservando il mix che c'era.
+            pj = json.load(open(os.path.join(repo, initial_preset)))
+            pj["slots"]["drive"].pop("octave_on", None)
+            with open(os.path.join(repo, initial_preset), "w") as f:
+                json.dump(pj, f, indent=2)
+            st = wait_reexec({"cmd": "reload"},
+                             lambda s: s["slots"]["drive"].get("octave_on") is False,
+                             "migrazione drive octave_on", timeout=20)
+            check("preset senza octave_on -> false (mix conservato)",
+                  st["slots"]["drive"]["octave_on"] is False and
                   abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6)
 
             # Migrazione: un preset senza "octave" deve valere 0.
@@ -631,11 +679,13 @@ def main():
 
         send_cmd({"cmd": "defaults", "slot": "drive"})
         st = wait_state(lambda s: s["slots"]["drive"].get("type") == "fuzz" and
-                        abs(s["slots"]["drive"].get("octave", -1)) < 1e-6,
+                        abs(s["slots"]["drive"].get("octave", -1)) < 1e-6 and
+                        s["slots"]["drive"].get("octave_on") is False,
                         timeout=4, label="defaults drive")
-        check("defaults drive (type fuzz, octave 0)",
+        check("defaults drive (type fuzz, octave 0, octave_on false)",
               st["slots"]["drive"]["type"] == "fuzz" and
-              st["slots"]["drive"]["octave"] == 0)
+              st["slots"]["drive"]["octave"] == 0 and
+              st["slots"]["drive"]["octave_on"] is False)
 
         send_cmd({"cmd": "looper", "action": "stop"})
         time.sleep(0.25)

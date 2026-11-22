@@ -93,6 +93,7 @@ struct Config {
     double drive_mid_db = 4.0;  // solo klon: gobba sulle medie
     double drive_low_db = 5.0;  // solo fuzz: peso delle basse
     double drive_octave = 0.0;  // solo fuzz: quota di ottava (0..1, stile Octavia)
+    bool drive_octave_on = false;  // solo fuzz: interruttore dell'ottava
 
     bool mod_on = false;
     std::string mod_type = "tremolo";  // tremolo | univibe | flanger | phaser
@@ -233,6 +234,7 @@ void usage() {
         "  --drive-mid <db>     solo klon: gobba sulle medie (default +4)\n"
         "  --drive-low <db>     solo fuzz: peso delle basse (default +5)\n"
         "  --drive-octave <0..1> solo fuzz: quota di ottava, stile Octavia (default 0)\n"
+        "  --drive-octave-on    solo fuzz: accende l'ottava (default spenta)\n"
         "  --tremolo            tremolo nello slot mod\n"
         "  --mod-position <p>   pre_amp (default) | post_ir: dove sta il mod\n"
         "  --wah-position <0..1> posizione del filter (default 0.5)\n"
@@ -299,6 +301,19 @@ bool get_str(const nlohmann::json& j, const char* key, std::string& out) {
 
 bool get_bool(const nlohmann::json& j, const char* key, bool fallback) {
     return (j.contains(key) && j[key].is_boolean()) ? j[key].get<bool>() : fallback;
+}
+
+// Interruttori via socket: la UI manda true/false, ma un client esterno puo'
+// mandare 1/0 o "on"/"off". Tutto cio' che non e' riconoscibile vale false,
+// cosi' il valore resta comunque un bool (clamp).
+bool json_truthy(const nlohmann::json& v) {
+    if (v.is_boolean()) return v.get<bool>();
+    if (v.is_number()) return v.get<double>() != 0.0;
+    if (v.is_string()) {
+        const std::string s = v.get<std::string>();
+        return s == "1" || s == "true" || s == "on";
+    }
+    return false;
 }
 
 nlohmann::json slot_or_empty(const nlohmann::json& root, const char* name) {
@@ -371,6 +386,9 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.drive_mid_db = get_num(d, "mid_db", cfg.drive_mid_db);
         cfg.drive_low_db = get_num(d, "low_db", cfg.drive_low_db);
         cfg.drive_octave = get_num(d, "octave", cfg.drive_octave);
+        // Interruttore separato dal mix. I preset vecchi non hanno la chiave:
+        // partono spenti (default false), col mix salvato che resta invariato.
+        cfg.drive_octave_on = get_bool(d, "octave_on", cfg.drive_octave_on);
         // Migrazione: un preset senza "octave" resta a 0 (solo fuzz). Un
         // valore fuori range non deve far partire il motore con una manopola
         // oltre i limiti: si limita come fa il setter.
@@ -534,6 +552,7 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     slots["drive"]["mid_db"] = cfg.drive_mid_db;
     slots["drive"]["low_db"] = cfg.drive_low_db;
     slots["drive"]["octave"] = cfg.drive_octave;
+    slots["drive"]["octave_on"] = cfg.drive_octave_on;
     slots["mod"]["on"] = cfg.mod_on;
     slots["mod"]["type"] = cfg.mod_type;
     slots["mod"]["rate_hz"] = cfg.mod_rate_hz;
@@ -801,6 +820,8 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
             cfg.drive_octave = std::isfinite(cfg.drive_octave)
                                    ? std::clamp(cfg.drive_octave, 0.0, 1.0)
                                    : 0.0;
+        } else if (a == "--drive-octave-on") {
+            cfg.drive_octave_on = true;
         } else if (a == "--drive-blend") {
             const char* v = next("--drive-blend");
             if (v == nullptr || !parse_float(v, cfg.drive_blend)) {
@@ -1242,6 +1263,7 @@ int main(int argc, char** argv) {
         dr->set_mid_db(static_cast<float>(cfg.drive_mid_db));
         dr->set_low_db(static_cast<float>(cfg.drive_low_db));
         dr->set_octave(static_cast<float>(cfg.drive_octave));
+        dr->set_octave_on(cfg.drive_octave_on);
         chain.add(std::move(dr));
     }
 
@@ -1402,6 +1424,7 @@ int main(int argc, char** argv) {
         std::printf("cfg.drive.mid_db=%.4f\n", drive_ptr->mid_db());
         std::printf("cfg.drive.low_db=%.4f\n", drive_ptr->low_db());
         std::printf("cfg.drive.octave=%.4f\n", drive_ptr->octave());
+        std::printf("cfg.drive.octave_on=%d\n", drive_ptr->octave_on() ? 1 : 0);
 
         std::printf("cfg.mod.type=%s\n", mod_name(mod_ptr->type()));
         std::printf("cfg.mod.rate_hz=%.4f\n", mod_ptr->rate_hz());
@@ -1844,6 +1867,7 @@ int main(int argc, char** argv) {
         sl["drive"]["mid"] = cfg.drive_mid_db;
         sl["drive"]["low"] = cfg.drive_low_db;
         sl["drive"]["octave"] = cfg.drive_octave;
+        sl["drive"]["octave_on"] = cfg.drive_octave_on;
         sl["mod"]["on"] = cfg.mod_on;
         sl["mod"]["type"] = cfg.mod_type;
         sl["mod"]["rate"] = cfg.mod_rate_hz;
@@ -2120,6 +2144,7 @@ int main(int argc, char** argv) {
                 cfg.drive_mid_db = d.drive_mid_db;
                 cfg.drive_low_db = d.drive_low_db;
                 cfg.drive_octave = d.drive_octave;
+                cfg.drive_octave_on = d.drive_octave_on;
                 drive_ptr->set_type(drive_type_enum(namzero::drive_type_index(cfg.drive_type)));
                 drive_ptr->set_drive(static_cast<float>(cfg.drive_amount));
                 drive_ptr->set_tone(static_cast<float>(cfg.drive_tone));
@@ -2128,6 +2153,7 @@ int main(int argc, char** argv) {
                 drive_ptr->set_mid_db(static_cast<float>(cfg.drive_mid_db));
                 drive_ptr->set_low_db(static_cast<float>(cfg.drive_low_db));
                 drive_ptr->set_octave(static_cast<float>(cfg.drive_octave));
+                drive_ptr->set_octave_on(cfg.drive_octave_on);
                 if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
                 apply_leds();
             } else if (slot == "mod") {
@@ -2335,6 +2361,13 @@ int main(int argc, char** argv) {
                     cfg.drive_type = j["type"].get<std::string>();
                     drive_ptr->set_type(drive_type_enum(namzero::drive_type_index(cfg.drive_type)));
                 }
+                // Interruttore dell'ottava: accettato anche via set, oltre che
+                // via param (la UI usa param). Vale solo per il fuzz, ma resta
+                // salvato sugli altri tipi come il mix.
+                if (j.contains("octave_on")) {
+                    cfg.drive_octave_on = json_truthy(j["octave_on"]);
+                    drive_ptr->set_octave_on(cfg.drive_octave_on);
+                }
                 cfg.drive_on = j.value("on", cfg.drive_on);
                 if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
                 apply_leds();
@@ -2399,6 +2432,13 @@ int main(int argc, char** argv) {
                     // mandare il parametro fuori da 0..1 via socket.
                     cfg.drive_octave = std::isfinite(v) ? std::clamp(v, 0.0, 1.0) : 0.0;
                     drive_ptr->set_octave(static_cast<float>(cfg.drive_octave));
+                }
+                else if (key == "octave_on") {
+                    // Interruttore separato dal mix: spegnendolo il mix resta
+                    // nel config e nello stato, pronto per la riaccensione.
+                    cfg.drive_octave_on =
+                        j.contains("value") ? json_truthy(j["value"]) : false;
+                    drive_ptr->set_octave_on(cfg.drive_octave_on);
                 }
             } else if (slot == "mod") {
                 if (key == "rate") { cfg.mod_rate_hz = v; mod_ptr->set_rate_hz(static_cast<float>(v)); }

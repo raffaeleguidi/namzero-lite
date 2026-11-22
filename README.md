@@ -22,8 +22,9 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Gate e comp applicati davvero dai parametri; **gate globale** in `presets.json`
   (soglia bassa e release lungo, per non tagliare le code)
 - Drive: `fuzz`, `klon` (blend col pulito), `tubescreamer`. Il fuzz ha
-  l'**Octave** (0..1, stile Octavia): raddrizzamento a onda intera + passa-alto,
-  non un pitch shifter; ignorato da klon e tubescreamer
+  l'**Octave** stile Octavia (raddrizzamento a onda intera + passa-alto, non un
+  pitch shifter) con **interruttore on/off separato dal mix 0..1**: da spento il
+  mix resta salvato e lo slider non ha effetto; ignorato da klon e tubescreamer
 - Filter: **wah** o **whammy** (pitch shifter granulare) fisso **prima del
   drive**, acceso solo dall'auto-engage del pedale. Il whammy trasporta da 0 a
   `range` semitoni (-24..+24, default +12) seguendo l'espressione, con mix

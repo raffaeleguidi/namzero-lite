@@ -32,6 +32,9 @@ int main() {
         slot.set_tone(0.5f);
         slot.set_low_db(5.0f);
         slot.set_octave(octave);
+        // Il mix da solo non basta piu': serve anche l'interruttore, altrimenti
+        // il ramo resta bypassato e si misurerebbe due volte lo stesso caso.
+        slot.set_octave_on(octave > 0.0f);
         slot.prepare(kFs, kBlock);
         std::vector<float> buf(kFrames * 2);
 
