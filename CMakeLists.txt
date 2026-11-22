@@ -117,6 +117,12 @@ add_executable(eq_test test/eq_test.cpp src/dsp/chain.cpp)
 target_include_directories(eq_test PRIVATE src)
 add_test(NAME eq COMMAND eq_test)
 
+# Looper: autostart con attesa della prima nota, oltre alla non regressione di
+# rec/play/dub/stop/clear. Header-only, nessuna dipendenza audio.
+add_executable(looper_slot_test test/looper_slot_test.cpp)
+target_include_directories(looper_slot_test PRIVATE src)
+add_test(NAME looper_slot COMMAND looper_slot_test)
+
 add_executable(tuner_test test/tuner_test.cpp)
 target_include_directories(tuner_test PRIVATE src)
 add_test(NAME tuner COMMAND tuner_test)

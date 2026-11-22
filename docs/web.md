@@ -63,6 +63,27 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
   a EQ spento, e si somma al boost. **Salva opzioni** scrive `eq.on`,
   `eq.gains` e `eq.volume_db` in `config/presets.json`, così vale per tutti i
   preset.
+- **Looper**: unità nel rack "Opzioni generali" con stato (`idle`, `rec`,
+  `play`, `dub`, `waiting`), barra della lunghezza e i tasti ● ■ ⌫. Il toggle
+  compatto **Autostart** (touch ~40 px, mobile compreso) e il campo **Soglia**
+  (dBFS, -90..0, default **-42**) comandano l'attesa della prima nota:
+  - con **Autostart OFF** ● da fermo registra subito, esattamente come prima;
+  - con **Autostart ON**, ● da fermo con loop vuoto mette il looper in **attesa**
+    (`waiting` nella UI, `state:"armed"` nello stato JSON) e la registrazione
+    parte da sola dal **primo campione del secondo blocco consecutivo** in cui
+    l'ingresso dello slot (il segnale che arriva al looper a fine catena) resta
+    sopra soglia: un click isolato non innesca niente;
+  - un secondo tocco su ● annulla l'attesa; ■ e ⌫ dall'attesa tornano a fermo;
+    spegnere Autostart mentre è in attesa fa partire subito la registrazione.
+  Comandi: `{"cmd":"looper","action":"toggle|stop|clear"}`,
+  `{"cmd":"looper","autostart":bool}` e
+  `{"cmd":"looper","threshold_db":dBFS}`. `autostart`, soglia
+  (`autostart_threshold_db` nel file) e `max_seconds` vivono in
+  `config/presets.json` → blocco `looper` e si persistono con **Salva
+  opzioni** (o `s`). Lo stato live espone `looper.autostart`,
+  `looper.threshold_db` (e l'alias `looper.autostart_threshold_db`), `state`
+  (`armed` = attesa) oltre a `pos`/`len`/`max`/`armed` (quest'ultimo è solo
+  l'overdub quantizzato, non l'attesa).
 - **Preset**: il titolo nello header è una **combo** con tutti gli slot
   configurati (`[slot]` resta a sinistra). La lista arriva da `GET /api/presets`,
   che legge `config/presets.json` e ignora gli slot vuoti/null. Scegliendo una
@@ -499,7 +520,7 @@ WantedBy=multi-user.target
 | GET | `/api/audio` | config audio + ingressi + stato del motore (`open`, `fallback`, errore) |
 | GET | `/api/audio/devices` | device da `aplay -l` con card/device/nome/id e nomi `hw`/`plughw` |
 | POST | `/api/audio` | valida e salva il blocco `audio`, poi reload del motore (200/400) |
-| POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`, `tuner`) |
+| POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`, `tuner`, `looper`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |
 | GET | `/api/wifi` | reti conosciute + blocco `ap` |

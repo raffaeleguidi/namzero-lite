@@ -19,6 +19,11 @@
     "reference_hz": 440.0,
     "transpose": 0
   },
+  "looper": {
+    "autostart": false,
+    "autostart_threshold_db": -42.0,
+    "max_seconds": 60
+  },
   "start_slot": -1,
   "slots": [
     "presets/vox_wah.json",

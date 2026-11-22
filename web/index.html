@@ -88,12 +88,21 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 .eq-band span { margin-top:2px; }
 #looper { min-width:320px; }
 #looper.active #loop-bar { border-color:#4fd1c5; box-shadow:0 0 8px rgba(79,209,197,.35); }
+/* Autostart in attesa della prima nota: colore ambra, distinto da rec/play. */
+#looper.armed #loop-bar { border-color:#f6c453; box-shadow:0 0 8px rgba(246,196,83,.35); }
+#looper.armed #loop-fill { background:#f6c453; }
 #loop-bar { height:12px; background:#262b35; border:1px solid transparent; border-radius:6px; overflow:hidden; margin-top:6px; }
 #loop-fill { height:100%; width:0%; background:#4a5568; transition:width .1s linear, background .2s; }
 #looper.active #loop-fill { background:#4fd1c5; }
 #loop-row { display:flex; align-items:center; gap:6px; margin-top:6px; }
 #loop-state { color:#8b93a7; font-size:11px; min-width:130px; font-variant-numeric:tabular-nums; }
 #loop-row .act { padding:2px 8px; font-size:12px; }
+/* Autostart compatto (stesso toggle del fuzz) + soglia in dBFS. */
+#loop-opts { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
+#loop-opts .octave-toggle { min-height:32px; padding:4px 10px; }
+.loop-thr { display:flex; align-items:center; gap:6px; font-size:11px; color:#8b93a7; }
+.loop-thr input { width:64px; background:#12151b; color:#e6e9ef; border:1px solid #3a4150;
+  border-radius:4px; padding:3px 6px; font-size:12px; }
 #files { padding:0 16px 24px; display:flex; gap:24px; flex-wrap:wrap; }
 #files section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:240px; }
 #files h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
@@ -175,6 +184,9 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
   #loop-row { flex-wrap:wrap; gap:8px; }
   #loop-state { min-width:0; flex:1 1 100%; }
   #loop-row .act { min-width:44px; min-height:44px; }
+  #loop-opts { gap:12px; }
+  #loop-opts .octave-toggle { min-height:40px; padding:0 12px; font-size:12px; }
+  .loop-thr input { min-height:40px; font-size:14px; }
   .octave-toggle { min-height:40px; padding:0 10px; font-size:12px; }
   .eq-bands { gap:6px; }
   .eq-band { width:44px; }
@@ -468,11 +480,28 @@ const lrow = el("div", {id:"loop-row"});
 const lrec = el("button", {className:"act", id:"loop-rec", textContent:"●"});
 const lstop = el("button", {className:"act", id:"loop-stop", textContent:"■"});
 const lclr = el("button", {className:"act", id:"loop-clear", textContent:"⌫"});
-lrow.append(loopStateEl, lrec, lstop, lclr); loopSection.append(loopBar, lrow);
+lrow.append(loopStateEl, lrec, lstop, lclr);
+// Autostart: con il flag ON il tasto ● da fermo NON registra subito, ma mette
+// il looper in attesa ("waiting") e la registrazione parte alla prima nota.
+// Soglia in dBFS modificabile: passano dal socket, persistono con Salva opzioni.
+const loopOpts = el("div", {id:"loop-opts"});
+const loopAutostartBtn = el("button", {className:"octave-toggle", type:"button",
+  id:"loop-autostart", textContent:"Autostart OFF",
+  title:"se ON, ● da fermo resta in attesa e registra alla prima nota"});
+loopAutostartBtn.setAttribute("aria-pressed", "false");
+const loopThrWrap = el("label", {className:"loop-thr"});
+const loopThrInp = el("input", {type:"number", min:-90, max:0, step:1,
+  id:"loop-threshold", title:"soglia d'ingresso per l'autostart (dBFS)"});
+loopThrWrap.append(el("span", {textContent:"Soglia"}), loopThrInp,
+                   el("span", {textContent:"dBFS"}));
+loopOpts.append(loopAutostartBtn, loopThrWrap);
+loopSection.append(loopBar, lrow, loopOpts);
 rackUnits.append(loopSection);
 lrec.onclick = () => send({cmd:"looper", action:"toggle"});
 lstop.onclick = () => send({cmd:"looper", action:"stop"});
 lclr.onclick = () => send({cmd:"looper", action:"clear"});
+loopAutostartBtn.onclick = () => send({cmd:"looper", autostart:!last?.looper?.autostart});
+loopThrInp.onchange = () => send({cmd:"looper", threshold_db:+loopThrInp.value});
 
 // Il mod si sposta nella fila in base alla posizione scelta.
 const modCard = [...board.children].find(c => c._id === "mod");
@@ -665,14 +694,29 @@ function render(st, fromPoll = false) {
   if (st.looper) {
     const L = st.looper;
     // Niente corsa della posizione (il poll non la segue): si colora la
-    // lunghezza del loop rispetto al massimo.
-    const label = (L.state === "idle" && L.len > 0) ? "stop" : L.state;
-    const armed = (L.state === "play" && L.armed) ? " · armed" : "";
+    // lunghezza del loop rispetto al massimo. "armed" nello stato e' l'attesa
+    // dell'autostart: si mostra "waiting" per non confonderla con l'overdub
+    // armato (che resta "play · armed").
+    const waiting = L.state === "armed";
+    const label = waiting ? "waiting" : ((L.state === "idle" && L.len > 0) ? "stop" : L.state);
+    const armed = (!waiting && L.state === "play" && L.armed) ? " · armed" : "";
     loopStateEl.textContent = `${label}${armed} · ${(+L.len).toFixed(1)} s / ${(+L.max).toFixed(0)} s`;
     const stopBtn = document.getElementById("loop-stop");
-    if (stopBtn) stopBtn.textContent = (L.state === "idle") ? "▶ play" : "■ stop";
+    if (stopBtn) {
+      stopBtn.textContent = waiting ? "■ cancel" : ((L.state === "idle") ? "▶ play" : "■ stop");
+    }
+    lrec.title = waiting ? "annulla l'attesa (torna fermo)" : "registra / ferma / overdub";
     loopFillEl.style.width = (L.max > 0 ? Math.min(100, 100 * L.len / L.max) : 0) + "%";
-    loopSection.classList.toggle("active", L.state !== "idle");
+    loopSection.classList.toggle("active", L.state !== "idle" && !waiting);
+    loopSection.classList.toggle("armed", waiting);
+    const on = !!L.autostart;
+    loopAutostartBtn.textContent = on ? "Autostart ON" : "Autostart OFF";
+    loopAutostartBtn.classList.toggle("on", on);
+    loopAutostartBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    const thr = L.threshold_db;
+    if (thr !== undefined && document.activeElement !== loopThrInp) {
+      loopThrInp.value = (+thr).toFixed(0);
+    }
   }
   knobs.forEach(k => {
     const v = st.slots[k.slot] ? st.slots[k.slot][k.key] : undefined;

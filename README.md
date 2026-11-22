@@ -45,6 +45,12 @@ preset è il prossimo passo.
   `presets.json` con **Salva opzioni**
 - **Volume globale** nello stesso rack (-24..+24 dB, default +6 dB): gain master
   sempre applicato, anche a EQ spento, si somma al boost
+- **Looper** a fine catena con **Autostart** opzionale (`looper.autostart` in
+  `presets.json`, default spento): con il flag ON il tasto REC da fermo mette il
+  looper in attesa (`waiting`) e la registrazione parte alla prima nota, quando
+  l'ingresso supera la soglia RMS per due blocchi consecutivi
+  (`looper.autostart_threshold_db`, default -42 dBFS). Con il flag OFF REC
+  registra subito, come sempre
 - **Accordatore** sul segnale **dry** (prima della catena): rilevatore
   YIN/autocorrelazione a ~15 Hz su finestre da 4096 campioni, nota/ottava/cent e
   confidenza; riferimento A4 415..450 Hz e transpose -6..+6 in `presets.json`;
@@ -55,7 +61,7 @@ preset è il prossimo passo.
 
 **Preset**
 - `config/presets.json`: 8 slot (0-7) verso i file, opzioni globali (gate,
-  boost, auto-engage, EQ, volume, tuner), `start_slot`
+  boost, auto-engage, EQ, volume, tuner, looper), `start_slot`
 - Combo preset nella web UI (lista da `GET /api/presets`); tasti `0`-`9`,
   navigazione blu dell'XTONE e, in **Program mode**, PC 0-7 della G-Board per
   cambiare slot; banner `[N] - file.json (modello.nam)` a ogni caricamento

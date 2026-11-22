@@ -240,6 +240,7 @@ preset. Il deploy **non** sovrascrive questo file.
 | `boost` | `on`, `db` | boost di fine catena |
 | `eq` | `on`, `gains`, `volume_db` | EQ grafico globale a 5 bande + volume globale |
 | `tuner` | `reference_hz`, `transpose` | accordatore: riferimento del La4 e trasposizione della lettura |
+| `looper` | `autostart`, `autostart_threshold_db`, `max_seconds` | looper: attesa della prima nota e durata massima |
 
 ### audio
 
@@ -347,6 +348,41 @@ si deve restare in silenzio senza capire perché. I comandi live sono
 **Salva opzioni** scrive solo `reference_hz` e `transpose`. Se il blocco manca
 valgono i default (440 / 0), quindi la config viva esistente continua a
 funzionare dopo l'aggiornamento.
+
+### looper
+
+Opzioni del looper a fine catena, valide per tutti i preset. Il buffer è
+preallocato all'avvio e `max_seconds` ne fissa la durata massima.
+
+```json
+"looper": {
+  "autostart": false,
+  "autostart_threshold_db": -42.0,
+  "max_seconds": 60
+}
+```
+
+| Chiave | Default | Note |
+|--------|---------|------|
+| `autostart` | **false** | con `true`, ● da fermo con loop vuoto mette il looper in **attesa** e la registrazione parte alla prima nota invece di partire subito |
+| `autostart_threshold_db` | **-42.0** | soglia RMS dell'ingresso dello slot (dBFS), -90..0 (clamp); il trigger richiede due blocchi consecutivi sopra soglia |
+| `max_seconds` | **60** | durata massima del loop in secondi, 1..120 (clamp); il buffer stereo è allocato in `prepare()` |
+
+Con `autostart` **false** il comportamento è quello storico: ● da fermo
+registra subito. Con `autostart` **true** lo stato live diventa `armed`
+(`waiting` nella web UI) e non registra finché l'ingresso non supera la soglia;
+un secondo tocco su ● annulla, ■ e ⌫ tornano a fermo. Se il blocco manca
+valgono i default, quindi la config viva esistente continua a funzionare dopo
+l'aggiornamento.
+
+Dal vivo `{"cmd":"looper","action":"toggle|stop|clear"}` comanda il looper,
+`{"cmd":"looper","autostart":bool}` e
+`{"cmd":"looper","threshold_db":float}` cambiano le opzioni senza
+ricaricare il preset (`autostart_threshold_db` è accettato come alias).
+**Salva opzioni** (o `s`) scrive il blocco `looper`. Lo stato live espone
+`looper.state` (`idle`, `rec`, `play`, `dub`, `armed`), `pos`, `len`, `max`,
+`armed` (solo overdub quantizzato) e `autostart`, `threshold_db` (con
+l'alias `autostart_threshold_db`).
 
 ## Cosa non e' un preset
 

@@ -154,6 +154,13 @@ struct Config {
     // ma si applica SEMPRE, anche a EQ spento. Default +6 dB.
     double eq_volume_db = 6.0;
 
+    // Looper: opzione globale in presets.json (blocco "looper"). Con autostart
+    // acceso il toggle da fermo mette in attesa e registra alla prima nota.
+    bool looper_autostart = false;
+    double looper_autostart_threshold_db =
+        namzero::LooperSlot::kDefaultAutostartThresholdDb;
+    double looper_max_seconds = namzero::LooperSlot::kDefaultMaxSeconds;
+
     // comportamento
     // La mappa MIDI non sta qui ne' nei preset: vive in midi.json (vedi
     // MidiConfig), cosi' si cambia senza ricompilare e vale per tutti i preset.
@@ -1359,6 +1366,79 @@ int main(int argc, char** argv) {
     namzero::TunerPitch tuner_reading;
     std::printf("tuner: riferimento %.1f Hz, transpose %+d\n", tuner_ref, tuner_tr);
 
+    // Looper: il blocco "looper" di presets.json e' un'opzione generale, come
+    // eq/tuner/boost. Se manca valgono i default (autostart spento, soglia
+    // -42 dBFS, 60 s): la config viva esistente continua a funzionare.
+    {
+        std::ifstream lin("config/presets.json");
+        nlohmann::json lj;
+        if (lin && (lin >> lj) && lj.contains("looper") && lj["looper"].is_object()) {
+            const auto& l = lj["looper"];
+            if (l.contains("autostart")) {
+                if (l["autostart"].is_boolean()) {
+                    cfg.looper_autostart = l["autostart"].get<bool>();
+                } else {
+                    std::fprintf(stderr,
+                                 "presets.json: looper.autostart deve essere true/false, uso %s\n",
+                                 cfg.looper_autostart ? "true" : "false");
+                }
+            }
+            if (l.contains("autostart_threshold_db")) {
+                if (!l["autostart_threshold_db"].is_number()) {
+                    std::fprintf(stderr,
+                                 "presets.json: looper.autostart_threshold_db deve essere un numero, uso %.1f\n",
+                                 cfg.looper_autostart_threshold_db);
+                } else {
+                    const double raw = l["autostart_threshold_db"].get<double>();
+                    if (!std::isfinite(raw)) {
+                        std::fprintf(stderr,
+                                     "presets.json: looper.autostart_threshold_db non valido, uso %.1f\n",
+                                     cfg.looper_autostart_threshold_db);
+                    } else {
+                        cfg.looper_autostart_threshold_db = std::clamp(
+                            raw, namzero::LooperSlot::kAutostartThresholdMinDb,
+                            namzero::LooperSlot::kAutostartThresholdMaxDb);
+                        if (cfg.looper_autostart_threshold_db != raw) {
+                            std::fprintf(stderr,
+                                         "presets.json: looper.autostart_threshold_db=%.1f fuori da %.0f..%.0f, uso %.1f\n",
+                                         raw, namzero::LooperSlot::kAutostartThresholdMinDb,
+                                         namzero::LooperSlot::kAutostartThresholdMaxDb,
+                                         cfg.looper_autostart_threshold_db);
+                        }
+                    }
+                }
+            }
+            if (l.contains("max_seconds")) {
+                if (!l["max_seconds"].is_number()) {
+                    std::fprintf(stderr,
+                                 "presets.json: looper.max_seconds deve essere un numero, uso %.0f\n",
+                                 cfg.looper_max_seconds);
+                } else {
+                    const double raw = l["max_seconds"].get<double>();
+                    if (!std::isfinite(raw)) {
+                        std::fprintf(stderr,
+                                     "presets.json: looper.max_seconds non valido, uso %.0f\n",
+                                     cfg.looper_max_seconds);
+                    } else {
+                        cfg.looper_max_seconds = std::clamp(
+                            raw, namzero::LooperSlot::kMaxSecondsMin,
+                            namzero::LooperSlot::kMaxSecondsMax);
+                        if (cfg.looper_max_seconds != raw) {
+                            std::fprintf(stderr,
+                                         "presets.json: looper.max_seconds=%.0f fuori da %.0f..%.0f, uso %.0f\n",
+                                         raw, namzero::LooperSlot::kMaxSecondsMin,
+                                         namzero::LooperSlot::kMaxSecondsMax,
+                                         cfg.looper_max_seconds);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    std::printf("looper: autostart %s | soglia %.1f dBFS | %.0f s\n",
+                cfg.looper_autostart ? "on" : "off", cfg.looper_autostart_threshold_db,
+                cfg.looper_max_seconds);
+
     // Unico punto che scrive master_gain: base (gain_db del preset) * volume
     // globale * boost. Va usato da startup, comandi boost/volume e MIDI, cosi'
     // i due guadagni non si perdono a vicenda.
@@ -1529,11 +1609,15 @@ int main(int argc, char** argv) {
         chain.add(std::move(rv));
     }
 
-    // Looper a fine catena: buffer preallocato all'avvio (60 s stereo).
+    // Looper a fine catena: buffer preallocato all'avvio (default 60 s stereo,
+    // configurabile con looper.max_seconds). Autostart e soglia sono opzioni
+    // globali lette da presets.json e modificabili dal vivo.
     namzero::LooperSlot* looper_ptr = nullptr;
     {
-        auto lp = std::make_unique<namzero::LooperSlot>(60.0);
+        auto lp = std::make_unique<namzero::LooperSlot>(cfg.looper_max_seconds);
         looper_ptr = lp.get();
+        looper_ptr->set_autostart(cfg.looper_autostart);
+        looper_ptr->set_autostart_threshold_db(cfg.looper_autostart_threshold_db);
         chain.add(std::move(lp));
     }
 
@@ -2077,6 +2161,12 @@ int main(int argc, char** argv) {
             s["looper"]["len"] = looper_ptr->length_seconds();
             s["looper"]["max"] = looper_ptr->max_seconds();
             s["looper"]["armed"] = looper_ptr->armed();
+            s["looper"]["autostart"] = looper_ptr->autostart();
+            // threshold_db e' il nome usato da comando/UI; nel blocco
+            // presets.json la chiave e' looper.autostart_threshold_db.
+            s["looper"]["threshold_db"] = looper_ptr->autostart_threshold_db();
+            s["looper"]["autostart_threshold_db"] =
+                looper_ptr->autostart_threshold_db();
         }
         auto& sl = s["slots"];
         sl["gate"]["on"] = cfg.gate_on;
@@ -2233,6 +2323,12 @@ int main(int argc, char** argv) {
                 gj["eq"]["on"] = cfg.eq_on;
                 gj["eq"]["gains"] = cfg.eq_gains;
                 gj["eq"]["volume_db"] = cfg.eq_volume_db;
+                // Looper: autostart, soglia e durata massima sono opzioni
+                // generali, riscritte come le altre (il valore live vince).
+                gj["looper"]["autostart"] = cfg.looper_autostart;
+                gj["looper"]["autostart_threshold_db"] =
+                    cfg.looper_autostart_threshold_db;
+                gj["looper"]["max_seconds"] = cfg.looper_max_seconds;
                 // Blocco tuner: solo riferimento e transpose (on/mute non si
                 // persistono, vedi il commento all'avvio).
                 nlohmann::json tuner_json;
@@ -2479,6 +2575,51 @@ int main(int argc, char** argv) {
                 if (action == "toggle") looper_ptr->command(namzero::LooperSlot::Command::kToggle);
                 else if (action == "stop") looper_ptr->command(namzero::LooperSlot::Command::kStop);
                 else if (action == "clear") looper_ptr->command(namzero::LooperSlot::Command::kClear);
+                // Opzioni globali dell'autostart: si applicano subito allo slot
+                // e restano in cfg per "Salva opzioni"/tasto s.
+                if (j.contains("autostart")) {
+                    if (!j["autostart"].is_boolean()) {
+                        std::printf("  looper: autostart deve essere true/false\n");
+                    } else {
+                        const bool v = j["autostart"].get<bool>();
+                        {
+                            std::lock_guard<std::mutex> lk(ctrl_mtx);
+                            cfg.looper_autostart = v;
+                        }
+                        looper_ptr->set_autostart(v);
+                        std::printf("  looper: autostart %s\n", v ? "on" : "off");
+                    }
+                }
+                // threshold_db e' il nome "live" della stessa soglia: la UI e i
+                // test usano questo, il file presets.json usa
+                // looper.autostart_threshold_db (accettato come alias). Se
+                // arrivano entrambi vince threshold_db.
+                const char* thr_key = nullptr;
+                if (j.contains("threshold_db")) {
+                    thr_key = "threshold_db";
+                } else if (j.contains("autostart_threshold_db")) {
+                    thr_key = "autostart_threshold_db";
+                }
+                if (thr_key != nullptr) {
+                    if (!j[thr_key].is_number()) {
+                        std::printf("  looper: %s deve essere un numero\n", thr_key);
+                    } else {
+                        const double raw = j[thr_key].get<double>();
+                        double v = namzero::LooperSlot::kDefaultAutostartThresholdDb;
+                        if (std::isfinite(raw)) {
+                            v = std::clamp(raw,
+                                           namzero::LooperSlot::kAutostartThresholdMinDb,
+                                           namzero::LooperSlot::kAutostartThresholdMaxDb);
+                        }
+                        {
+                            std::lock_guard<std::mutex> lk(ctrl_mtx);
+                            cfg.looper_autostart_threshold_db = v;
+                        }
+                        looper_ptr->set_autostart_threshold_db(v);
+                        std::printf("  looper: soglia autostart %.1f dBFS\n", v);
+                    }
+                }
+                std::fflush(stdout);
             }
         } else if (cmd == "autoengage") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -2940,6 +3081,10 @@ int main(int argc, char** argv) {
                     gj["eq"]["on"] = cfg.eq_on;
                     gj["eq"]["gains"] = cfg.eq_gains;
                     gj["eq"]["volume_db"] = cfg.eq_volume_db;
+                    gj["looper"]["autostart"] = cfg.looper_autostart;
+                    gj["looper"]["autostart_threshold_db"] =
+                        cfg.looper_autostart_threshold_db;
+                    gj["looper"]["max_seconds"] = cfg.looper_max_seconds;
                     nlohmann::json tuner_json;
                     tuner_json["reference_hz"] =
                         tuner_reference_hz.load(std::memory_order_relaxed);

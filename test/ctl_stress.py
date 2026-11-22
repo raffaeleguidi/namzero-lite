@@ -23,6 +23,9 @@ Verifica:
      drive.octave del fuzz: mix, clamp 0..1, interruttore octave_on separato
      (param e set, clamp bool, mix conservato da spento), save/reload,
      migrazione dei preset vecchi (octave_on assente -> false), defaults;
+     looper.autostart: OFF -> rec immediato, ON -> attesa "armed" senza
+     registrare, cancel/stop dall'attesa, soglia con clamp, save_options e
+     reload che rilegge il blocco;
   e) EQ globale: band live, clamp, save_options, riavvio che la riapplica,
      defaults; volume globale live, clamp, persistenza, somma col boost;
   f) timeout dei client inattivi (~10 s);
@@ -687,29 +690,136 @@ def main():
               st["slots"]["drive"]["octave"] == 0 and
               st["slots"]["drive"]["octave_on"] is False)
 
-        send_cmd({"cmd": "looper", "action": "stop"})
-        time.sleep(0.25)
-        loop0 = read_state().get("looper")
+        # ── looper: autostart, attesa, soglia, persistenza ──────────────────
+        st = read_state()
+        lp0 = st.get("looper")
+        check("stato looper presente (autostart/soglia)",
+              isinstance(lp0, dict) and "autostart" in lp0 and
+              "threshold_db" in lp0, json.dumps(lp0))
+
+        # Config nota: autostart OFF e soglia alta (nessun ingresso la supera:
+        # il test non dipende da cosa arriva sull'XTONE).
+        send_cmd({"cmd": "looper", "autostart": False,
+                  "threshold_db": -6})
+        st = wait_state(lambda s: s["looper"].get("autostart") is False and
+                        abs(float(s["looper"].get("threshold_db", 0)) + 6) < 0.01,
+                        timeout=4, label="looper config iniziale")
+        check("looper autostart OFF e soglia -6 live",
+              st["looper"]["autostart"] is False and
+              abs(float(st["looper"]["threshold_db"]) + 6) < 0.01)
+
+        # Loop vuoto: il toggle da fermo deve registrare subito (come prima).
+        send_cmd({"cmd": "looper", "action": "clear"})
+        st = wait_state(lambda s: s["looper"]["state"] == "idle" and
+                        float(s["looper"]["len"]) == 0,
+                        timeout=4, label="looper clear")
+        check("looper clear da fermo", st["looper"]["state"] == "idle" and
+              float(st["looper"]["len"]) == 0)
         send_cmd({"cmd": "looper", "action": "toggle"})
-        time.sleep(0.3)
-        loop1 = read_state().get("looper")
+        st = wait_state(lambda s: s["looper"]["state"] == "rec", timeout=4,
+                        label="looper rec (autostart off)")
+        check("looper autostart OFF -> rec immediato",
+              st["looper"]["state"] == "rec", st["looper"]["state"])
         send_cmd({"cmd": "looper", "action": "stop"})
-        time.sleep(0.3)
-        loop2 = read_state().get("looper")
-        if loop0 is None:
-            check("looper toggle/stop", True, "looper assente nel preset")
-        else:
-            check("looper toggle/stop",
-                  loop1 is not None and loop2 is not None and
-                  loop1["state"] != loop0["state"] and loop2["state"] == "idle",
-                  "%s -> %s -> %s" % (loop0["state"], loop1["state"], loop2["state"]))
+        st = wait_state(lambda s: s["looper"]["state"] == "idle", timeout=4,
+                        label="looper stop")
+        check("looper stop finalizza e torna idle",
+              st["looper"]["state"] == "idle" and float(st["looper"]["len"]) > 0,
+              "len=%.2f" % float(st["looper"]["len"]))
+        send_cmd({"cmd": "looper", "action": "clear"})
+        time.sleep(0.2)
+
+        # Autostart ON: toggle da fermo -> attesa, e resta in attesa (nessuna
+        # registrazione) finche' l'ingresso non supera la soglia.
+        send_cmd({"cmd": "looper", "autostart": True,
+                  "threshold_db": -6})
+        wait_state(lambda s: s["looper"].get("autostart") is True, timeout=4,
+                   label="looper autostart on")
+        send_cmd({"cmd": "looper", "action": "toggle"})
+        st = wait_state(lambda s: s["looper"]["state"] == "armed", timeout=4,
+                        label="looper armed")
+        check("looper autostart ON -> attesa (armed)",
+              st["looper"]["state"] == "armed" and st["looper"]["armed"] is False)
+        time.sleep(0.6)
+        st = read_state()
+        check("looper in attesa non registra (soglia -6)",
+              st["looper"]["state"] == "armed" and
+              float(st["looper"]["len"]) == 0, json.dumps(st["looper"]))
+
+        # Toggle in attesa = annulla; stop e clear dall'attesa = idle.
+        send_cmd({"cmd": "looper", "action": "toggle"})
+        st = wait_state(lambda s: s["looper"]["state"] == "idle", timeout=4,
+                        label="looper cancel")
+        check("looper toggle in attesa annulla", st["looper"]["state"] == "idle" and
+              float(st["looper"]["len"]) == 0)
+
+        send_cmd({"cmd": "looper", "action": "toggle"})
+        wait_state(lambda s: s["looper"]["state"] == "armed", timeout=4,
+                   label="looper armed 2")
+        send_cmd({"cmd": "looper", "action": "stop"})
+        st = wait_state(lambda s: s["looper"]["state"] == "idle", timeout=4,
+                        label="looper stop da armed")
+        check("looper stop dall'attesa -> idle", st["looper"]["state"] == "idle")
+
+        send_cmd({"cmd": "looper", "action": "toggle"})
+        wait_state(lambda s: s["looper"]["state"] == "armed", timeout=4,
+                   label="looper armed 3")
+        send_cmd({"cmd": "looper", "action": "clear"})
+        st = wait_state(lambda s: s["looper"]["state"] == "idle" and
+                        float(s["looper"]["len"]) == 0,
+                        timeout=4, label="looper clear da armed")
+        check("looper clear dall'attesa -> idle", st["looper"]["state"] == "idle" and
+              float(st["looper"]["len"]) == 0)
+
+        # Clamp della soglia: il motore la tiene fra -90 e 0 dBFS.
+        send_cmd({"cmd": "looper", "threshold_db": -999})
+        st = wait_state(lambda s: abs(float(s["looper"]["threshold_db"]) + 90) < 0.01,
+                        timeout=4, label="looper threshold clamp basso")
+        check("looper threshold clamp a -90", st["looper"]["threshold_db"] == -90.0)
+        send_cmd({"cmd": "looper", "threshold_db": 99})
+        st = wait_state(lambda s: abs(float(s["looper"]["threshold_db"])) < 0.01,
+                        timeout=4, label="looper threshold clamp alto")
+        check("looper threshold clamp a 0", st["looper"]["threshold_db"] == 0.0)
+
+        # save_options persiste il blocco looper; reload lo rilegge all'avvio.
+        send_cmd({"cmd": "looper", "autostart": True,
+                  "threshold_db": -30})
+        wait_state(lambda s: s["looper"].get("autostart") is True and
+                   abs(float(s["looper"].get("threshold_db", 0)) + 30) < 0.01,
+                   timeout=4, label="looper pre save_options")
+        send_cmd({"cmd": "save_options"})
+        time.sleep(0.25)
+        lj = json.load(open(presets_json))
+        check("save_options scrive il blocco looper",
+              isinstance(lj.get("looper"), dict) and
+              lj["looper"].get("autostart") is True and
+              abs(float(lj["looper"].get("autostart_threshold_db", 0)) + 30) < 1e-6 and
+              abs(float(lj["looper"].get("max_seconds", 0)) - 60.0) < 1e-6,
+              json.dumps(lj.get("looper")))
+
+        st = wait_reexec({"cmd": "reload"},
+                         lambda s: s["looper"].get("autostart") is True and
+                         abs(float(s["looper"].get("threshold_db", 0)) + 30) < 0.01,
+                         "looper dopo il reload", timeout=20)
+        check("looper autostart/soglia riletti dopo il reload",
+              st["looper"]["autostart"] is True and
+              abs(float(st["looper"]["threshold_db"]) + 30) < 0.01 and
+              abs(float(st["looper"]["max"]) - 60.0) < 0.1,
+              json.dumps(st["looper"]))
+
+        # Riporta la config live ai default per il resto del test: la config
+        # viva viene comunque ripristinata dal backup nel finally.
+        send_cmd({"cmd": "looper", "autostart": False,
+                  "threshold_db": -42})
+        wait_state(lambda s: s["looper"].get("autostart") is False, timeout=4,
+                   label="looper config finale")
 
         # save_options: scrive config/presets.json (ripristinato nel finally).
         send_cmd({"cmd": "save_options"})
         time.sleep(0.2)
         sj = json.load(open(presets_json))
         check("save_options scrive presets.json",
-              all(k in sj for k in ("gate", "autoengage", "boost", "eq", "tuner")) and
+              all(k in sj for k in ("gate", "autoengage", "boost", "eq", "tuner", "looper")) and
               os.path.getsize(presets_json) > 50)
 
         # save: scrive il preset corrente (ripristinato nel finally).
