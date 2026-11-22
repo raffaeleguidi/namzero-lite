@@ -8,6 +8,9 @@
 
 ## Fatto
 
+- **Interfaccia audio configurabile** (device/buffer/periodi/ingresso, offline,
+  fallback, UI Impostazioni) — `219e891`.
+
 - **Preset dai PC della G-Board**: Program mode = slot 0–7, Control/CC mode = effetti
   (CC 50–57), LED invariati, `preset_pc`/`pc_effects`, test 99+30 — `32504b5`.
 - **Fuzz octaver + flag Ottava**: `octave` (mix) + `octave_on` separato, toggle in UI,
@@ -25,15 +28,26 @@
   miscelato al fuzz, carattere Octavia (non un pitch shifter). Manopola nella
   web UI solo con `fuzz`, salvato nel preset e nel comando `param`.
 
-## Da fare (ordine proposto)
+## Da fare
 
-1. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
-   collegate (da `aplay -l`), scelta del device, **kHz**, **ingressi** (canale
-   d'ingresso per chitarra/dry del tuner), buffer/periodi; “Applica” = salva +
-   reload. Il motore resta a 48 kHz internamente: per device che accettano solo
-   44.1 kHz si usa `plughw:` (conversione ALSA) o si valida il device. Fallback
-   al default se l'apertura fallisce. Stima: **1,5–2 giorni** (MVP), +1–2 per
-   hotplug/riconnessione.
+Nessun item pianificato: tutte le feature previste sono implementate. Restano le
+**verifiche manuali** e i **rimandati**.
+
+## Verifiche manuali (hardware/rete)
+
+- `sudo ./scripts/install.sh` → installa anche `namzero-wifi` e il drop-in DNS
+  per `http://namzero-lite:8080`; cambia la password AP (default `namzero-lite`);
+  test AP fuori casa con `scripts/measure_ap.py` (vedi docs/web.md).
+- **G-Board** (editor iCON): Program mode = PC 0–7 (preset 0–7), Control/CC mode =
+  CC 50–57 (mod/drive/boost); Note On dei LED invariate (4–7 / 0–2 / 3); un PC
+  per pressione.
+- **Whammy**: espressione e auto-engage (per il whammy conviene
+  `wah_autoengage.invert=false`); range ±12; detune ~13 cent a +12 (documentato).
+- **Accordatore**: 415.3/0 oppure 440/−1; cantini B3/E4; ronzio; nota verde.
+- **EQ/Volume +6 dB**: livelli (soft_clip); EQ off lascia comunque il volume.
+- **Interfaccia audio**: `plughw:XTONE` + Applica; distacco/recupero XTONE; stato
+  offline; sezione da telefono.
+- **Looper**: REC/PLAY/DUB, stop/riprendi, clear, con il gruppo rosso.
 
 ## Rimandati / da valutare
 
@@ -42,6 +56,8 @@
 - **Controlli analogici** (ESP32/ADC) per potenziometri fisici.
 - Looper: undo dell'ultimo layer, export WAV su SD.
 - Cambio preset in-process (oggi re-exec ~0,5 s).
+- Audio: hotplug/riconnessione a caldo; ingressi >2 canali; kHz nativo (oggi 48k
+  interno / `plughw:` per 44.1k).
 
 ## Fatto
 
