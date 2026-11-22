@@ -91,8 +91,8 @@ struct MidiConfig {
     int boost_cc = -1;
     double boost_db = 6.0;
 
-    // G-Board. I pulsanti possono mandare CC (configurazione attuale) oppure
-    // Program Change (configurazione storica): si accettano entrambi.
+    // G-Board. I pulsanti possono mandare CC (effetti) oppure Program Change
+    // (preset): sono due "modi" separati del pedale.
     std::string gboard_device;              // vuoto = nessun LED
     // Ingressi CC: un tasto per tipo, nell'ordine degli array. -1 = disattivato.
     std::array<int, 4> gboard_mod_cc = {-1, -1, -1, -1};    // tremolo/univibe/flanger/phaser
@@ -103,7 +103,15 @@ struct MidiConfig {
     std::array<int, 4> gboard_mod_led = {4, 5, 6, 7};
     std::array<int, 3> gboard_drive_led = {0, 1, 2};
     int gboard_boost_led = 3;
-    // Ingressi Program Change storici (retrocompatibilita'). Se il campo LED
+    // Program Change 0-7 -> slot 0-7, con lo stesso percorso della tastiera
+    // (switch_slot/current_slot, .last_slot, flash LED, re-exec). E' il nuovo
+    // uso della G-Board in Program mode. Default: attivo.
+    bool gboard_preset_pc = true;
+    // I vecchi PC-effetto (campi *_pc) restano disponibili solo con questo
+    // flag, per compatibilita'. Default: spento. Se preset_pc e' true i PC 0-7
+    // hanno comunque la priorita' e cambiano preset.
+    bool gboard_pc_effects = false;
+    // Ingressi Program Change storici (deprecati come effetti). Se il campo LED
     // corrispondente non e' nel file, si usano questi valori anche come note
     // LED, come faceva la configurazione precedente. -1 = disattivato.
     std::array<int, 4> gboard_mod_pc = {-1, -1, -1, -1};
@@ -122,6 +130,25 @@ struct MidiConfig {
     // Percorso della socket del bridge BLE; vuoto = nessun bridge.
     std::string ble_socket;
 };
+
+// Percorso di un Program Change della G-Board. Regola unica e testabile:
+// 1. preset_pc=true e PC 0-7 -> cambio preset (l'indice e' lo slot);
+// 2. altrimenti, se pc_effects=true, i vecchi PC-effetto (*_pc);
+// 3. altrimenti il PC viene ignorato.
+enum class GboardPcAction {
+    kNone = 0,
+    kPreset,
+    kMod,
+    kDrive,
+    kBoost,
+};
+
+struct GboardPcRoute {
+    GboardPcAction action = GboardPcAction::kNone;
+    int index = -1;  // slot per kPreset, indice nell'array per kMod/kDrive
+};
+
+GboardPcRoute route_gboard_pc(const MidiConfig& cfg, int pc);
 
 // false = il file esiste ma non e' valido; err dice cosa. Un file assente non
 // e' un errore: si chiama il loader solo se il file c'e'.

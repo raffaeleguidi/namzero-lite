@@ -51,6 +51,9 @@ int main() {
         CHECK(c.gboard_drive_led[0] == 0);
         CHECK(c.gboard_drive_led[2] == 2);
         CHECK(c.gboard_boost_led == 3);
+        // Nuovo default: i PC 0-7 sono preset, le azioni PC-effetto sono spente.
+        CHECK(c.gboard_preset_pc);
+        CHECK(!c.gboard_pc_effects);
     }
 
     // File completo: tutti gli slot mappati, parametri del pedale compresi.
@@ -179,6 +182,95 @@ int main() {
         CHECK(!c.gboard_allow_cc_conflicts);
     }
 
+    // Nuovi flag G-Board: default e parse esplicito.
+    {
+        const auto j = nlohmann::json::parse(R"({
+            "gboard": { "preset_pc": false, "pc_effects": true }
+        })");
+        namzero::MidiConfig c;
+        std::string err;
+        CHECK(namzero::parse_midi_config(j, c, err));
+        CHECK(!c.gboard_preset_pc);
+        CHECK(c.gboard_pc_effects);
+    }
+    {
+        // Entrambi true e' ammesso: a runtime vince il preset (con avviso).
+        const auto j = nlohmann::json::parse(R"({
+            "gboard": { "preset_pc": true, "pc_effects": true }
+        })");
+        namzero::MidiConfig c;
+        std::string err;
+        CHECK(namzero::parse_midi_config(j, c, err));
+        CHECK(c.gboard_preset_pc);
+        CHECK(c.gboard_pc_effects);
+    }
+
+    // Routing dei PC: preset_pc (default) -> slot 0-7.
+    {
+        namzero::MidiConfig c;
+        for (int pc = 0; pc <= 7; ++pc) {
+            const auto r = namzero::route_gboard_pc(c, pc);
+            CHECK(r.action == namzero::GboardPcAction::kPreset);
+            CHECK(r.index == pc);
+        }
+        const auto r8 = namzero::route_gboard_pc(c, 8);
+        CHECK(r8.action == namzero::GboardPcAction::kNone);
+        const auto rneg = namzero::route_gboard_pc(c, -1);
+        CHECK(rneg.action == namzero::GboardPcAction::kNone);
+        const auto rbig = namzero::route_gboard_pc(c, 128);
+        CHECK(rbig.action == namzero::GboardPcAction::kNone);
+    }
+
+    // Routing dei PC: preset_pc=false e pc_effects=false -> tutto ignorato.
+    {
+        namzero::MidiConfig c;
+        c.gboard_preset_pc = false;
+        c.gboard_pc_effects = false;
+        c.gboard_mod_pc = {4, 5, 6, 7};
+        c.gboard_drive_pc = {0, 1, 2};
+        c.gboard_boost_pc = 3;
+        for (int pc = 0; pc <= 7; ++pc) {
+            CHECK(namzero::route_gboard_pc(c, pc).action ==
+                  namzero::GboardPcAction::kNone);
+        }
+    }
+
+    // Routing dei PC: pc_effects=true -> azioni legacy one-shot.
+    {
+        namzero::MidiConfig c;
+        c.gboard_preset_pc = false;
+        c.gboard_pc_effects = true;
+        c.gboard_mod_pc = {4, 5, 6, 7};
+        c.gboard_drive_pc = {0, 1, 2};
+        c.gboard_boost_pc = 3;
+        auto r = namzero::route_gboard_pc(c, 5);
+        CHECK(r.action == namzero::GboardPcAction::kMod);
+        CHECK(r.index == 1);
+        r = namzero::route_gboard_pc(c, 2);
+        CHECK(r.action == namzero::GboardPcAction::kDrive);
+        CHECK(r.index == 2);
+        r = namzero::route_gboard_pc(c, 3);
+        CHECK(r.action == namzero::GboardPcAction::kBoost);
+        CHECK(namzero::route_gboard_pc(c, 8).action == namzero::GboardPcAction::kNone);
+    }
+
+    // Routing dei PC: con entrambi true i PC 0-7 hanno la priorita' preset;
+    // i PC fuori 0-7 possono ancora usare le azioni legacy configurate.
+    {
+        namzero::MidiConfig c;
+        c.gboard_preset_pc = true;
+        c.gboard_pc_effects = true;
+        c.gboard_mod_pc = {9, 5, 6, 7};
+        c.gboard_drive_pc = {0, 1, 2};
+        c.gboard_boost_pc = 3;
+        auto r = namzero::route_gboard_pc(c, 3);
+        CHECK(r.action == namzero::GboardPcAction::kPreset);
+        CHECK(r.index == 3);
+        r = namzero::route_gboard_pc(c, 9);
+        CHECK(r.action == namzero::GboardPcAction::kMod);
+        CHECK(r.index == 0);
+    }
+
     // Blocco gboard minimale: LED di default invariati, nessun ingresso CC.
     {
         const auto j = nlohmann::json::parse(R"({
@@ -304,6 +396,8 @@ int main() {
     CHECK(rejects_with(R"({ "gboard": { "mod_pc": [4, 5, 6] } })", "4 elementi"));
     CHECK(rejects_with(R"({ "gboard": { "boost_led": 200 } })", "fuori range"));
     CHECK(rejects_with(R"({ "gboard": { "flash_ms": 5000 } })", "flash_ms"));
+    CHECK(rejects_with(R"({ "gboard": { "preset_pc": "true" } })", "preset_pc"));
+    CHECK(rejects_with(R"({ "gboard": { "pc_effects": 1 } })", "pc_effects"));
 
     // Lettura da file: il wrapper deve riportare l'errore di parsing.
     {

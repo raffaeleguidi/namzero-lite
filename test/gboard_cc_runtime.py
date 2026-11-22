@@ -10,8 +10,10 @@ l'espressione, e verifica:
   - il CC 53 fa on/off del boost;
   - il rilascio (0) non fa nulla e due pressioni ravvicinate contano una sola
     volta (SwitchDebounce in modo edge, 150 ms);
-  - i vecchi Program Change (4-7 mod, 0-2 drive, 3 boost) sono ancora accettati
-    e restano one-shot (nessun debounce);
+  - i vecchi Program Change-effetto (4-7 mod, 0-2 drive, 3 boost) sono ancora
+    accettati -- one-shot, senza debounce -- solo con `gboard.pc_effects: true`
+    e `gboard.preset_pc: false`; negli altri casi il test li salta (per i PC
+    usare test/gboard_pc_runtime.py);
   - i LED riportati in /api/state usano le note di midi.json (4-7 / 0-2 / 3),
     indipendenti dai numeri dei CC.
 
@@ -278,6 +280,13 @@ def main():
           repr(gb.get("drive_led")))
     check("config: boost_led 3", gb.get("boost_led") == BOOST_LED,
           repr(gb.get("boost_led")))
+    check("config: preset_pc/pc_effects esposti",
+          "preset_pc" in gb and "pc_effects" in gb, repr(gb))
+    preset_pc = gb.get("preset_pc", True)
+    pc_effects = gb.get("pc_effects", False)
+    # Con preset_pc i PC 0-7 cambiano preset (priorita' anche su pc_effects):
+    # i test PC-effetto qui sotto non avrebbero senso.
+    legacy_pc = bool(pc_effects) and not bool(preset_pc)
     check_leds("stato iniziale", st0)
 
     stop_ble_bridge()
@@ -356,64 +365,71 @@ def main():
         except RuntimeError as exc:
             check("CC55 dopo 150 ms conta di nuovo", False, str(exc))
 
-        # Vecchi Program Change: mod 4-7, drive 0-2, boost 3.
-        for idx, number in enumerate(MOD_PC):
+        if legacy_pc:
+            # Vecchi PC-effetto: solo se abilitati esplicitamente.
+            # Vecchi Program Change: mod 4-7, drive 0-2, boost 3.
+            for idx, number in enumerate(MOD_PC):
+                before = read_state()
+                want = mod_expected(before, idx)
+                pc(sock, number)
+                settle()
+                try:
+                    st = wait_state(lambda s: mod_sig(s) == want, label="PC%d" % number)
+                    check("PC%d (legacy) -> %s %s" % (number, want[0],
+                                                       "on" if want[1] else "off"),
+                          mod_sig(st) == want, "letto %r" % (mod_sig(st),))
+                    check_leds("PC%d" % number, st)
+                except RuntimeError as exc:
+                    check("PC%d (legacy)" % number, False, str(exc))
+
+            for idx, number in enumerate(DRIVE_PC):
+                before = read_state()
+                want = drive_expected(before, idx)
+                pc(sock, number)
+                settle()
+                try:
+                    st = wait_state(lambda s: drive_sig(s) == want, label="PC%d" % number)
+                    check("PC%d (legacy) -> %s %s" % (number, want[0],
+                                                       "on" if want[1] else "off"),
+                          drive_sig(st) == want, "letto %r" % (drive_sig(st),))
+                    check_leds("PC%d" % number, st)
+                except RuntimeError as exc:
+                    check("PC%d (legacy)" % number, False, str(exc))
+
             before = read_state()
-            want = mod_expected(before, idx)
-            pc(sock, number)
+            want_boost = not bool(before["boost"])
+            pc(sock, BOOST_PC)
             settle()
             try:
-                st = wait_state(lambda s: mod_sig(s) == want, label="PC%d" % number)
-                check("PC%d (legacy) -> %s %s" % (number, want[0],
-                                                   "on" if want[1] else "off"),
-                      mod_sig(st) == want, "letto %r" % (mod_sig(st),))
-                check_leds("PC%d" % number, st)
+                st = wait_state(lambda s: bool(s["boost"]) == want_boost, label="PC3")
+                check("PC3 (legacy) -> boost %s" % ("on" if want_boost else "off"),
+                      bool(st["boost"]) == want_boost, "letto %r" % (st["boost"],))
+                check_leds("PC3", st)
             except RuntimeError as exc:
-                check("PC%d (legacy)" % number, False, str(exc))
+                check("PC3 (legacy)", False, str(exc))
 
-        for idx, number in enumerate(DRIVE_PC):
+            # I PC sono one-shot: due PC uguali ravvicinati = due toggle (il
+            # secondo spegne lo stesso tipo, non viene ignorato dal debounce).
             before = read_state()
-            want = drive_expected(before, idx)
-            pc(sock, number)
-            settle()
-            try:
-                st = wait_state(lambda s: drive_sig(s) == want, label="PC%d" % number)
-                check("PC%d (legacy) -> %s %s" % (number, want[0],
-                                                   "on" if want[1] else "off"),
-                      drive_sig(st) == want, "letto %r" % (drive_sig(st),))
-                check_leds("PC%d" % number, st)
-            except RuntimeError as exc:
-                check("PC%d (legacy)" % number, False, str(exc))
-
-        before = read_state()
-        want_boost = not bool(before["boost"])
-        pc(sock, BOOST_PC)
-        settle()
-        try:
-            st = wait_state(lambda s: bool(s["boost"]) == want_boost, label="PC3")
-            check("PC3 (legacy) -> boost %s" % ("on" if want_boost else "off"),
-                  bool(st["boost"]) == want_boost, "letto %r" % (st["boost"],))
-            check_leds("PC3", st)
-        except RuntimeError as exc:
-            check("PC3 (legacy)", False, str(exc))
-
-        # I PC sono one-shot: due PC uguali ravvicinati = due toggle (il
-        # secondo spegne lo stesso tipo, non viene ignorato dal debounce).
-        before = read_state()
-        want1 = mod_expected(before, 2)
-        pc(sock, MOD_PC[2])
-        settle()
-        try:
-            st1 = wait_state(lambda s: mod_sig(s) == want1, label="PC6 primo")
-            want2 = mod_expected(st1, 2)
+            want1 = mod_expected(before, 2)
             pc(sock, MOD_PC[2])
             settle()
-            st2 = wait_state(lambda s: mod_sig(s) == want2, label="PC6 secondo")
-            check("PC6 one-shot: due PC ravvicinati = due toggle",
-                  mod_sig(st2) == want2, "letto %r" % (mod_sig(st2),))
-            check_leds("PC6 one-shot", st2)
-        except RuntimeError as exc:
-            check("PC6 one-shot", False, str(exc))
+            try:
+                st1 = wait_state(lambda s: mod_sig(s) == want1, label="PC6 primo")
+                want2 = mod_expected(st1, 2)
+                pc(sock, MOD_PC[2])
+                settle()
+                st2 = wait_state(lambda s: mod_sig(s) == want2, label="PC6 secondo")
+                check("PC6 one-shot: due PC ravvicinati = due toggle",
+                      mod_sig(st2) == want2, "letto %r" % (mod_sig(st2),))
+                check_leds("PC6 one-shot", st2)
+            except RuntimeError as exc:
+                check("PC6 one-shot", False, str(exc))
+
+        else:
+            print("  skip PC legacy: serve gboard.pc_effects=true e "
+                  "gboard.preset_pc=false (vedi test/gboard_pc_runtime.py)",
+                  flush=True)
 
     finally:
         # Ripristino dello stato iniziale, sempre tramite la stessa logica.

@@ -1106,6 +1106,12 @@ int main(int argc, char** argv) {
     if (midi_cli.no_midi) midi_cfg.enabled = false;
     if (midi_cli.expr_invert) midi_cfg.expression_invert = true;
     if (midi_cli.wah_invert) midi_cfg.wah_invert = true;
+    if (midi_cfg.gboard_preset_pc && midi_cfg.gboard_pc_effects) {
+        std::fprintf(stderr,
+                     "avviso: gboard.preset_pc e gboard.pc_effects sono entrambi true: "
+                     "i PC 0-7 cambiano preset (priorita' preset); le azioni effetti "
+                     "legacy restano possibili solo per PC diversi da 0-7\n");
+    }
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -1822,6 +1828,8 @@ int main(int argc, char** argv) {
             gb["mod_cc"] = midi_cfg.gboard_mod_cc;
             gb["drive_cc"] = midi_cfg.gboard_drive_cc;
             gb["boost_cc"] = midi_cfg.gboard_boost_cc;
+            gb["preset_pc"] = midi_cfg.gboard_preset_pc;
+            gb["pc_effects"] = midi_cfg.gboard_pc_effects;
             gb["mod_led"] = midi_cfg.gboard_mod_led;
             gb["drive_led"] = midi_cfg.gboard_drive_led;
             gb["boost_led"] = midi_cfg.gboard_boost_led;
@@ -3050,24 +3058,23 @@ int main(int argc, char** argv) {
                 }
 
                 if ((e.status & 0xF0) == 0xC0) {
-                    // Retrocompatibilita': i pulsanti possono ancora mandare
-                    // Program Change. Restano one-shot come prima (nessun
-                    // debounce: un PC = una pressione).
-                    int mod_idx = -1;
-                    int drive_idx = -1;
-                    for (int i = 0; i < 4; ++i) {
-                        if (midi_cfg.gboard_mod_pc[i] == e.cc) mod_idx = i;
-                    }
-                    for (int i = 0; i < 3; ++i) {
-                        if (midi_cfg.gboard_drive_pc[i] == e.cc) drive_idx = i;
-                    }
-                    if (mod_idx >= 0) {
-                        gboard_mod(mod_idx, "PC", e.cc);
-                    } else if (midi_cfg.gboard_boost_pc >= 0 &&
-                               e.cc == midi_cfg.gboard_boost_pc) {
+                    // G-Board in Program mode: i PC 0-7 selezionano gli slot
+                    // 0-7 con lo stesso percorso della tastiera. Il routing e'
+                    // in route_gboard_pc: preset_pc ha la priorita' su
+                    // pc_effects, quindi un PC non fa mai due cose. Restano
+                    // one-shot (nessun debounce: un PC = una pressione).
+                    const auto route = namzero::route_gboard_pc(midi_cfg, e.cc);
+                    if (route.action == namzero::GboardPcAction::kPreset) {
+                        switch_slot.store(route.index);
+                        current_slot.store(route.index);
+                        std::printf("  preset: slot %d (PC)\n", route.index);
+                        std::fflush(stdout);
+                    } else if (route.action == namzero::GboardPcAction::kMod) {
+                        gboard_mod(route.index, "PC", e.cc);
+                    } else if (route.action == namzero::GboardPcAction::kDrive) {
+                        gboard_drive(route.index, "PC", e.cc);
+                    } else if (route.action == namzero::GboardPcAction::kBoost) {
                         gboard_boost("PC", e.cc);
-                    } else if (drive_idx >= 0) {
-                        gboard_drive(drive_idx, "PC", e.cc);
                     }
                     continue;
                 }

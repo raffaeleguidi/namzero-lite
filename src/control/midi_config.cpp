@@ -35,6 +35,20 @@ bool get_bool(const nlohmann::json& j, const char* key, bool& out) {
     return true;
 }
 
+// Come get_bool, ma un valore del tipo sbagliato e' un errore: per le nuove
+// chiavi G-Board vogliamo un file sbagliato che si ferma, non un default muto.
+bool get_bool_strict(const nlohmann::json& j, const char* key, bool& out,
+                     const char* section, std::string& err) {
+    if (!j.contains(key)) return true;
+    if (!j[key].is_boolean()) {
+        err = std::string("midi.json: ") + section + "." + key +
+              " deve essere true o false";
+        return false;
+    }
+    out = j[key].get<bool>();
+    return true;
+}
+
 int action_index(const std::string& name) {
     for (std::size_t i = 0; i < kMidiActionCount; ++i) {
         if (name == midi_action_name(static_cast<MidiAction>(i))) return static_cast<int>(i);
@@ -43,6 +57,43 @@ int action_index(const std::string& name) {
 }
 
 }  // namespace
+
+GboardPcRoute route_gboard_pc(const MidiConfig& cfg, int pc) {
+    GboardPcRoute route;
+    if (pc < 0 || !in_cc_range(pc)) return route;
+
+    // Program mode: PC 0-7 = slot 0-7. Ha la priorita' anche se pc_effects e'
+    // true, cosi' un PC non puo' fare due cose insieme.
+    if (cfg.gboard_preset_pc && pc <= 7) {
+        route.action = GboardPcAction::kPreset;
+        route.index = pc;
+        return route;
+    }
+
+    // Control/Program mode storico: i PC-effetto restano solo se abilitati.
+    // L'ordine (mod, boost, drive) e' quello del vecchio codice.
+    if (!cfg.gboard_pc_effects) return route;
+    for (std::size_t i = 0; i < cfg.gboard_mod_pc.size(); ++i) {
+        if (cfg.gboard_mod_pc[i] == pc) {
+            route.action = GboardPcAction::kMod;
+            route.index = static_cast<int>(i);
+            return route;
+        }
+    }
+    if (cfg.gboard_boost_pc >= 0 && cfg.gboard_boost_pc == pc) {
+        route.action = GboardPcAction::kBoost;
+        route.index = 0;
+        return route;
+    }
+    for (std::size_t i = 0; i < cfg.gboard_drive_pc.size(); ++i) {
+        if (cfg.gboard_drive_pc[i] == pc) {
+            route.action = GboardPcAction::kDrive;
+            route.index = static_cast<int>(i);
+            return route;
+        }
+    }
+    return route;
+}
 
 bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& err) {
     if (!j.is_object()) {
@@ -183,6 +234,15 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
                 return false;
             }
             cfg.gboard_device = gb["device"].get<std::string>();
+        }
+        // Nuovo uso della G-Board: PC 0-7 = preset, CC = effetti. I due flag
+        // sono indipendenti; se sono entrambi true i PC 0-7 restano preset
+        // (route_gboard_pc) e main.cpp stampa un avviso all'avvio.
+        if (!get_bool_strict(gb, "preset_pc", cfg.gboard_preset_pc, "gboard", err)) {
+            return false;
+        }
+        if (!get_bool_strict(gb, "pc_effects", cfg.gboard_pc_effects, "gboard", err)) {
+            return false;
         }
         // Legge un array di `count` interi. -1 disattiva la singola voce.
         auto read_ints = [&](const char* key, int* out, std::size_t count) -> bool {

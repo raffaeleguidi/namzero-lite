@@ -9,8 +9,9 @@ Il piano di progetto completo è in [PLAN.md](PLAN.md). Dettagli su
 [bridge BLE MIDI](docs/ble.md), [G-Board](docs/g-board.md) e [tuning del sistema](docs/rt-setup.md).
 
 **Stato**: catena completa e suonabile sul Pi, preset a slot, XTONE + G-Board
-(PC e LED) + Chocolate via BLE. Il MIDI è su mappa fissa in `midi.json` (il
-learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
+(PC 0-7 = preset, CC 50-57 = effetti, LED) + Chocolate via BLE. Il MIDI è su
+mappa fissa in `midi.json` (il learn è in roadmap); la GUI di gestione dei
+preset è il prossimo passo.
 
 ## Cosa c'è già
 
@@ -48,19 +49,21 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 **Preset**
 - `config/presets.json`: 8 slot (0-7) verso i file, opzioni globali (gate,
   boost, auto-engage, EQ, volume, tuner), `start_slot`
-- Combo preset nella web UI (lista da `GET /api/presets`); tasti `0`-`9` e
-  navigazione blu dell'XTONE per cambiare slot; banner
-  `[N] - file.json (modello.nam)` a ogni caricamento
+- Combo preset nella web UI (lista da `GET /api/presets`); tasti `0`-`9`,
+  navigazione blu dell'XTONE e, in **Program mode**, PC 0-7 della G-Board per
+  cambiare slot; banner `[N] - file.json (modello.nam)` a ogni caricamento
 - Salvataggio con `s` (on/off e trim dell'ampli), altri parametri intatti
 - Verifica dei preset con `--print-config` e `scripts/verify_presets.py`
 
 **MIDI**
 - XTONE: tre gruppi (A verde, B blu, C rosso) con CC diversi; espressione
   ascoltata su **CC 7/4/1** (tutti i gruppi); navigazione preset su CC 22/24/25
-- **iCON G-Board**: 8 pulsanti e 8 LED; pulsanti 1-4 mod, 5-7 drive, 8 boost;
-  LED aggiornati in tempo reale e lampeggio dello slot al cambio preset
-  ([mappa completa](docs/g-board.md))
-- Selezioni radio spegnibili per mod, drive e delay (via CC o PC)
+- **iCON G-Board**: 8 pulsanti e 8 LED. In **Control/CC mode** i pulsanti 1-4
+  sono mod, 5-7 drive, 8 boost; in **Program mode** i PC 0-7 selezionano gli
+  slot 0-7 (re-exec, `.last_slot` e flash LED). LED aggiornati in tempo reale,
+  note invariate ([mappa completa](docs/g-board.md))
+- Selezioni radio spegnibili per mod, drive e delay (via CC; i PC-effetto
+  legacy restano solo con `gboard.pc_effects: true` e `preset_pc: false`)
 - **M-Vave Chocolate via BLE**: bridge Python separato (systemd) che scrive sulla
   socket del motore ([docs/ble.md](docs/ble.md))
 - Ingressi multipli configurabili (`midi.json` → `devices`)
@@ -81,8 +84,10 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Build sul Pi (`build.sh`) o **cross-compilazione dal Mac** in container
   (`cross-build.sh` + `deploy.sh`)
 - Test: C++ (ctest, incluso `tuner_test` sul rilevatore), stress runtime
-  (`test/ctl_stress.py`: ctl + SSE), decoder bridge Python, verifica preset,
-  decisioni WiFi/AP (`test/wifi_manager_test.py`, dry-run senza `nmcli`)
+  (`test/ctl_stress.py`: ctl + SSE), test runtime G-Board
+  (`test/gboard_cc_runtime.py`, `test/gboard_pc_runtime.py`), decoder bridge
+  Python, verifica preset, decisioni WiFi/AP (`test/wifi_manager_test.py`,
+  dry-run senza `nmcli`)
 
 ## Prossimi passi
 
