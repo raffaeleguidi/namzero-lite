@@ -11,6 +11,10 @@ body { margin:0; font:14px/1.35 -apple-system,system-ui,sans-serif; background:v
 header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
 h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
 #status { color:var(--dim); font-size:12px; min-width:240px; font-variant-numeric:tabular-nums; }
+#spinner { position:fixed; inset:0; background:rgba(8,10,14,.6); display:flex; align-items:center; justify-content:center; z-index:50; backdrop-filter:blur(2px); }
+#spinner.hidden { display:none; }
+#spinner .ring { width:64px; height:64px; border:5px solid rgba(255,255,255,.15); border-top-color:#4fd1c5; border-radius:50%; animation:spinner-spin .8s linear infinite; }
+@keyframes spinner-spin { to { transform:rotate(360deg); } }
 #statustext { color:#fff; font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
 #slots { display:flex; gap:6px; }
 #slots button { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; width:30px; height:30px; cursor:pointer; }
@@ -75,6 +79,7 @@ button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
   <a href="settings.html" style="margin-left:auto;color:var(--acc);text-decoration:none">settings</a>
 </header>
 <main id="board"></main>
+<div id="spinner" class="hidden"><div class="ring"></div></div>
 <section id="rack">
   <div class="rack-title">Opzioni generali <button class="act" id="save-options" style="margin-left:auto;padding:2px 10px;font-size:12px">Salva opzioni</button></div>
   <div id="rack-units"></div>
@@ -235,6 +240,20 @@ const delayCard = [...board.children].find(c => c._id === "delay");
 let lastModPos = "";
 
 let last = null;
+const spinnerEl = document.getElementById("spinner");
+let spinnerTimer = null;
+function showSpinner() {
+  if (!spinnerEl) return;
+  spinnerEl.classList.remove("hidden");
+  clearTimeout(spinnerTimer);
+  spinnerTimer = setTimeout(() => spinnerEl.classList.add("hidden"), 6000);
+}
+function hideSpinner() {
+  if (!spinnerEl) return;
+  spinnerEl.classList.add("hidden");
+  clearTimeout(spinnerTimer);
+}
+
 const undoBtn = document.getElementById("undo");
 let undoStack = [];
 function inverseOf(cmd) {
@@ -260,6 +279,10 @@ function inverseOf(cmd) {
   return null;
 }
 function send(cmd, record = true) {
+  if (cmd && (cmd.cmd === "slot" || cmd.cmd === "file" || cmd.cmd === "reload" ||
+              (cmd.cmd === "set" && typeof cmd.position === "string"))) {
+    showSpinner();
+  }
   if (record) {
     const inv = inverseOf(cmd);
     if (inv) { undoStack.push(inv); if (undoStack.length > 20) undoStack.shift(); undoBtn.disabled = false; }
@@ -273,6 +296,7 @@ undoBtn.onclick = () => {
   if (inv) send(inv, false);
 };
 function render(st) {
+  hideSpinner();
   last = st;
   const statustext = document.getElementById("statustext");
   if (statustext) statustext.textContent = `[${st.slot}] `;
