@@ -173,7 +173,7 @@ preset. Il deploy **non** sovrascrive questo file.
 | `gate` | `threshold_db`, `attack_ms`, `release_ms` | parametri del gate globale |
 | `autoengage` | `threshold`, `release_threshold`, `engage_ms`, `release_ms` | auto-engage del wah |
 | `boost` | `on`, `db` | boost di fine catena |
-| `eq` | `on`, `gains` | EQ grafico globale a 5 bande |
+| `eq` | `on`, `gains`, `volume_db` | EQ grafico globale a 5 bande + volume globale |
 
 ### eq
 
@@ -184,16 +184,23 @@ looper, prima del gain master/boost). A 0 dB è piatto e trasparente.
 |--------|---------|------|
 | `on` | true | on/off dell'intero blocco |
 | `gains` | `[0,0,0,0,0]` | dB per banda, in ordine: 80, 250, 800, 2500, 8000 Hz |
+| `volume_db` | **+6.0** | gain master globale, -24..+24 dB; si applica **sempre**, anche a EQ spento, e si somma al boost |
 
 Le bande sono un low shelf a 80 Hz, tre peaking a 250/800/2500 Hz (Q 0.7) e un
 high shelf a 8000 Hz. I guadagni stanno fra -12 e +12 dB (passo 0.5). Se il
-blocco `eq` manca valgono i default (acceso, piatto): è così che la config viva
-esistente continua a funzionare dopo l'aggiornamento.
+blocco `eq` manca valgono i default (acceso, piatto, +6 dB): è così che la
+config viva esistente continua a funzionare dopo l'aggiornamento.
+
+Il volume globale è indipendente da `eq.on`: il gain master è
+`10^(gain_db/20) * 10^(volume_db/20) * (boost ? 10^(boost_db/20) : 1)`.
+Lo stato live espone `eq.volume` (dB) e `master_gain` (lineare), utile ai test.
 
 Dal vivo il comando `{"cmd":"eq","on":bool}` accende/spegne, mentre
-`{"cmd":"eq","band":0..4,"gain":dB}` cambia una banda senza ricaricare il preset.
+`{"cmd":"eq","band":0..4,"gain":dB}` cambia una banda e
+`{"cmd":"eq","volume":dB}` regola il volume globale, senza ricaricare il preset.
 Per renderli permanenti serve **Salva opzioni** (o `s`): il motore li rilegge da
-`presets.json` al prossimo avvio.
+`presets.json` al prossimo avvio. `defaults` con `slot:"eq"` riporta anche il
+volume a +6 dB.
 
 ## Cosa non e' un preset
 

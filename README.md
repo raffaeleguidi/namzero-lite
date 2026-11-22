@@ -29,12 +29,15 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - **EQ globale a 5 bande** (rack "Opzioni generali"): low shelf 80 Hz, peaking
   250/800/2.5k, high shelf 8k, -12..+12 dB; in fondo alla catena, salvato in
   `presets.json` con **Salva opzioni**
+- **Volume globale** nello stesso rack (-24..+24 dB, default +6 dB): gain master
+  sempre applicato, anche a EQ spento, si somma al boost
 - Tasti `+`/`-` per il volume dell'ampli (salvato nel preset con `s`)
 
 **Preset**
 - `config/presets.json`: 8 slot (0-7) verso i file, opzioni globali (gate,
-  boost, auto-engage, EQ), `start_slot`
-- Tasti `0`-`9` e navigazione blu dell'XTONE per cambiare slot; banner
+  boost, auto-engage, EQ, volume), `start_slot`
+- Combo preset nella web UI (lista da `GET /api/presets`); tasti `0`-`9` e
+  navigazione blu dell'XTONE per cambiare slot; banner
   `[N] - file.json (modello.nam)` a ogni caricamento
 - Salvataggio con `s` (on/off e trim dell'ampli), altri parametri intatti
 - Verifica dei preset con `--print-config` e `scripts/verify_presets.py`

@@ -30,12 +30,48 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
   passo 0.5). Il pulsante on/off manda `{"cmd":"eq","on":...}`, ogni slider manda
   `{"cmd":"eq","band":i,"gain":dB}`: tutto live, senza ricaricare il preset.
   L'EQ è **sempre in catena**, in fondo (dopo riverbero e looper, prima del gain
-  master/boost). **Salva opzioni** scrive `eq.on` e `eq.gains` in
-  `config/presets.json`, così vale per tutti i preset.
-- **Slot**: pulsanti 0-7 (gli 8 preset della flash LED; la tastiera accetta 0-9 ma 8/9 sono vuoti).
+  master/boost).
+- **Volume globale**: slider "Volume" nella stessa unità dell'EQ (-24..+24 dB,
+  passo 0.5, default **+6 dB**), comando `{"cmd":"eq","volume":dB}` con debounce
+  come le altre manopole. È il gain di fine catena: si applica **sempre**, anche
+  a EQ spento, e si somma al boost. **Salva opzioni** scrive `eq.on`,
+  `eq.gains` e `eq.volume_db` in `config/presets.json`, così vale per tutti i
+  preset.
+- **Preset**: il titolo nello header è una **combo** con tutti gli slot
+  configurati (`[slot]` resta a sinistra). La lista arriva da `GET /api/presets`,
+  che legge `config/presets.json` e ignora gli slot vuoti/null. Scegliendo una
+  voce la pagina manda `{"cmd":"slot","n":i}`: il motore ricarica il preset e la
+  pagina mostra il rotellone. La combo segue lo slot live (`st.slot`), quindi si
+  aggiorna anche cambiando preset da tastiera o dal pedale. Non c'è più
+  l'input per rinominare: la rinomina resta disponibile solo via comando
+  `rename` sul socket.
 - **Salva preset**: scrive tutto lo stato live nel preset corrente.
 - **Upload**: modelli NAM in `models/`, IR in `irs/` (il file va poi associato
   allo slot nel preset: selezione da slot in arrivo).
+
+## Header e layout mobile
+
+Sopra i **720 px** lo header mostra tutto su una riga: titolo, `[slot]` + combo
+preset, undo, Salva, settings.
+
+Sotto i 720 px lo header resta compatto su una riga: titolo, `[slot]` + combo
+(la combo si restringe, `max-width:45vw`) e un pulsante **hamburger** a destra.
+Undo, Salva e settings si spostano in un menu a tendina (`#actions`, che si apre
+con la classe `.open`): si chiude cliccando fuori, con `Esc`, dopo un'azione o
+quando la finestra torna larga. Sono gli stessi elementi con gli stessi handler.
+
+Sempre sotto i 720 px:
+
+- i campi numerici e le select passano a `font-size:16px`, così iOS non fa zoom
+  al focus;
+- i pulsanti on/off e i comandi del looper hanno un touch target di ~40-44 px;
+- il rack impila le unità a larghezza piena e gli slider EQ restano toccabili
+  (bande più larghe, thumb da 20 px);
+- i pedali restano in una fila scrollabile **dentro `main`**: la pagina non
+  scorre in orizzontale (`html, body { overflow-x:clip }`, che a differenza di
+  `hidden` non rompe l'header sticky);
+- header, rack e fondo usano `env(safe-area-inset-*)` con `viewport-fit=cover`,
+  quindi la UI non finisce sotto notch/home indicator.
 
 ## Reti WiFi
 
@@ -48,14 +84,27 @@ note e si collega con `nmcli`. L'access point di fallback non e' ancora gestito.
 
 Cambio preset, cambio modello/IR e spostamento del mod ricostruiscono il motore
 (re-exec, ~0,5-2 s): la pagina mostra un **rotellone** a tutto schermo e lo toglie
-solo quando lo stato riporta il nuovo slot **e** il nuovo nome preset (o, per i
+solo quando lo stato riporta il nuovo slot **e** il nuovo path preset (o, per i
 cambi file/posizione, al primo stato dopo il riavvio). Timeout di sicurezza 6 s.
+
+I file statici (`index.html`, `ui.js`) sono riletti da disco a ogni richiesta,
+quindi una modifica alla UI si vede ricaricando la pagina. `GET /api/presets`
+invece è codice Python: dopo un aggiornamento bisogna riavviare `namzero-web`.
+Senza sudo si può verificare su un'istanza manuale:
+
+```bash
+NAMZERO_WEB_PORT=8090 python3 web/server.py &
+curl -s http://127.0.0.1:8090/api/presets
+```
+
+Con sudo: `sudo systemctl restart namzero-web`.
 
 ## API
 
 | Metodo | Percorso | Note |
 |---|---|---|
 | GET | `/api/state` | snapshot dello stato |
+| GET | `/api/presets` | elenco preset: `[{"slot":0,"name":"vox_wah"}, ...]` da `config/presets.json` |
 | POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |

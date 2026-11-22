@@ -13,7 +13,7 @@ Verifica:
   c) poll di /api/state dal web durante i cambi;
   d) comandi di gruppo: param, save, save_options, looper, file, defaults;
   e) EQ globale: band live, clamp, save_options, riavvio che la riapplica,
-     defaults;
+     defaults; volume globale live, clamp, persistenza, somma col boost;
   f) timeout dei client inattivi (~10 s);
   g) ripristino del preset/presets.json originali e stato finale.
 
@@ -49,6 +49,11 @@ def check(name, cond, detail=""):
         fail_count += 1
         failures.append("%s%s" % (name, (": " + detail) if detail else ""))
         print("FAIL %s%s" % (name, (" — " + detail) if detail else ""), flush=True)
+
+
+def close_rel(a, b, tol=2e-3):
+    """Confronto relativo (i master_gain arrivano da float C++)."""
+    return abs(a - b) <= tol * max(abs(a), abs(b), 1e-9)
 
 
 def connect(timeout=2.5, attempts=8):
@@ -409,31 +414,73 @@ def main():
         st = wait_state(lambda s: s["eq"]["on"] is False, timeout=4, label="eq off")
         check("eq on/off live", st["eq"]["on"] is False)
 
+        # Volume globale: vive nell'EQ ma si applica sempre. Live + clamp.
+        send_cmd({"cmd": "eq", "volume": 9})
+        st = wait_state(lambda s: "volume" in s.get("eq", {}) and
+                        abs(s["eq"]["volume"] - 9.0) < 0.01,
+                        timeout=4, label="eq volume 9")
+        check("eq volume live", st["eq"]["volume"] == 9.0,
+              "volume = %s dB" % st["eq"]["volume"])
+
+        send_cmd({"cmd": "eq", "volume": 99})
+        st = wait_state(lambda s: abs(s["eq"]["volume"] - 24.0) < 0.01,
+                        timeout=4, label="eq volume clamp")
+        check("eq volume clamp a +24 dB", st["eq"]["volume"] == 24.0)
+
+        # Boost e volume si sommano: master_gain (lineare) li moltiplica. Qui
+        # l'EQ e' spento: il volume deve agire lo stesso.
+        send_cmd({"cmd": "boost", "on": False})
+        wait_state(lambda s: s.get("boost") is False, timeout=4, label="boost off")
+        send_cmd({"cmd": "eq", "volume": 0})
+        st0 = wait_state(lambda s: abs(s["eq"]["volume"]) < 0.01,
+                         timeout=4, label="volume 0")
+        send_cmd({"cmd": "eq", "volume": 9})
+        st9 = wait_state(lambda s: abs(s["eq"]["volume"] - 9.0) < 0.01,
+                         timeout=4, label="volume 9")
+        boost_db = float(st9.get("boost_db", 6.0))
+        want_v = 10 ** (9.0 / 20.0)
+        ratio_v = st9["master_gain"] / st0["master_gain"]
+        check("volume +9 dB sul master (EQ spento)", close_rel(ratio_v, want_v),
+              "ratio %.4f atteso %.4f" % (ratio_v, want_v))
+
+        send_cmd({"cmd": "boost", "on": True})
+        stb = wait_state(lambda s: s.get("boost") is True, timeout=4, label="boost on")
+        want_b = 10 ** (boost_db / 20.0)
+        ratio_b = stb["master_gain"] / st9["master_gain"]
+        check("boost si somma al volume", close_rel(ratio_b, want_b),
+              "ratio %.4f atteso %.4f (+%.1f dB)" % (ratio_b, want_b, boost_db))
+
         # save_options scrive il blocco eq nella config viva (backup/ripristino
-        # piu' sotto): poi un riavvio deve rileggerlo.
+        # piu' sotto): poi un riavvio deve rileggerlo, volume compreso.
         send_cmd({"cmd": "save_options"})
         time.sleep(0.25)
         ej = json.load(open(presets_json))
         check("save_options scrive eq in presets.json",
               isinstance(ej.get("eq"), dict) and ej["eq"].get("on") is False and
               len(ej["eq"].get("gains", [])) == 5 and
-              abs(float(ej["eq"]["gains"][2]) - 6.5) < 1e-6,
+              abs(float(ej["eq"]["gains"][2]) - 6.5) < 1e-6 and
+              abs(float(ej["eq"].get("volume_db", 0)) - 9.0) < 1e-6,
               json.dumps(ej.get("eq")))
 
         st = wait_reexec({"cmd": "reload"},
                          lambda s: (s.get("eq", {}).get("on") is False and
-                                    abs(s["eq"]["gains"][2] - 6.5) < 0.01),
+                                    abs(s["eq"]["gains"][2] - 6.5) < 0.01 and
+                                    abs(s["eq"]["volume"] - 9.0) < 0.01),
                          "eq dopo il riavvio", timeout=20)
         check("eq riapplicata dopo il riavvio",
-              st["eq"]["on"] is False and st["eq"]["gains"][2] == 6.5,
-              "on=%s banda2=%s" % (st["eq"]["on"], st["eq"]["gains"][2]))
+              st["eq"]["on"] is False and st["eq"]["gains"][2] == 6.5 and
+              st["eq"]["volume"] == 9.0,
+              "on=%s banda2=%s volume=%s" %
+              (st["eq"]["on"], st["eq"]["gains"][2], st["eq"]["volume"]))
 
         send_cmd({"cmd": "defaults", "slot": "eq"})
         st = wait_state(lambda s: (s["eq"]["on"] is True and
-                                   all(abs(g) < 1e-6 for g in s["eq"]["gains"])),
+                                   all(abs(g) < 1e-6 for g in s["eq"]["gains"]) and
+                                   abs(s["eq"]["volume"] - 6.0) < 1e-6),
                         timeout=4, label="defaults eq")
-        check("defaults eq (on, piatto)",
-              st["eq"]["on"] is True and all(abs(g) < 1e-6 for g in st["eq"]["gains"]))
+        check("defaults eq (on, piatto, volume +6 dB)",
+              st["eq"]["on"] is True and all(abs(g) < 1e-6 for g in st["eq"]["gains"]) and
+              st["eq"]["volume"] == 6.0)
 
         # ── ripristino config viva ──────────────────────────────────────────
         restore_config()

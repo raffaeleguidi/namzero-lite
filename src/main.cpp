@@ -139,6 +139,9 @@ struct Config {
     // auto-engage), non nel preset del singolo slot. Sempre in catena.
     bool eq_on = true;
     std::array<double, 5> eq_gains{0.0, 0.0, 0.0, 0.0, 0.0};
+    // Volume globale di fine catena, in dB: vive in presets.json accanto all'EQ
+    // ma si applica SEMPRE, anche a EQ spento. Default +6 dB.
+    double eq_volume_db = 6.0;
 
     // comportamento
     // La mappa MIDI non sta qui ne' nei preset: vive in midi.json (vedi
@@ -149,6 +152,10 @@ struct Config {
     bool stats = false;
     bool help = false;
 };
+
+// Limiti del volume globale (presets.json -> eq.volume_db), in dB.
+constexpr double kVolumeMinDb = -24.0;
+constexpr double kVolumeMaxDb = 24.0;
 
 // Tipi di mod e drive in ordine di ciclo: la stessa tabella serve a validare
 // il preset, al tasto che li scorre e al ripristino dello stato del mod.
@@ -1035,10 +1042,13 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN);
 
-    // Boost di fine catena: il gain master vive in un atomico perche' il thread
-    // MIDI lo cambia e il thread audio lo legge a ogni blocco.
+    // Boost e volume globale di fine catena: il gain master vive in un atomico
+    // perche' il thread MIDI lo cambia e il thread audio lo legge a ogni blocco.
     const float base_master = static_cast<float>(std::pow(10.0, cfg.gain_db / 20.0));
     std::atomic<float> master_gain{base_master};
+    // Volume globale (eq.volume_db): vive in presets.json accanto all'EQ ma si
+    // somma SEMPRE al gain master, anche a EQ spento.
+    std::atomic<float> volume_db{static_cast<float>(cfg.eq_volume_db)};
     // Il boost e' un'opzione generale: si ripristina da presets.json.
     {
         std::ifstream bst("config/presets.json");
@@ -1046,20 +1056,19 @@ int main(int argc, char** argv) {
         if (bst && (bst >> bj) && bj.contains("boost")) {
             g_boost_on = bj["boost"].value("on", false);
             midi_cfg.boost_db = bj["boost"].value("db", midi_cfg.boost_db);
-            if (g_boost_on) {
-                master_gain.store(base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)));
-            }
         }
     }
     // EQ globale: come boost e auto-engage vive in presets.json, cosi' il
     // deploy non lo sovrascrive e vale per tutti i preset. Assente = default
-    // (acceso, piatto).
+    // (acceso, piatto, volume +6 dB).
     {
         std::ifstream ein("config/presets.json");
         nlohmann::json ej;
         if (ein && (ein >> ej) && ej.contains("eq") && ej["eq"].is_object()) {
             const auto& e = ej["eq"];
             cfg.eq_on = e.value("on", cfg.eq_on);
+            cfg.eq_volume_db = std::clamp(e.value("volume_db", cfg.eq_volume_db),
+                                          kVolumeMinDb, kVolumeMaxDb);
             if (e.contains("gains") && e["gains"].is_array()) {
                 for (std::size_t i = 0; i < cfg.eq_gains.size() && i < e["gains"].size(); ++i) {
                     if (e["gains"][i].is_number()) {
@@ -1072,6 +1081,20 @@ int main(int argc, char** argv) {
             }
         }
     }
+    volume_db.store(static_cast<float>(cfg.eq_volume_db), std::memory_order_relaxed);
+
+    // Unico punto che scrive master_gain: base (gain_db del preset) * volume
+    // globale * boost. Va usato da startup, comandi boost/volume e MIDI, cosi'
+    // i due guadagni non si perdono a vicenda.
+    const auto update_master = [&]() {
+        const float vol = static_cast<float>(
+            std::pow(10.0, static_cast<double>(volume_db.load(std::memory_order_relaxed)) / 20.0));
+        const float boost = g_boost_on
+                                ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
+                                : 1.0f;
+        master_gain.store(base_master * vol * boost, std::memory_order_relaxed);
+    };
+    update_master();
     // Slot richiesto da tasto o Program Change: il loop audio esce e main
     // ri-esegue il processo con il nuovo preset (buco ~300 ms).
     std::atomic<int> switch_slot{-1};
@@ -1329,6 +1352,7 @@ int main(int argc, char** argv) {
         std::printf("cfg.reverb.damp=%.4f\n", reverb_ptr->damp());
 
         std::printf("cfg.eq.on=%d\n", cfg.eq_on ? 1 : 0);
+        std::printf("cfg.eq.volume_db=%.4f\n", cfg.eq_volume_db);
         for (std::size_t i = 0; i < cfg.eq_gains.size(); ++i) {
             std::printf("cfg.eq.gain%zu=%.4f\n", i, eq_ptr->gain_db(static_cast<int>(i)));
         }
@@ -1492,9 +1516,9 @@ int main(int argc, char** argv) {
                 has_amp ? "on" : "off", has_ir ? "on" : "off",
                 cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off",
                 cfg.eq_on ? "on" : "off");
-    std::printf("eq: %s | 80 %+.1f | 250 %+.1f | 800 %+.1f | 2.5k %+.1f | 8k %+.1f dB\n",
+    std::printf("eq: %s | 80 %+.1f | 250 %+.1f | 800 %+.1f | 2.5k %+.1f | 8k %+.1f dB | volume %+.1f dB\n",
                 cfg.eq_on ? "on" : "off", cfg.eq_gains[0], cfg.eq_gains[1],
-                cfg.eq_gains[2], cfg.eq_gains[3], cfg.eq_gains[4]);
+                cfg.eq_gains[2], cfg.eq_gains[3], cfg.eq_gains[4], cfg.eq_volume_db);
     std::string chain_desc = "gate -> comp -> filter(wah) -> drive -> ";
     if (mod_pre_amp) chain_desc += "mod -> ";
     chain_desc += "amp";
@@ -1655,6 +1679,10 @@ int main(int argc, char** argv) {
                            {"release_ms", midi_cfg.wah_release_ms}};
         s["eq"]["on"] = cfg.eq_on;
         s["eq"]["gains"] = cfg.eq_gains;
+        // volume = gain globale in dB (volume_db), master_gain = lineare
+        // risultante (base * volume * boost): serve ai test e alla diagnostica.
+        s["eq"]["volume"] = volume_db.load(std::memory_order_relaxed);
+        s["master_gain"] = master_gain.load(std::memory_order_relaxed);
         if (looper_ptr != nullptr) {
             s["looper"]["state"] = namzero::LooperSlot::state_name(looper_ptr->state());
             s["looper"]["pos"] = looper_ptr->position_seconds();
@@ -1753,6 +1781,7 @@ int main(int argc, char** argv) {
                 gj["boost"]["db"] = g_midi->boost_db;
                 gj["eq"]["on"] = cfg.eq_on;
                 gj["eq"]["gains"] = cfg.eq_gains;
+                gj["eq"]["volume_db"] = cfg.eq_volume_db;
                 std::ofstream gout("config/presets.json");
                 if (!gout) throw std::runtime_error("presets.json non scrivibile");
                 gout << gj.dump(2) << '\n';
@@ -1960,18 +1989,18 @@ int main(int argc, char** argv) {
             } else if (slot == "boost") {
                 namzero::MidiConfig dm;
                 midi_cfg.boost_db = dm.boost_db;
-                if (g_boost_on) {
-                    master_gain.store(
-                        base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)),
-                        std::memory_order_relaxed);
-                }
+                update_master();
             } else if (slot == "eq") {
                 cfg.eq_on = d.eq_on;
                 cfg.eq_gains = d.eq_gains;
+                cfg.eq_volume_db = d.eq_volume_db;
+                volume_db.store(static_cast<float>(cfg.eq_volume_db),
+                                std::memory_order_relaxed);
                 for (std::size_t i = 0; i < cfg.eq_gains.size(); ++i) {
                     eq_ptr->set_gain(static_cast<int>(i), static_cast<float>(cfg.eq_gains[i]));
                 }
                 chain.set_enabled(i_eq, cfg.eq_on);
+                update_master();
             }
         } else if (cmd == "looper") {
             const std::string action = j.value("action", "");
@@ -1992,16 +2021,13 @@ int main(int argc, char** argv) {
         } else if (cmd == "boost") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             g_boost_on = j.value("on", g_boost_on);
-            const float b = g_boost_on
-                                ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
-                                : 1.0f;
-            master_gain.store(base_master * b, std::memory_order_relaxed);
+            update_master();
             apply_leds();
         } else if (cmd == "eq") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
-            // Due forme: {"cmd":"eq","on":bool} e
-            // {"cmd":"eq","band":0..4,"gain":db}. Nessuna delle due fa re-exec:
-            // lo slot e' sempre in catena e i guadagni sono atomici.
+            // Tre forme: {"cmd":"eq","on":bool}, {"cmd":"eq","band":0..4,
+            // "gain":db} e {"cmd":"eq","volume":db}. Nessuna fa re-exec: lo
+            // slot e' sempre in catena e i guadagni sono atomici.
             if (j.contains("on")) {
                 cfg.eq_on = j.value("on", cfg.eq_on);
                 chain.set_enabled(i_eq, cfg.eq_on);
@@ -2016,6 +2042,15 @@ int main(int argc, char** argv) {
                     cfg.eq_gains[static_cast<std::size_t>(band)] = gain;
                     eq_ptr->set_gain(band, static_cast<float>(gain));
                 }
+            }
+            // Terza forma: {"cmd":"eq","volume":dB}. Volume globale: clamp
+            // -24..+24 e gain master ricalcolato subito (anche a EQ spento).
+            if (j.contains("volume")) {
+                const double vol = std::clamp(
+                    j.value("volume", cfg.eq_volume_db), kVolumeMinDb, kVolumeMaxDb);
+                cfg.eq_volume_db = vol;
+                volume_db.store(static_cast<float>(vol), std::memory_order_relaxed);
+                update_master();
             }
         } else if (cmd == "set") {
             const std::string slot = j.value("slot", "");
@@ -2095,7 +2130,14 @@ int main(int argc, char** argv) {
             const std::string key = j.value("key", "");
             const double v = j.value("value", 0.0);
             std::lock_guard<std::mutex> lk(ctrl_mtx);
-            if (slot == "gate") {
+            if (slot == "boost") {
+                // Il boost non e' uno slot della catena: e' un guadagno del
+                // master. Il parametro arriva dalla manopola della web UI.
+                if (key == "db") {
+                    midi_cfg.boost_db = std::clamp(v, 0.0, 24.0);
+                    update_master();
+                }
+            } else if (slot == "gate") {
                 if (key == "threshold") { cfg.gate_threshold_db = v; gate_ptr->set_threshold_db(static_cast<float>(v)); }
                 else if (key == "attack") { cfg.gate_attack_ms = v; gate_ptr->set_attack_ms(static_cast<float>(v)); }
                 else if (key == "release") { cfg.gate_release_ms = v; gate_ptr->set_release_ms(static_cast<float>(v)); }
@@ -2355,6 +2397,7 @@ int main(int argc, char** argv) {
                     gj["boost"]["db"] = g_midi->boost_db;
                     gj["eq"]["on"] = cfg.eq_on;
                     gj["eq"]["gains"] = cfg.eq_gains;
+                    gj["eq"]["volume_db"] = cfg.eq_volume_db;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {
@@ -2566,10 +2609,7 @@ int main(int argc, char** argv) {
                                e.cc == midi_cfg.gboard_boost_pc) {
                         std::lock_guard<std::mutex> lk(ctrl_mtx);
                         g_boost_on = !g_boost_on;
-                        const float boost =
-                            g_boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
-                                     : 1.0f;
-                        master_gain.store(base_master * boost, std::memory_order_relaxed);
+                        update_master();
                         apply_leds();
                         std::printf("  boost: %s (PC%d)\n", g_boost_on ? "on" : "off", e.cc);
                         std::fflush(stdout);
@@ -2637,10 +2677,7 @@ int main(int argc, char** argv) {
                 if (midi_cfg.boost_cc >= 0 && e.cc == midi_cfg.boost_cc) {
                     std::lock_guard<std::mutex> lk(ctrl_mtx);
                     g_boost_on = !g_boost_on;
-                    const float boost =
-                        g_boost_on ? static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0))
-                                 : 1.0f;
-                    master_gain.store(base_master * boost, std::memory_order_relaxed);
+                    update_master();
                     apply_leds();
                     if (g_boost_on) {
                         std::printf("  boost: on (+%.1f dB)\n", midi_cfg.boost_db);

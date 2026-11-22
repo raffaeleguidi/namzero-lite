@@ -169,6 +169,26 @@ def t3k_get(path, raw=False):
     return body if raw else json.loads(body)
 
 
+def presets_list():
+    """Elenco dei preset configurati: [{"slot":0,"name":"vox_wah"}, ...].
+
+    Legge la config viva (config/presets.json) e ricava il nome dal path
+    "presets/<nome>.json". Gli slot vuoti/null vengono saltati.
+    """
+    with open(os.path.join(ROOT, "config/presets.json")) as f:
+        cfg = json.load(f)
+    out = []
+    for slot, entry in enumerate(cfg.get("slots", [])):
+        if not isinstance(entry, str) or not entry:
+            continue
+        name = os.path.basename(entry)
+        if name.endswith(".json"):
+            name = name[:-5]
+        if name:
+            out.append({"slot": slot, "name": name})
+    return out
+
+
 # ── HTTP ────────────────────────────────────────────────────────────────────
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -192,6 +212,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path.startswith("/api/presets"):
+            try:
+                self._json(presets_list())
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
         if self.path.startswith("/api/state"):
             try:
                 self._json(ctl(None))

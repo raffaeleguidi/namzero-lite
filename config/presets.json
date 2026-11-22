@@ -4,6 +4,11 @@
     "attack_ms": 2,
     "release_ms": 3000
   },
+  "eq": {
+    "on": true,
+    "gains": [0.0, 0.0, 0.0, 0.0, 0.0],
+    "volume_db": 6.0
+  },
   "start_slot": -1,
   "slots": [
     "presets/vox_wah.json",

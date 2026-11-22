@@ -2,24 +2,28 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>namzero-lite</title>
 <style>
 :root { --bg:#15171c; --card:#1e222b; --line:#2c3240; --txt:#e6e9ef; --dim:#8b93a7; --acc:#4fd1c5; --on:#f6c453; }
 * { box-sizing:border-box; }
+/* clip (non hidden): evita lo scroll orizzontale senza creare un contenitore
+   di scorrimento, che romperebbe l'header sticky. */
+html, body { max-width:100%; overflow-x:clip; }
 body { margin:0; font:14px/1.35 -apple-system,system-ui,sans-serif; background:var(--bg); color:var(--txt); }
 header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
 h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
-#status { color:var(--dim); font-size:12px; min-width:240px; font-variant-numeric:tabular-nums; }
+#status { color:var(--dim); font-size:12px; min-width:0; display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums; }
+#presetselect { background:var(--card); color:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-size:18px; font-weight:600; max-width:320px; min-width:0; cursor:pointer; }
+#actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
+#actions a { color:var(--acc); text-decoration:none; }
+#menu { display:none; }
 #spinner { position:fixed; inset:0; background:rgba(8,10,14,.6); display:flex; align-items:center; justify-content:center; z-index:50; backdrop-filter:blur(2px); }
 #spinner.hidden { display:none; }
 #spinner .ring { width:64px; height:64px; border:5px solid rgba(255,255,255,.15); border-top-color:#4fd1c5; border-radius:50%; animation:spinner-spin .8s linear infinite; }
 @keyframes spinner-spin { to { transform:rotate(360deg); } }
-#statustext { color:#fff; font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
-#slots { display:flex; gap:6px; }
-#slots button { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; width:30px; height:30px; cursor:pointer; }
-#slots button.cur { border-color:var(--acc); color:var(--acc); }
-main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-start; justify-content:center; justify-content: safe center; }
+#statustext { color:#fff; font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-width:100%; align-items:flex-start; justify-content:center; justify-content: safe center; }
 .pedal { background:var(--card); border:1px solid rgba(0,0,0,.18); border-radius:12px; padding:10px; width:190px; flex:0 0 auto; color:#16181d; box-shadow:0 2px 10px rgba(0,0,0,.35); }
 .pedal h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:0 0 8px; color:#16181d; display:flex; justify-content:space-between; align-items:center; }
 .pedal h2 .fstate { font-size:10px; text-transform:lowercase; letter-spacing:0; color:rgba(0,0,0,.55); border:1px solid rgba(0,0,0,.25); border-radius:8px; padding:0 6px; }
@@ -84,16 +88,60 @@ button.act { background:var(--card); color:var(--txt); border:1px solid var(--li
 button.act.primary { border-color:var(--acc); color:var(--acc); }
 button.act.saved { background:var(--acc); border-color:var(--acc); color:#16181d; }
 button.act.err { background:#b00020; border-color:#b00020; color:#fff; }
+/* Progressiva: sotto i 720 px l'header resta su una riga (titolo, [slot] +
+   combo, hamburger) e undo/Salva/settings passano nel menu. Il resto del layout
+   si impila e i pedali restano scrollabili dentro main, mai la pagina. */
+@media (max-width:720px) {
+  header { gap:8px; padding:calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 10px calc(12px + env(safe-area-inset-left)); }
+  h1 { font-size:13px; letter-spacing:0; white-space:nowrap; flex:0 0 auto; }
+  #status { flex:1 1 auto; gap:4px; overflow:hidden; }
+  #statustext { font-size:15px; flex:0 0 auto; }
+  #presetselect { flex:1 1 auto; font-size:16px; padding:3px 6px; max-width:45vw; }
+  #menu { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+          width:42px; height:42px; padding:0; font-size:18px; margin-left:0; }
+  #actions { display:none; position:absolute; top:calc(100% - 2px); right:calc(12px + env(safe-area-inset-right));
+             z-index:20; flex-direction:column; align-items:stretch; gap:8px; min-width:160px;
+             margin:0; padding:10px; background:var(--card); border:1px solid var(--line);
+             border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.5); }
+  #actions.open { display:flex; }
+  #actions .act, #actions a { min-height:44px; display:flex; align-items:center; justify-content:center; }
+  main { padding:12px calc(12px + env(safe-area-inset-right)) 12px calc(12px + env(safe-area-inset-left)); max-width:100%; }
+  #rack { margin:0 calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+          padding:8px 10px 12px;
+          max-width:calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+  #rack-units { gap:0; }
+  .unit { width:100%; min-width:0; padding:14px 0 0; border-left:none; border-top:1px solid #3a4150; }
+  .unit:first-child { padding-top:0; border-top:none; }
+  .power { width:40px; height:40px; font-size:15px; }
+  #looper { min-width:0; width:100%; }
+  #loop-row { flex-wrap:wrap; gap:8px; }
+  #loop-state { min-width:0; flex:1 1 100%; }
+  #loop-row .act { min-width:44px; min-height:44px; }
+  .eq-bands { gap:6px; }
+  .eq-band { width:44px; }
+  .eq-band .eq-slider { width:44px; height:108px; }
+  .eq-band .eq-slider input { width:104px; height:30px; }
+  .eq-band .eq-slider input::-webkit-slider-thumb { width:20px; height:20px; margin-top:-8px; }
+  .eq-band .eq-slider input::-moz-range-thumb { width:20px; height:20px; }
+  /* iOS fa zoom al focus se il campo e' sotto i 16px. */
+  input:not([type=range]), select { font-size:16px; }
+  .ae-row input { width:90px; min-height:36px; }
+  #files { padding:0 12px calc(24px + env(safe-area-inset-bottom)); }
+  #files section { min-width:0; width:100%; }
+  #files code { overflow-wrap:anywhere; }
+}
 </style>
 </head>
 <body>
 <header>
   <h1>namzero-lite</h1>
-  <span id="status"><span id="statustext">…</span><input id="presetname" title="nome preset (invio per rinominare)" style="background:transparent;border:none;color:#fff;font-size:18px;font-weight:600;width:190px;outline:none"></span>
-  <div id="slots"></div>
-  <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
-  <button class="act primary" id="save">Salva</button>
-  <a href="settings.html" style="margin-left:auto;color:var(--acc);text-decoration:none">settings</a>
+  <span id="status"><span id="statustext">…</span><select id="presetselect" title="preset" aria-label="preset"></select></span>
+  <button class="act" id="menu" type="button" aria-label="menu" aria-expanded="false" aria-controls="actions">☰</button>
+  <div id="actions">
+    <button class="act" id="undo" disabled title="annulla ultima modifica">undo</button>
+    <button class="act primary" id="save">Salva</button>
+    <a href="settings.html">settings</a>
+  </div>
 </header>
 <main id="board"></main>
 <div id="spinner" class="hidden"><div class="ring"></div></div>
@@ -239,8 +287,23 @@ const eqSliders = [];
   eqSliders.push({inp, out});
 });
 eqUnit.append(eqBands);
+// Volume globale: vive in presets.json (eq.volume_db) ma si applica sempre,
+// anche a EQ spento. Stesso debounce delle altre manopole.
+const eqVolWrap = el("div", {className:"knob"});
+const eqVolOut = el("output", {textContent:"6.0 dB"});
+const eqVolInp = el("input", {type:"range", min:-24, max:24, step:0.5, title:"volume globale (dB)"});
+eqVolInp.value = "6";
+let eqVolTimer = null;
+eqVolInp.oninput = () => {
+  eqVolOut.textContent = (+eqVolInp.value).toFixed(1) + " dB";
+  clearTimeout(eqVolTimer);
+  eqVolTimer = setTimeout(() => send({cmd:"eq", volume:+eqVolInp.value}), 60);
+};
+eqVolWrap.append(el("span", {textContent:"Volume"}), eqVolOut, eqVolInp);
+eqUnit.append(eqVolWrap);
 rackUnits.append(eqUnit);
 eqUnit._power = eqPower; eqUnit._id = "eq";
+eqUnit._volume = eqVolInp; eqUnit._volumeOut = eqVolOut;
 
 // Auto-engage (opzioni generali, salvate in presets.json): numeri editabili.
 const aeUnit = el("div", {className:"unit"});
@@ -327,6 +390,10 @@ function inverseOf(cmd) {
       return g === undefined ? null : {cmd:"eq", band:cmd.band, gain:g};
     }
     if (cmd.on !== undefined) return {cmd:"eq", on:!!last?.eq?.on};
+    if (cmd.volume !== undefined) {
+      const v = last?.eq?.volume;
+      return v === undefined ? null : {cmd:"eq", volume:v};
+    }
   }
   if (cmd.cmd === "file") {
     const f = last.slots?.[cmd.slot]?.file;
@@ -378,13 +445,15 @@ function render(st, fromPoll = false) {
   last = st;
   const statustext = document.getElementById("statustext");
   if (statustext) statustext.textContent = `[${st.slot}] `;
-  const pn = document.getElementById("presetname");
-  if (pn && document.activeElement !== pn) {
-    const nm = (st.preset || "").split("/").pop().replace(/\.json$/, "");
-    pn.value = nm;
-    lastName = nm;
+  // La combo segue lo slot live; le option arrivano da /api/presets. Durante
+  // un cambio preset non si riporta indietro la selezione: aspetta lo stato
+  // nuovo (pendingSlot viene azzerato appena il caricamento e' finito).
+  const presetSelect = document.getElementById("presetselect");
+  if (presetSelect && presetSelect.options.length &&
+      (pendingSlot === null || st.slot === pendingSlot)) {
+    const v = String(st.slot);
+    if ([...presetSelect.options].some(o => o.value === v)) presetSelect.value = v;
   }
-  document.querySelectorAll("#slots button").forEach((b,i) => b.classList.toggle("cur", i === st.slot));
   board.children && [...board.children].forEach(card => {
     const id = card._id;
     const s = st.slots[id];
@@ -424,6 +493,10 @@ function render(st, fromPoll = false) {
         if (document.activeElement !== k.inp) k.inp.value = v;
         k.out.textContent = (+v).toFixed(1);
       });
+    }
+    if (typeof st.eq?.volume === "number") {
+      if (document.activeElement !== eqUnit._volume) eqUnit._volume.value = st.eq.volume;
+      eqUnit._volumeOut.textContent = (+st.eq.volume).toFixed(1) + " dB";
     }
   }
   if (modCard && st.slots && st.slots.mod) {
@@ -466,8 +539,49 @@ function refresh() {
     else if (++failCount > 10) document.getElementById("statustext").textContent = "disconnesso";
   }).catch(() => { if (++failCount > 10) document.getElementById("statustext").textContent = "disconnesso"; });
 }
-const slotBar = document.getElementById("slots");
-for (let i = 0; i < 8; i++) { const b = el("button", {textContent:i}); b.onclick = () => send({cmd:"slot", n:i}); slotBar.append(b); }
+// Combo preset: /api/presets legge config/presets.json. Fetch iniziale con
+// retry (il server puo' essere appena partito o riavviato).
+const presetSelect = document.getElementById("presetselect");
+function loadPresets(attempt = 0) {
+  fetch("/api/presets").then(r => r.json()).then(list => {
+    if (!Array.isArray(list) || !list.length) throw new Error("lista preset vuota");
+    presetSelect.textContent = "";
+    list.forEach(p => presetSelect.append(el("option", {value:String(p.slot), textContent:p.name})));
+    if (last) presetSelect.value = String(last.slot);
+  }).catch(() => {
+    if (attempt < 5) setTimeout(() => loadPresets(attempt + 1), 800);
+  });
+}
+presetSelect.onchange = () => {
+  const n = +presetSelect.value;
+  if (Number.isFinite(n)) send({cmd:"slot", n});
+};
+loadPresets();
+
+// Menu hamburger (solo sotto 720 px): contiene gli stessi undo/Salva/settings
+// dell'header desktop, con gli stessi handler.
+const menuBtn = document.getElementById("menu");
+const actionsEl = document.getElementById("actions");
+function closeMenu() {
+  actionsEl.classList.remove("open");
+  menuBtn.setAttribute("aria-expanded", "false");
+}
+menuBtn.onclick = (e) => {
+  e.stopPropagation();
+  const open = actionsEl.classList.toggle("open");
+  menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+};
+actionsEl.addEventListener("click", (e) => {
+  if (e.target.closest("button, a")) closeMenu();
+});
+document.addEventListener("click", (e) => {
+  if (!actionsEl.classList.contains("open")) return;
+  if (actionsEl.contains(e.target) || menuBtn.contains(e.target)) return;
+  closeMenu();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+window.addEventListener("resize", () => { if (window.innerWidth > 720) closeMenu(); });
+
 const saveBtn = document.getElementById("save");
 saveBtn.onclick = () => {
   saveBtn.classList.remove("saved", "err");
@@ -487,17 +601,6 @@ saveBtn.onclick = () => {
   if (!card || !card._file) return;
   (j.files||[]).forEach(f => card._file.append(el("option", {value:f, textContent:f})));
 }).catch(()=>{}));
-const pnEl = document.getElementById("presetname");
-let lastName = "";
-function commitName() {
-  const n = pnEl.value.trim();
-  if (!n || n === lastName) return;
-  lastName = n;
-  send({cmd:"rename", name:n});
-}
-pnEl.onchange = commitName;
-pnEl.onkeydown = (e) => { if (e.key === "Enter") { commitName(); pnEl.blur(); } };
-pnEl.onblur = () => { if (last) pnEl.value = (last.preset || "").split("/").pop().replace(/\.json$/, ""); };
 
 refresh(); setInterval(refresh, 400);
 </script>
