@@ -101,6 +101,10 @@ add_executable(filter_test test/filter_test.cpp)
 target_include_directories(filter_test PRIVATE src)
 add_test(NAME filter COMMAND filter_test)
 
+add_executable(pitch_shifter_test test/pitch_shifter_test.cpp)
+target_include_directories(pitch_shifter_test PRIVATE src)
+add_test(NAME pitch_shifter COMMAND pitch_shifter_test)
+
 add_executable(eq_test test/eq_test.cpp src/dsp/chain.cpp)
 target_include_directories(eq_test PRIVATE src)
 add_test(NAME eq COMMAND eq_test)

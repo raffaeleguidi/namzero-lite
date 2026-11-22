@@ -102,14 +102,16 @@ struct Config {
     // pedale vero) oppure dopo la IR. Si applica al caricamento del preset.
     std::string mod_position = "pre_amp";  // pre_amp | post_ir
 
-    // FILTER (wah) fisso prima del drive. Nei preset e' sempre spento: lo
-    // accende solo l'auto-engage dell'espressione. rate/depth non sono usati
+    // FILTER (wah/whammy) fisso prima del drive. Nei preset e' sempre spento:
+    // lo accende solo l'auto-engage dell'espressione. rate/depth non sono usati
     // dal wah ma restano configurabili (e nello stato/param della UI).
     bool filter_on = false;
+    std::string filter_type = "wah";  // wah | whammy
+    double filter_range = 12.0;       // whammy: semitoni a pedale a fondo
     double filter_rate_hz = 1.0;
     double filter_depth = 0.5;
     double filter_q = 3.0;
-    double filter_mix = 1.0;
+    double filter_mix = 1.0;          // wah e whammy: quota di wet
     double filter_low_hz = 350.0;
     double filter_high_hz = 2200.0;
     double filter_position = 0.5;
@@ -394,10 +396,14 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         }
     }
 
-    // FILTER (wah) fisso prima del drive. Il flag on del file viene ignorato:
-    // si accende solo l'auto-engage dell'espressione.
+    // FILTER (wah/whammy) fisso prima del drive. Il flag on del file viene
+    // ignorato: si accende solo l'auto-engage dell'espressione.
     auto fl = slot_or_empty(j, "filter");
     if (!fl.empty()) {
+        if (fl.contains("type") && fl["type"].is_string()) {
+            cfg.filter_type = fl["type"].get<std::string>();
+        }
+        cfg.filter_range = get_num(fl, "range", cfg.filter_range);
         cfg.filter_rate_hz = get_num(fl, "rate_hz", get_num(fl, "rate", cfg.filter_rate_hz));
         cfg.filter_depth = get_num(fl, "depth", cfg.filter_depth);
         cfg.filter_q = get_num(fl, "q", cfg.filter_q);
@@ -407,6 +413,21 @@ bool load_preset(const std::string& path, Config& cfg, std::string& err) {
         cfg.filter_position = get_num(fl, "position", cfg.filter_position);
     }
     cfg.filter_on = false;
+    // Default e migrazione: i preset senza "type" restano wah. Un tipo scritto
+    // male non deve diventare un effetto a caso.
+    if (namzero::filter_type_index(cfg.filter_type) < 0) {
+        std::fprintf(stderr, "filter: tipo \"%s\" sconosciuto, uso wah\n",
+                     cfg.filter_type.c_str());
+        cfg.filter_type = "wah";
+    }
+    if (cfg.filter_range < namzero::kFilterRangeMin ||
+        cfg.filter_range > namzero::kFilterRangeMax) {
+        std::fprintf(stderr, "filter: range %.1f fuori da %.0f..%.0f semitoni, lo limito\n",
+                     cfg.filter_range, namzero::kFilterRangeMin,
+                     namzero::kFilterRangeMax);
+        cfg.filter_range = std::clamp(cfg.filter_range, namzero::kFilterRangeMin,
+                                      namzero::kFilterRangeMax);
+    }
 
     auto amp = slot_or_empty(j, "amp");
     if (!amp.empty()) {
@@ -506,6 +527,8 @@ bool save_preset(const std::string& path, const Config& cfg, std::string& err) {
     slots["mod"]["position"] = cfg.mod_position;
     // Il filter si salva sempre spento: si accende solo col pedale.
     slots["filter"]["on"] = false;
+    slots["filter"]["type"] = cfg.filter_type;
+    slots["filter"]["range"] = cfg.filter_range;
     slots["filter"]["rate_hz"] = cfg.filter_rate_hz;
     slots["filter"]["depth"] = cfg.filter_depth;
     slots["filter"]["q"] = cfg.filter_q;
@@ -1127,15 +1150,17 @@ int main(int argc, char** argv) {
         cp->set_makeup_db(static_cast<float>(cfg.comp_makeup_db));
         chain.add(std::move(cp));
     }
-    // FILTER (wah) fisso: seconda istanza di ModSlot, sempre in catena. Nei
-    // preset e' spento (lo accende solo l'auto-engage dell'espressione), ma
+    // FILTER (wah/whammy) fisso: seconda istanza di ModSlot, sempre in catena.
+    // Nei preset e' spento (lo accende solo l'auto-engage dell'espressione), ma
     // esiste da subito cosi' il pedale puo' comandarlo in qualunque momento.
     const std::size_t i_filter = chain.size();
     namzero::ModSlot* filter_ptr = nullptr;
     {
         auto fl = std::make_unique<namzero::ModSlot>();
         filter_ptr = fl.get();
-        fl->set_type(namzero::ModSlot::Type::kWah);
+        fl->set_type(cfg.filter_type == "whammy" ? namzero::ModSlot::Type::kWhammy
+                                                 : namzero::ModSlot::Type::kWah);
+        fl->set_whammy_range(static_cast<float>(cfg.filter_range));
         fl->set_rate_hz(static_cast<float>(cfg.filter_rate_hz));
         fl->set_depth(static_cast<float>(cfg.filter_depth));
         fl->set_wah_q(static_cast<float>(cfg.filter_q));
@@ -1326,6 +1351,8 @@ int main(int argc, char** argv) {
         std::printf("cfg.mod.position=%s\n", cfg.mod_position.c_str());
 
         std::printf("cfg.filter.on=%d\n", 0);
+        std::printf("cfg.filter.type=%s\n", cfg.filter_type.c_str());
+        std::printf("cfg.filter.range=%.4f\n", filter_ptr->whammy_range());
         std::printf("cfg.filter.rate_hz=%.4f\n", filter_ptr->rate_hz());
         std::printf("cfg.filter.depth=%.4f\n", filter_ptr->depth());
         std::printf("cfg.filter.q=%.4f\n", filter_ptr->wah_q());
@@ -1505,9 +1532,17 @@ int main(int argc, char** argv) {
     std::printf("comp: soglia %.1f dB | ratio %.1f | attack %.1f ms | release %.0f ms | makeup %.1f dB\n",
                 cfg.comp_threshold_db, cfg.comp_ratio, cfg.comp_attack_ms, cfg.comp_release_ms,
                 cfg.comp_makeup_db);
-    std::printf("filter: wah spento (auto-engage) | q %.1f | mix %.2f | %.0f..%.0f Hz | pos %.2f\n",
-                cfg.filter_q, cfg.filter_mix, cfg.filter_low_hz, cfg.filter_high_hz,
-                cfg.filter_position);
+    if (cfg.filter_type == "whammy") {
+        std::printf("filter: whammy spento (auto-engage) | range %+.0f st | mix %.2f | pos %.2f"
+                    " | latenza %.1f ms\n",
+                    cfg.filter_range, cfg.filter_mix, cfg.filter_position,
+                    static_cast<double>(filter_ptr->latency_frames()) * 1000.0 /
+                        static_cast<double>(io.rate()));
+    } else {
+        std::printf("filter: wah spento (auto-engage) | q %.1f | mix %.2f | %.0f..%.0f Hz | pos %.2f\n",
+                    cfg.filter_q, cfg.filter_mix, cfg.filter_low_hz, cfg.filter_high_hz,
+                    cfg.filter_position);
+    }
     std::printf("slot: gate %s | comp %s | filter %s | drive %s (%s) | mod %s (%s, %s) | amp %s | ir %s | delay %s | reverb %s | eq %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
                 cfg.filter_on ? "on" : "off",
@@ -1519,7 +1554,7 @@ int main(int argc, char** argv) {
     std::printf("eq: %s | 80 %+.1f | 250 %+.1f | 800 %+.1f | 2.5k %+.1f | 8k %+.1f dB | volume %+.1f dB\n",
                 cfg.eq_on ? "on" : "off", cfg.eq_gains[0], cfg.eq_gains[1],
                 cfg.eq_gains[2], cfg.eq_gains[3], cfg.eq_gains[4], cfg.eq_volume_db);
-    std::string chain_desc = "gate -> comp -> filter(wah) -> drive -> ";
+    std::string chain_desc = "gate -> comp -> filter(" + cfg.filter_type + ") -> drive -> ";
     if (mod_pre_amp) chain_desc += "mod -> ";
     chain_desc += "amp";
     if (has_ir) chain_desc += " -> ir";
@@ -1717,6 +1752,11 @@ int main(int argc, char** argv) {
         sl["mod"]["fx_mix"] = cfg.mod_fx_mix;
         sl["mod"]["position"] = cfg.mod_position;
         sl["filter"]["on"] = cfg.filter_on;
+        sl["filter"]["type"] = cfg.filter_type;
+        sl["filter"]["range"] = cfg.filter_range;
+        // Rapporto effettivo del pitch shifter (1.0 per il wah): la UI non lo
+        // usa, ma il test runtime verifica che il pedale a fondo alzi davvero.
+        sl["filter"]["ratio"] = cfg.filter_type == "whammy" ? filter_ptr->whammy_ratio() : 1.0;
         sl["filter"]["rate"] = cfg.filter_rate_hz;
         sl["filter"]["depth"] = cfg.filter_depth;
         sl["filter"]["q"] = cfg.filter_q;
@@ -1941,6 +1981,8 @@ int main(int argc, char** argv) {
                 if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
                 apply_leds();
             } else if (slot == "filter") {
+                cfg.filter_type = d.filter_type;
+                cfg.filter_range = d.filter_range;
                 cfg.filter_rate_hz = d.filter_rate_hz;
                 cfg.filter_depth = d.filter_depth;
                 cfg.filter_q = d.filter_q;
@@ -1948,6 +1990,10 @@ int main(int argc, char** argv) {
                 cfg.filter_low_hz = d.filter_low_hz;
                 cfg.filter_high_hz = d.filter_high_hz;
                 cfg.filter_position = d.filter_position;
+                filter_ptr->set_type(cfg.filter_type == "whammy"
+                                         ? namzero::ModSlot::Type::kWhammy
+                                         : namzero::ModSlot::Type::kWah);
+                filter_ptr->set_whammy_range(static_cast<float>(cfg.filter_range));
                 filter_ptr->set_rate_hz(static_cast<float>(cfg.filter_rate_hz));
                 filter_ptr->set_depth(static_cast<float>(cfg.filter_depth));
                 filter_ptr->set_wah_q(static_cast<float>(cfg.filter_q));
@@ -2094,6 +2140,30 @@ int main(int argc, char** argv) {
                 cfg.mod_on = j.value("on", cfg.mod_on);
                 if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
                 apply_leds();
+            } else if (slot == "filter") {
+                // Il filter non ha on/off: lo comanda solo l'auto-engage.
+                // Dal vivo si puo' cambiare tipo e range; il mix passa da param.
+                if (j.contains("type")) {
+                    const std::string type = j["type"].is_string()
+                                                 ? j["type"].get<std::string>()
+                                                 : std::string();
+                    if (namzero::filter_type_index(type) < 0) {
+                        std::printf("  filter: tipo \"%s\" non valido (wah/whammy)\n",
+                                    type.c_str());
+                        std::fflush(stdout);
+                    } else {
+                        cfg.filter_type = type;
+                        filter_ptr->set_type(type == "whammy"
+                                                 ? namzero::ModSlot::Type::kWhammy
+                                                 : namzero::ModSlot::Type::kWah);
+                    }
+                }
+                if (j.contains("range") && j["range"].is_number()) {
+                    cfg.filter_range = std::clamp(j["range"].get<double>(),
+                                                  namzero::kFilterRangeMin,
+                                                  namzero::kFilterRangeMax);
+                    filter_ptr->set_whammy_range(static_cast<float>(cfg.filter_range));
+                }
             } else if (slot == "drive") {
                 if (j.contains("type")) {
                     cfg.drive_type = j["type"].get<std::string>();
@@ -2128,7 +2198,11 @@ int main(int argc, char** argv) {
         } else if (cmd == "param") {
             const std::string slot = j.value("slot", "");
             const std::string key = j.value("key", "");
-            const double v = j.value("value", 0.0);
+            // Il valore puo' essere numerico (manopole) o stringa (type del
+            // filter): si legge solo se e' un numero, cosi' nlohmann non lancia.
+            const double v = (j.contains("value") && j["value"].is_number())
+                                 ? j["value"].get<double>()
+                                 : 0.0;
             std::lock_guard<std::mutex> lk(ctrl_mtx);
             if (slot == "boost") {
                 // Il boost non e' uno slot della catena: e' un guadagno del
@@ -2160,10 +2234,32 @@ int main(int argc, char** argv) {
                 else if (key == "feedback") { cfg.mod_feedback = v; mod_ptr->set_feedback(static_cast<float>(v)); }
                 else if (key == "fx_mix") { cfg.mod_fx_mix = v; mod_ptr->set_fx_mix(static_cast<float>(v)); }
             } else if (slot == "filter") {
-                if (key == "rate") { cfg.filter_rate_hz = v; filter_ptr->set_rate_hz(static_cast<float>(v)); }
+                if (key == "type") {
+                    const std::string type =
+                        (j.contains("value") && j["value"].is_string())
+                            ? j["value"].get<std::string>()
+                            : std::string();
+                    if (namzero::filter_type_index(type) < 0) {
+                        std::printf("  filter: tipo \"%s\" non valido (wah/whammy)\n",
+                                    type.c_str());
+                        std::fflush(stdout);
+                    } else {
+                        cfg.filter_type = type;
+                        filter_ptr->set_type(type == "whammy"
+                                                 ? namzero::ModSlot::Type::kWhammy
+                                                 : namzero::ModSlot::Type::kWah);
+                    }
+                } else if (key == "range") {
+                    cfg.filter_range = std::clamp(v, namzero::kFilterRangeMin,
+                                                  namzero::kFilterRangeMax);
+                    filter_ptr->set_whammy_range(static_cast<float>(cfg.filter_range));
+                } else if (key == "rate") { cfg.filter_rate_hz = v; filter_ptr->set_rate_hz(static_cast<float>(v)); }
                 else if (key == "depth") { cfg.filter_depth = v; filter_ptr->set_depth(static_cast<float>(v)); }
                 else if (key == "q") { cfg.filter_q = v; filter_ptr->set_wah_q(static_cast<float>(v)); }
-                else if (key == "mix") { cfg.filter_mix = v; filter_ptr->set_wah_mix(static_cast<float>(v)); }
+                else if (key == "mix") {
+                    cfg.filter_mix = std::clamp(v, 0.0, 1.0);
+                    filter_ptr->set_wah_mix(static_cast<float>(cfg.filter_mix));
+                }
                 else if (key == "low_hz") { cfg.filter_low_hz = v; filter_ptr->set_wah_low_hz(static_cast<float>(v)); }
                 else if (key == "high_hz") { cfg.filter_high_hz = v; filter_ptr->set_wah_high_hz(static_cast<float>(v)); }
                 else if (key == "position") { cfg.filter_position = v; filter_ptr->set_position(static_cast<float>(v)); }
@@ -2797,13 +2893,21 @@ int main(int argc, char** argv) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
                 cfg.filter_on = true;
                 chain.set_enabled(i_filter, true);
-                std::printf("  filter: wah acceso dal pedale\n");
+                std::printf("  filter: %s acceso dal pedale\n",
+                            filter_ptr != nullptr &&
+                                    filter_ptr->type() == namzero::ModSlot::Type::kWhammy
+                                ? "whammy"
+                                : "wah");
                 std::fflush(stdout);
             } else if (transition == -1) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
                 cfg.filter_on = false;
                 chain.set_enabled(i_filter, false);
-                std::printf("  filter: wah spento dal pedale\n");
+                std::printf("  filter: %s spento dal pedale\n",
+                            filter_ptr != nullptr &&
+                                    filter_ptr->type() == namzero::ModSlot::Type::kWhammy
+                                ? "whammy"
+                                : "wah");
                 std::fflush(stdout);
             }
         }

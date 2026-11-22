@@ -15,9 +15,15 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 
 - **Pedaliera**: gate, comp, filter, drive, mod, amp, IR, delay, riverbero, boost;
   ogni slot ha le manopole dei parametri principali e, dove ha senso, lo stomp.
-- **Filter**: card dedicata prima del drive, con rate, depth, q, mix, low_hz,
-  high_hz e position. Non ha un pulsante on/off: mostra `off` oppure `auto`
-  (acceso dall'auto-engage dell'espressione). Le manopole sono sempre editabili.
+- **Filter**: card dedicata prima del drive, con un selettore **Tipo**
+  (`wah`/`whammy`). Con `wah` mostra rate, depth, q, mix, low_hz e high_hz; con
+  `whammy` mostra range (semitoni, -24..+24) e mix. La manopola **Pos** resta
+  sempre visibile: è la posizione del pedale di espressione (0 = unisono,
+  1 = range pieno per il whammy). Non ha un pulsante on/off: mostra `off` oppure
+  `auto` (acceso dall'auto-engage dell'espressione, uguale per entrambi i tipi).
+  Il cambio tipo invia `set` con `slot:"filter"` e `type`; range e mix passano da
+  `param` (`key:"range"` / `key:"mix"`). Default dello slot: `wah`, range 12,
+  mix 1.
 - **Mod**: solo i quattro tipi (`tremolo`, `univibe`, `flanger`, `phaser`) e la
   **posizione** nella catena (`pre-amplificatore` / `dopo IR`). Cambiare
   posizione invia `set` con `slot:"mod"` e `position`: il motore salva il preset

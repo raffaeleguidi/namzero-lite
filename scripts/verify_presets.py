@@ -46,6 +46,8 @@ MAPPING = [
     ("cfg.mod.fx_mix", ("slots", "mod", "fx_mix"), float),
     ("cfg.mod.feedback", ("slots", "mod", "feedback"), float),
 
+    ("cfg.filter.type", ("slots", "filter", "type"), str),
+    ("cfg.filter.range", ("slots", "filter", "range"), float),
     ("cfg.filter.rate_hz", ("slots", "filter", "rate_hz"), float),
     ("cfg.filter.depth", ("slots", "filter", "depth"), float),
     ("cfg.filter.q", ("slots", "filter", "q"), float),

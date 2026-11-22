@@ -5,13 +5,15 @@
 #include <atomic>
 #include <cmath>
 
+#include "dsp/pitch_shifter.h"
 #include "dsp/slot.h"
 
 namespace namzero {
 
-// Slot modulazione, con cinque tipi:
+// Slot modulazione, con sei tipi:
 //   tremolo  — LFO sinusoidale sul gain
 //   wah      — filtro a stato variabile (TPT) comandato dal pedale
+//   whammy   — pitch shifter granulare comandato dal pedale (blocco FILTER)
 //   univibe  — 4 celle di sfasamento con lampada: fase e ampiezza modulate
 //   flanger  — delay corto modulato con retroazione (comb filter)
 //   phaser   — 4 celle di sfasamento con retroazione
@@ -20,7 +22,7 @@ namespace namzero {
 // dopo il modello darebbe un suono diverso e meno credibile.
 class ModSlot final : public Slot {
 public:
-    enum class Type { kTremolo, kWah, kUnivibe, kFlanger, kPhaser };
+    enum class Type { kTremolo, kWah, kWhammy, kUnivibe, kFlanger, kPhaser };
 
     void set_type(Type t) { type_.store(t, std::memory_order_relaxed); }
     Type type() const { return type_.load(std::memory_order_relaxed); }
@@ -35,6 +37,17 @@ public:
     void set_wah_mix(float m) { mix_.store(clamp(m, 0.0f, 1.0f), std::memory_order_relaxed); }
     void set_wah_low_hz(float hz) { low_hz_.store(clamp(hz, 100.0f, 1000.0f), std::memory_order_relaxed); }
     void set_wah_high_hz(float hz) { high_hz_.store(clamp(hz, 600.0f, 5000.0f), std::memory_order_relaxed); }
+
+    // whammy: il pedale (position) sceglie la trasposizione fra 0 e range.
+    // range e' in semitoni, positivo = su, negativo = giu' (-24..+24).
+    void set_whammy_range(float semitones) {
+        whammy_range_.store(clamp(semitones, -24.0f, 24.0f), std::memory_order_relaxed);
+    }
+    float whammy_range() const { return whammy_range_.load(std::memory_order_relaxed); }
+    // Il mix e' lo stesso del wah: il blocco FILTER ha una sola manopola mix.
+    void set_whammy_mix(float m) { mix_.store(clamp(m, 0.0f, 1.0f), std::memory_order_relaxed); }
+    // Rapporto usato dal pitch shifter (diagnostica/test), atomico.
+    float whammy_ratio() const { return pitch_.current_ratio(); }
 
     // univibe / flanger / phaser
     void set_fx_mix(float m) { fx_mix_.store(clamp(m, 0.0f, 1.0f), std::memory_order_relaxed); }
@@ -52,6 +65,9 @@ public:
 
     void prepare(double sample_rate, std::size_t /*max_frames*/) override {
         fs_ = static_cast<float>(sample_rate);
+        pitch_.prepare(sample_rate);
+        // Fade di 10 ms al cambio tipo: wah <-> whammy senza scalini.
+        fade_samples_ = static_cast<std::size_t>(std::max(1.0f, 0.010f * fs_));
         reset();
     }
 
@@ -66,23 +82,81 @@ public:
         dl_l_.fill(0.0f);
         dl_r_.fill(0.0f);
         write_ = 0;
+        pitch_.reset();
+        last_type_ = type_.load(std::memory_order_relaxed);
+        fade_left_ = 0;
+        fade_pos_ = 0;
     }
 
     const char* name() const override { return "mod"; }
 
+    // Solo il whammy aggiunge il ritardo della sua finestra granulare; gli
+    // altri tipi (wah compreso) non cambiano la latenza.
+    std::size_t latency_frames() const override {
+        return type_.load(std::memory_order_relaxed) == Type::kWhammy
+                   ? pitch_.latency_frames()
+                   : 0;
+    }
+
     void process(float* interleaved, std::size_t frames) override {
-        switch (type_.load(std::memory_order_relaxed)) {
+        if (interleaved == nullptr || frames == 0) return;
+
+        const Type type = type_.load(std::memory_order_relaxed);
+        if (type != last_type_) {
+            last_type_ = type;
+            // Cambio tipo a runtime: il whammy riparte da buffer pulito (evita
+            // di rileggere audio vecchio) e l'uscita sfuma dal dry per 10 ms.
+            if (type == Type::kWhammy) pitch_.reset();
+            fade_pos_ = 0;
+            fade_left_ = fade_samples_;
+        }
+
+        if (fade_left_ == 0) {
+            dispatch(type, interleaved, frames);
+            return;
+        }
+
+        // Fade dry -> nuovo tipo, processando a pezzi per non dover allocare
+        // un buffer grande quanto il blocco audio.
+        std::size_t done = 0;
+        while (done < frames && fade_left_ > 0) {
+            const std::size_t n = std::min(frames - done, std::min(kFadeChunk, fade_left_));
+            float* chunk = interleaved + done * 2;
+            for (std::size_t i = 0; i < n * 2; ++i) fade_dry_[i] = chunk[i];
+
+            dispatch(type, chunk, n);
+
+            for (std::size_t i = 0; i < n; ++i) {
+                const float g = static_cast<float>(fade_pos_) /
+                                static_cast<float>(fade_samples_);
+                ++fade_pos_;
+                for (std::size_t ch = 0; ch < 2; ++ch) {
+                    const std::size_t k = i * 2 + ch;
+                    chunk[k] = fade_dry_[k] + (chunk[k] - fade_dry_[k]) * g;
+                }
+            }
+            fade_left_ -= n;
+            done += n;
+        }
+        if (done < frames) dispatch(type, interleaved + done * 2, frames - done);
+    }
+
+private:
+    static constexpr std::size_t kFadeChunk = 256;
+
+    static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+
+    void dispatch(Type type, float* interleaved, std::size_t frames) {
+        switch (type) {
             case Type::kWah: process_wah(interleaved, frames); break;
+            case Type::kWhammy: process_whammy(interleaved, frames); break;
             case Type::kUnivibe: process_phaser(interleaved, frames, true); break;
             case Type::kPhaser: process_phaser(interleaved, frames, false); break;
             case Type::kFlanger: process_flanger(interleaved, frames); break;
             default: process_tremolo(interleaved, frames); break;
         }
-    }
-
-private:
-    static float clamp(float v, float lo, float hi) {
-        return v < lo ? lo : (v > hi ? hi : v);
     }
 
     // Cella di sfasamento del primo ordine: H(z) = (a + z^-1) / (1 + a z^-1).
@@ -169,6 +243,17 @@ private:
             interleaved[i * 2 + 0] = in_l * dry + v1l * mix * boost;
             interleaved[i * 2 + 1] = in_r * dry + v1r * mix * boost;
         }
+    }
+
+    // --------------------------------------------------------------- whammy
+    void process_whammy(float* interleaved, std::size_t frames) {
+        // Il pedale sceglie la trasposizione: 0 = unisono, 1 = range pieno.
+        // Il segno del range decide se la corsa va su o giu'.
+        const float semitones =
+            position_.load(std::memory_order_relaxed) * whammy_range_.load(std::memory_order_relaxed);
+        pitch_.set_semitones(semitones);
+        pitch_.set_mix(mix_.load(std::memory_order_relaxed));
+        pitch_.process(interleaved, frames);
     }
 
     // ------------------------------------------- univibe e phaser (4 celle)
@@ -291,8 +376,18 @@ private:
     std::atomic<float> fx_mix_{0.5f};
     std::atomic<float> feedback_{0.35f};
 
+    std::atomic<float> whammy_range_{12.0f};
+    PitchShifter pitch_;
+
     float fs_ = 48000.0f;
     float phase_ = 0.0f;
+
+    // Cambio tipo senza click: si sfuma dal dry per fade_samples_ campioni.
+    Type last_type_ = Type::kTremolo;
+    std::size_t fade_samples_ = 480;
+    std::size_t fade_left_ = 0;
+    std::size_t fade_pos_ = 0;
+    std::array<float, kFadeChunk * 2> fade_dry_{};
 
     float q_eff_ = 3.0f;
     float a1_ = 0.0f, a2_ = 0.0f, a3_ = 0.0f;

@@ -22,7 +22,10 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Gate e comp applicati davvero dai parametri; **gate globale** in `presets.json`
   (soglia bassa e release lungo, per non tagliare le code)
 - Drive: `fuzz`, `klon` (blend col pulito), `tubescreamer`
-- Filter: wah fisso **prima del drive**, acceso solo dall'auto-engage del pedale
+- Filter: **wah** o **whammy** (pitch shifter granulare) fisso **prima del
+  drive**, acceso solo dall'auto-engage del pedale. Il whammy trasporta da 0 a
+  `range` semitoni (-24..+24, default +12) seguendo l'espressione, con mix
+  dry/wet; cambio tipo/parametri senza click e latenza dichiarata ~30 ms.
 - Mod: tremolo, univibe, flanger, phaser, in posizione `pre_amp` o `post_ir`
 - Delay a tre modi (stereo, ping-pong, ping-pong stereo) e riverbero
 - Boost di volume a fine catena in dB assoluti (default +6 dB), da CC 44 o tasto 8 del G-Board

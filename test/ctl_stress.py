@@ -7,10 +7,18 @@ Non fa parte della suite ctest: parla con il motore vero via
 Uso:
     python3 test/ctl_stress.py [--repo ~/namzero-lite] [--slots 20]
 
+Il motore deve essere avviato **in slot mode** (senza `-p`), come fa il
+servizio: il test cambia slot e alla fine torna a quello iniziale. Se lo si e'
+avviato con `-p file`, lo slot iniziale non corrisponde al preset caricato e il
+ripristino finale non puo' funzionare.
+
 Verifica:
   a) 16 connessioni concorrenti che leggono lo stato (64 richieste);
   b) 20 cambi preset consecutivi (comando slot + state);
   c) poll di /api/state dal web durante i cambi;
+  c2) FILTER: tipo wah/whammy, range (clamp), mix, defaults, auto-engage reale
+      con il CC 7 iniettato sulla socket BLE del motore, pedale a fondo ->
+      pitch up, save e reload del preset;
   d) comandi di gruppo: param, save, save_options, looper, file, defaults;
   e) EQ globale: band live, clamp, save_options, riavvio che la riapplica,
      defaults; volume globale live, clamp, persistenza, somma col boost;
@@ -24,7 +32,9 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -33,6 +43,7 @@ import urllib.error
 import urllib.request
 
 CTL = "/tmp/namzero-lite-ctl.sock"
+BLE = "/tmp/namzero-lite-ble.sock"
 WEB = "http://127.0.0.1:8080/api/state"
 
 ok_count = 0
@@ -201,6 +212,68 @@ def web_get():
         return -1, str(exc)
 
 
+# ── iniezione MIDI per l'auto-engage ────────────────────────────────────────
+# Il motore ascolta i byte MIDI grezzi sulla socket BLE (una connessione alla
+# volta). Il bridge BLE normalmente la occupa: per il test lo si ferma per
+# qualche secondo, si manda il CC dell'espressione e si lascia che systemd lo
+# rilanci. Niente sudo: il processo e' dello stesso utente.
+
+def ble_pids():
+    try:
+        out = subprocess.run(["pgrep", "-f", "ble-bridge-py/main.py"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+    pids = []
+    for tok in out.split():
+        try:
+            pids.append(int(tok))
+        except ValueError:
+            pass
+    return pids
+
+
+def stop_ble_bridge():
+    pids = ble_pids()
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    return pids
+
+
+def wait_ble_bridge(timeout=10.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if ble_pids():
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def ble_connect(timeout=6.0):
+    last = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(2.5)
+        try:
+            s.connect(BLE)
+            return s
+        except OSError as exc:
+            s.close()
+            last = exc
+            time.sleep(0.1)
+    raise last if last is not None else RuntimeError("socket BLE assente")
+
+
+def ble_cc(sock, cc, value, repeat=3):
+    for _ in range(repeat):
+        sock.sendall(bytes([0xB0, cc & 0x7F, value & 0x7F]))
+        time.sleep(0.05)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", default=os.path.expanduser("~/namzero-lite"))
@@ -326,6 +399,125 @@ def main():
         # Torna allo slot iniziale: i test di scrittura lavorano sul preset
         # dell'utente e vanno ripristinati alla fine.
         change_slot(pj, initial_slot)
+
+        # ── (c2) FILTER: wah/whammy, range, mix, auto-engage reale ──────────
+        # Il whammy e' comandato dall'espressione, quindi oltre ai comandi ctl
+        # si inietta il CC 7 sulla socket BLE del motore (il bridge viene
+        # fermato per pochi secondi e systemd lo rilancia).
+        st = read_state()
+        has_filter = "filter" in st.get("slots", {})
+        check("filter presente nello stato", has_filter)
+        if has_filter:
+            send_cmd({"cmd": "param", "slot": "filter", "key": "type", "value": "whammy"})
+            st = wait_state(lambda s: s["slots"]["filter"].get("type") == "whammy",
+                            timeout=4, label="filter type whammy")
+            check("filter.type = whammy (param)", st["slots"]["filter"]["type"] == "whammy")
+
+            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 7})
+            send_cmd({"cmd": "param", "slot": "filter", "key": "mix", "value": 0.8})
+            st = wait_state(lambda s: abs(s["slots"]["filter"]["range"] - 7) < 1e-6 and
+                            abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6,
+                            timeout=4, label="filter range/mix")
+            check("filter.range e mix (param)",
+                  st["slots"]["filter"]["range"] == 7 and
+                  abs(st["slots"]["filter"]["mix"] - 0.8) < 1e-6)
+
+            # Clamp del range: 99 deve diventare +24.
+            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 99})
+            st = wait_state(lambda s: abs(s["slots"]["filter"]["range"] - 24) < 1e-6,
+                            timeout=4, label="filter range clamp")
+            check("filter.range clamp a +24", st["slots"]["filter"]["range"] == 24)
+
+            # Tipo non valido: resta il precedente.
+            send_cmd({"cmd": "param", "slot": "filter", "key": "type", "value": "nope"})
+            time.sleep(0.2)
+            st = read_state()
+            check("filter.type non valido ignorato", st["slots"]["filter"]["type"] == "whammy")
+
+            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 12})
+
+            # Auto-engage con CC 7 iniettato: si prova prima il tacco, poi la
+            # punta (wah_invert nella config viva puo' spostare la zona attiva).
+            sock = None
+            engaged = False
+            engage_val = None
+            try:
+                stop_ble_bridge()
+                sock = ble_connect()
+                for cand in (0, 127):
+                    ble_cc(sock, 7, cand)
+                    try:
+                        st = wait_state(lambda s: s["slots"]["filter"]["on"] is True,
+                                        timeout=2.5, label="auto-engage on (CC%d)" % cand)
+                        engaged = True
+                        engage_val = cand
+                        break
+                    except RuntimeError:
+                        continue
+                check("auto-engage accende il filter (CC7 iniettato)", engaged,
+                      "CC %s" % engage_val)
+
+                if engaged:
+                    # Pedale a fondo con range 12: il rapporto deve salire a ~2.
+                    send_cmd({"cmd": "param", "slot": "filter", "key": "position", "value": 1})
+                    st = wait_state(lambda s: s["slots"]["filter"]["position"] > 0.99 and
+                                    s["slots"]["filter"]["ratio"] > 1.9,
+                                    timeout=3, label="whammy pos 1 ratio")
+                    check("whammy posizione 1 -> pitch up (ratio ~2)",
+                          st["slots"]["filter"]["ratio"] > 1.9,
+                          "ratio %.3f" % st["slots"]["filter"]["ratio"])
+                    check("filter resta acceso dall'auto-engage",
+                          st["slots"]["filter"]["on"] is True)
+
+                    # Rilascio: il CC opposto porta l'attivazione sotto soglia.
+                    ble_cc(sock, 7, 127 if engage_val == 0 else 0)
+                    st = wait_state(lambda s: s["slots"]["filter"]["on"] is False,
+                                    timeout=4, label="auto-engage off")
+                    check("auto-engage spegne il filter", st["slots"]["filter"]["on"] is False)
+            except Exception as exc:
+                check("auto-engage via BLE", False, repr(exc))
+            finally:
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                # Il bridge viene rilanciato da systemd (Restart=always).
+                if not wait_ble_bridge(12):
+                    print("  nota: bridge BLE non ancora ripartito", flush=True)
+
+            # Save + reload: type/range/mix devono restare nel preset, e il
+            # filter deve tornare spento (on e' sempre forzato a false).
+            send_cmd({"cmd": "param", "slot": "filter", "key": "type", "value": "whammy"})
+            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 7})
+            send_cmd({"cmd": "param", "slot": "filter", "key": "mix", "value": 0.8})
+            wait_state(lambda s: s["slots"]["filter"].get("type") == "whammy" and
+                       abs(s["slots"]["filter"]["range"] - 7) < 1e-6,
+                       timeout=4, label="filter pre-save")
+            send_cmd({"cmd": "save"})
+            time.sleep(0.25)
+            st = wait_reexec({"cmd": "reload"},
+                             lambda s: s["slots"]["filter"].get("type") == "whammy" and
+                             abs(s["slots"]["filter"]["range"] - 7) < 1e-6 and
+                             abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6 and
+                             s["slots"]["filter"]["on"] is False,
+                             "filter whammy dopo il reload", timeout=20)
+            check("filter type/range/mix salvati e ricaricati",
+                  st["slots"]["filter"]["type"] == "whammy" and
+                  st["slots"]["filter"]["range"] == 7 and
+                  abs(st["slots"]["filter"]["mix"] - 0.8) < 1e-6)
+            check("filter spento dopo il reload", st["slots"]["filter"]["on"] is False)
+
+            # defaults: wah, range 12, mix 1.
+            send_cmd({"cmd": "defaults", "slot": "filter"})
+            st = wait_state(lambda s: s["slots"]["filter"].get("type") == "wah" and
+                            abs(s["slots"]["filter"]["range"] - 12) < 1e-6 and
+                            abs(s["slots"]["filter"]["mix"] - 1) < 1e-6,
+                            timeout=4, label="defaults filter")
+            check("defaults filter (wah, range 12, mix 1)",
+                  st["slots"]["filter"]["type"] == "wah" and
+                  st["slots"]["filter"]["range"] == 12 and
+                  st["slots"]["filter"]["mix"] == 1)
 
         # ── (d) comandi di gruppo ───────────────────────────────────────────
         send_cmd({"cmd": "param", "slot": "gate", "key": "threshold", "value": -55.5})

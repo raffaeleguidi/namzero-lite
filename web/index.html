@@ -156,7 +156,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 <script>
 const SLOTS = [
  {id:"comp", name:"Comp", color:"#a3c9a8", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["attack","Attack",0,50,1,"ms"],["release","Release",20,1000,10,"ms"],["makeup","Makeup",0,12,0.5,"dB"]]},
- {id:"filter", name:"Filter", color:"#e6c39a", knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""]]},
+ {id:"filter", name:"Filter", color:"#e6c39a", types:["wah","whammy"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""],["range","Range",-24,24,1,"st"]]},
  {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"]]},
  {id:"mod", name:"Mod", color:"#c5b3e6", types:["tremolo","univibe","flanger","phaser"], modPosition:true, knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""],["fx_mix","FX mix",0,1,0.01,""]]},
  {id:"amp", name:"Amp", color:"#f2d5a8", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
@@ -165,6 +165,17 @@ const SLOTS = [
  {id:"reverb", name:"Reverb", color:"#d8b8d8", knobs:[["mix","Mix",0,1,0.01,""],["size","Size",0,1,0.01,""],["damp","Damp",0,1,0.01,""]]},
 ];
 const el = (t, a={}, ...c) => { const n = document.createElement(t); Object.assign(n, a); c.forEach(x => n.append(x)); return n; };
+// Il blocco FILTER ha due facce: wah (rate/depth/q/low/high) e whammy
+// (range). Mix e Pos servono a entrambi (Pos e' il pedale, sempre visibile).
+const FILTER_KNOB_GROUP = {rate:"wah", depth:"wah", q:"wah", low_hz:"wah",
+  high_hz:"wah", mix:"both", position:"both", range:"whammy"};
+function applyFilterKnobs(card, type) {
+  const t = type === "whammy" ? "whammy" : "wah";
+  (card._knobs || []).forEach(w => {
+    const g = w._group || "both";
+    w.style.display = (g === "both" || g === t) ? "" : "none";
+  });
+}
 const board = document.getElementById("board");
 const knobs = [];
 SLOTS.forEach(s => {
@@ -205,6 +216,7 @@ SLOTS.forEach(s => {
   }
   s.knobs.forEach(([key,label,min,max,step,unit]) => {
     const wrap = el("div", {className:"knob"});
+    if (s.id === "filter") wrap._group = FILTER_KNOB_GROUP[key] || "both";
     const lab = el("span", {textContent:label});
     const out = el("output");
     const inp = el("input", {type:"range", min, max, step});
@@ -212,6 +224,7 @@ SLOTS.forEach(s => {
     inp.oninput = () => { out.textContent = (+inp.value).toFixed(step < 0.1 ? 2 : 1) + unit;
       clearTimeout(t); t = setTimeout(() => send({cmd:"param", slot:s.id, key, value:+inp.value}), 60); };
     wrap.append(lab, out, inp); card.append(wrap);
+    (card._knobs || (card._knobs = [])).push(wrap);
     knobs.push({slot:s.id, key, inp, out, step, unit});
   });
   const foot = el("div", {className:"foot"}); foot.append(reset); card.append(foot);
@@ -222,6 +235,7 @@ SLOTS.forEach(s => {
   }
   card._power = power; card._select = select; card._pos = position;
   card._filterState = filterState; card._id = s.id;
+  if (s.id === "filter") applyFilterKnobs(card, "wah");
   board.append(card);
 });
 // boost
@@ -466,6 +480,7 @@ function render(st, fromPoll = false) {
       card._filterState.classList.toggle("on", !!s.on);
       card._filterState.title = s.on ? "acceso dall'espressione" : "spento: si accende col pedale";
     }
+    if (card._id === "filter") applyFilterKnobs(card, s.type);
     if (card._select && s.type) card._select.value = s.type;
     if (card._select && s.mode) card._select.value = s.mode;
     if (card._pos && typeof s.position === "string") card._pos.value = s.position;

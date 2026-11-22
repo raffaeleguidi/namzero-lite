@@ -25,7 +25,8 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
                 "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
     "drive":  { "on": false, "type": "fuzz", "amount": 0.15, "tone": 0.5,
                 "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0 },
-    "filter": { "on": false, "rate_hz": 1.0, "depth": 0.5, "q": 3.0, "mix": 1.0,
+    "filter": { "on": false, "type": "wah", "range": 12, "rate_hz": 1.0,
+                "depth": 0.5, "q": 3.0, "mix": 1.0,
                 "low_hz": 350, "high_hz": 2200, "position": 0.5 },
     "mod":    { "on": true,  "type": "tremolo", "rate_hz": 4.5, "depth": 0.5,
                 "fx_mix": 0.5, "feedback": 0.35, "position": "pre_amp" },
@@ -82,24 +83,43 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
 | `mid_db` | 4.0 | solo klon: gobba a 800 Hz |
 | `low_db` | 5.0 | solo fuzz: low-shelf a 110 Hz |
 
-### filter (wah)
+### filter (wah / whammy)
 
-Blocco fisso **prima del drive**: e' una seconda istanza di `ModSlot` con tipo
-`wah`, sempre presente in catena. Non ha un interruttore: `on` viene forzato a
-`false` in lettura e riscritto `false` in salvataggio. Si accende solo con
-l'auto-engage dell'espressione (vedi `docs/midi.md`).
+Blocco fisso **prima del drive**: e' una seconda istanza di `ModSlot`, sempre
+presente in catena, con due tipi:
+
+- `wah` (default): filtro a stato variabile comandato dal pedale;
+- `whammy`: pitch shifter granulare comandato dal pedale. Posizione 0 = unisono,
+  posizione 1 = `range` semitoni (positivo = piu' acuto, negativo = piu' grave,
+  ammesso -24..+24).
+
+Non ha un interruttore: `on` viene forzato a `false` in lettura e riscritto
+`false` in salvataggio. Si accende solo con l'auto-engage dell'espressione (vedi
+`docs/midi.md`), che vale per entrambi i tipi: quando il pedale supera la soglia
+il filter entra in catena e il tipo scelto decide cosa fa.
 
 | Chiave | Default | Note |
 |--------|---------|------|
 | `on` | false | ignorato: il filter nei preset e' sempre spento |
-| `rate_hz` | 1.0 | non usato dal wah, esposto per completezza |
-| `depth` | 0.5 | non usato dal wah |
-| `q` | 3.0 | risonanza (il Q effettivo scende verso la punta) |
-| `mix` | 1.0 | quanto bagnato |
-| `low_hz` / `high_hz` | 350 / 2200 | estremi dello sweep |
-| `position` | 0.5 | posizione del pedale 0..1 |
+| `type` | `wah` | `wah` o `whammy`; i preset vecchi senza questa chiave restano wah |
+| `range` | 12 | solo whammy: semitoni a pedale a fondo, -24..+24 |
+| `rate_hz` | 1.0 | non usato dal wah ne' dal whammy, esposto per completezza |
+| `depth` | 0.5 | non usato dal wah ne' dal whammy |
+| `q` | 3.0 | solo wah: risonanza (il Q effettivo scende verso la punta) |
+| `mix` | 1.0 | quanto bagnato; vale sia per il wah sia per il whammy (1 = 100% wet) |
+| `low_hz` / `high_hz` | 350 / 2200 | solo wah: estremi dello sweep |
+| `position` | 0.5 | posizione del pedale 0..1 (per il whammy: 0 = unisono, 1 = range) |
 
 Se il blocco manca valgono i default; `filter` e' comunque in catena e spento.
+`type` viene validato: un valore sconosciuto torna a `wah` con un avviso su
+stderr. Anche `range` viene limitato a -24..+24 in lettura, nei comandi live e
+nel salvataggio.
+
+Il pitch shifter del whammy usa un buffer circolare di ~120 ms, due testine di
+lettura con crossfade di ~30 ms e interpolazione lineare; il rapporto e' letto da
+un atomico e smussato, quindi muovere il pedale non produce click. La latenza
+dichiarata e' la finestra di crossfade (~30 ms a 48 kHz): si somma alla latenza
+della catena solo quando il filter e' acceso e il tipo e' whammy.
 
 ### mod
 
@@ -208,7 +228,8 @@ volume a +6 dB.
   blocco `"midi"` dentro un preset viene ignorato con un avviso.
 - **Il salvataggio con `s`** (o il bottone *Salva preset* della web UI) riscrive
   tutto lo stato live: on/off e parametri degli slot, `mod.position`, `filter`
-  (sempre con `on: false`). Nome e chiavi sconosciute restano intatti.
+  (tipo, range, mix e sempre `on: false`). Nome e chiavi sconosciute restano
+  intatti.
 - **Il preset non si ricarica da solo**: vale quanto detto sopra, si legge
   all'avvio.
 
