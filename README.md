@@ -26,10 +26,14 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
 - Mod: tremolo, univibe, flanger, phaser, in posizione `pre_amp` o `post_ir`
 - Delay a tre modi (stereo, ping-pong, ping-pong stereo) e riverbero
 - Boost di volume a fine catena in dB assoluti (default +6 dB), da CC 44 o tasto 8 del G-Board
+- **EQ globale a 5 bande** (rack "Opzioni generali"): low shelf 80 Hz, peaking
+  250/800/2.5k, high shelf 8k, -12..+12 dB; in fondo alla catena, salvato in
+  `presets.json` con **Salva opzioni**
 - Tasti `+`/`-` per il volume dell'ampli (salvato nel preset con `s`)
 
 **Preset**
-- `config/presets.json`: 8 slot (0-7) verso i file, gate globale, `start_slot`
+- `config/presets.json`: 8 slot (0-7) verso i file, opzioni globali (gate,
+  boost, auto-engage, EQ), `start_slot`
 - Tasti `0`-`9` e navigazione blu dell'XTONE per cambiare slot; banner
   `[N] - file.json (modello.nam)` a ogni caricamento
 - Salvataggio con `s` (on/off e trim dell'ampli), altri parametri intatti

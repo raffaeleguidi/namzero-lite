@@ -12,8 +12,10 @@ Verifica:
   b) 20 cambi preset consecutivi (comando slot + state);
   c) poll di /api/state dal web durante i cambi;
   d) comandi di gruppo: param, save, save_options, looper, file, defaults;
-  e) timeout dei client inattivi (~10 s);
-  f) ripristino del preset/presets.json originali e stato finale.
+  e) EQ globale: band live, clamp, save_options, riavvio che la riapplica,
+     defaults;
+  f) timeout dei client inattivi (~10 s);
+  g) ripristino del preset/presets.json originali e stato finale.
 
 Esce 0 solo se tutti i controlli passano.
 """
@@ -353,7 +355,7 @@ def main():
         time.sleep(0.2)
         sj = json.load(open(presets_json))
         check("save_options scrive presets.json",
-              all(k in sj for k in ("gate", "autoengage", "boost")) and
+              all(k in sj for k in ("gate", "autoengage", "boost", "eq")) and
               os.path.getsize(presets_json) > 50)
 
         # save: scrive il preset corrente (ripristinato nel finally).
@@ -386,6 +388,52 @@ def main():
                                  "file ir", timeout=20)
                 check("file ir (validato + re-exec)",
                       st["slots"]["ir"]["file"].endswith(cand[0]), st["slots"]["ir"]["file"])
+
+        # ── (g) EQ globale: live, persistenza, riavvio che la riapplica ─────
+        send_cmd({"cmd": "eq", "band": 2, "gain": 6.5})
+        st = wait_state(lambda s: "eq" in s and abs(s["eq"]["gains"][2] - 6.5) < 0.01,
+                        timeout=4, label="eq band 2")
+        check("eq band live", st["eq"]["gains"][2] == 6.5,
+              "banda 2 = %s dB" % st["eq"]["gains"][2])
+
+        # Il clamp -12..+12 e' nel motore: un comando fuori scala non lo sfonda.
+        send_cmd({"cmd": "eq", "band": 2, "gain": 99})
+        st = wait_state(lambda s: abs(s["eq"]["gains"][2] - 12.0) < 0.01,
+                        timeout=4, label="eq clamp")
+        check("eq clamp a +12 dB", st["eq"]["gains"][2] == 12.0)
+
+        send_cmd({"cmd": "eq", "band": 2, "gain": 6.5})
+        wait_state(lambda s: abs(s["eq"]["gains"][2] - 6.5) < 0.01,
+                   timeout=4, label="eq band 2 di nuovo")
+        send_cmd({"cmd": "eq", "on": False})
+        st = wait_state(lambda s: s["eq"]["on"] is False, timeout=4, label="eq off")
+        check("eq on/off live", st["eq"]["on"] is False)
+
+        # save_options scrive il blocco eq nella config viva (backup/ripristino
+        # piu' sotto): poi un riavvio deve rileggerlo.
+        send_cmd({"cmd": "save_options"})
+        time.sleep(0.25)
+        ej = json.load(open(presets_json))
+        check("save_options scrive eq in presets.json",
+              isinstance(ej.get("eq"), dict) and ej["eq"].get("on") is False and
+              len(ej["eq"].get("gains", [])) == 5 and
+              abs(float(ej["eq"]["gains"][2]) - 6.5) < 1e-6,
+              json.dumps(ej.get("eq")))
+
+        st = wait_reexec({"cmd": "reload"},
+                         lambda s: (s.get("eq", {}).get("on") is False and
+                                    abs(s["eq"]["gains"][2] - 6.5) < 0.01),
+                         "eq dopo il riavvio", timeout=20)
+        check("eq riapplicata dopo il riavvio",
+              st["eq"]["on"] is False and st["eq"]["gains"][2] == 6.5,
+              "on=%s banda2=%s" % (st["eq"]["on"], st["eq"]["gains"][2]))
+
+        send_cmd({"cmd": "defaults", "slot": "eq"})
+        st = wait_state(lambda s: (s["eq"]["on"] is True and
+                                   all(abs(g) < 1e-6 for g in s["eq"]["gains"])),
+                        timeout=4, label="defaults eq")
+        check("defaults eq (on, piatto)",
+              st["eq"]["on"] is True and all(abs(g) < 1e-6 for g in st["eq"]["gains"]))
 
         # ── ripristino config viva ──────────────────────────────────────────
         restore_config()

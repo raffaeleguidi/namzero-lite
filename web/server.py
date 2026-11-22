@@ -43,7 +43,7 @@ def _lan_ip():
 # Comandi idempotenti: se il re-exec chiude la connessione a meta' richiesta si
 # possono ripetere senza applicarli due volte (looper e rename restano fuori).
 _RETRYABLE = {"state", "slot", "reload", "param", "set", "file", "save",
-              "save_options", "defaults", "boost", "autoengage"}
+              "save_options", "defaults", "boost", "autoengage", "eq"}
 
 
 def _ctl_once(payload):

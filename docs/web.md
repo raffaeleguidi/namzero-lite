@@ -25,6 +25,13 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 - **Live bidirezionale**: la pagina legge lo stato dal motore 4 volte al secondo;
   le manopole mandano `param`, gli switch mandano `set`. Se accendi un effetto
   dal pedale, la UI lo mostra.
+- **EQ globale**: unità nel rack "Opzioni generali", fra Boost e Auto-engage, con
+  cinque slider verticali compatti (80 / 250 / 800 / 2.5k / 8k Hz, -12..+12 dB,
+  passo 0.5). Il pulsante on/off manda `{"cmd":"eq","on":...}`, ogni slider manda
+  `{"cmd":"eq","band":i,"gain":dB}`: tutto live, senza ricaricare il preset.
+  L'EQ è **sempre in catena**, in fondo (dopo riverbero e looper, prima del gain
+  master/boost). **Salva opzioni** scrive `eq.on` e `eq.gains` in
+  `config/presets.json`, così vale per tutti i preset.
 - **Slot**: pulsanti 0-7 (gli 8 preset della flash LED; la tastiera accetta 0-9 ma 8/9 sono vuoti).
 - **Salva preset**: scrive tutto lo stato live nel preset corrente.
 - **Upload**: modelli NAM in `models/`, IR in `irs/` (il file va poi associato
@@ -49,7 +56,7 @@ cambi file/posizione, al primo stato dopo il riavvio). Timeout di sicurezza 6 s.
 | Metodo | Percorso | Note |
 |---|---|---|
 | GET | `/api/state` | snapshot dello stato |
-| POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`) |
+| POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |
 | GET/POST | `/api/wifi` | reti conosciute |
@@ -69,9 +76,10 @@ l'ultima riga disponibile e chiude.
 - Lo stato e' in **broadcast**: la risposta a `state` e ogni snapshot periodico
   (circa 50 ms, solo quando lo stato cambia) vanno a tutti i client; chi si
   collega riceve subito uno snapshot, senza aspettare il poll successivo.
-- I client **inattivi da piu' di 10 s** vengono chiusi dal motore, cosi' una
-  connessione appesa non occupa un descrittore. Viene chiuso anche chi non
-  smaltisce l'uscita (buffer oltre 1 MiB).
+- I client che **non mandano comandi da piu' di 10 s** vengono chiusi dal
+  motore, cosi' una connessione appesa non occupa un descrittore (vale anche se
+  stanno leggendo i broadcast). Viene chiuso anche chi non smaltisce l'uscita
+  (buffer oltre 1 MiB).
 - Al cambio preset il motore fa re-exec: la socket viene chiusa e riaperta in
   ~0,3-0,5 s. Il client deve riconnettersi (la web UI ritenta per ~1 s).
 

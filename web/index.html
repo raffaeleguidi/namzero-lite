@@ -51,6 +51,23 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-s
 .unit .foot { display:flex; margin-top:8px; }
 .ae-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:6px; font-size:12px; color:#8b93a7; }
 .ae-row input { width:74px; background:#12151b; color:#e6e9ef; border:1px solid #3a4150; border-radius:4px; padding:2px 6px; font-size:12px; }
+/* EQ globale: 5 slider verticali compatti. Lo slider resta orizzontale e viene
+   ruotato di -90 gradi dentro un contenitore alto: funziona su tutti i browser
+   (writing-mode verticale non e' affidabile sui WebKit vecchi del Pi). */
+.eq-bands { display:flex; gap:4px; align-items:flex-start; margin-top:4px; }
+.eq-band { display:flex; flex-direction:column; align-items:center; width:30px; font-size:10px; color:#8b93a7; }
+.eq-band output { color:#e6e9ef; font-variant-numeric:tabular-nums; height:13px; }
+.eq-band .eq-slider { position:relative; width:30px; height:92px; }
+.eq-band .eq-slider input { position:absolute; left:50%; top:50%; width:88px; height:18px; margin:0;
+  transform:translate(-50%,-50%) rotate(-90deg); -webkit-appearance:none; appearance:none;
+  background:transparent; }
+.eq-band .eq-slider input::-webkit-slider-runnable-track { height:4px; background:#9a9a9a; border-radius:2px; }
+.eq-band .eq-slider input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px;
+  border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
+.eq-band .eq-slider input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
+.eq-band .eq-slider input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff;
+  border:1px solid rgba(0,0,0,.3); }
+.eq-band span { margin-top:2px; }
 #looper { min-width:320px; }
 #looper.active #loop-bar { border-color:#4fd1c5; box-shadow:0 0 8px rgba(79,209,197,.35); }
 #loop-bar { height:12px; background:#262b35; border:1px solid transparent; border-radius:6px; overflow:hidden; margin-top:6px; }
@@ -193,6 +210,38 @@ gateUnit._power = gpower; gateUnit._id = "gate";
 rackUnits.append(gateUnit);
 rackUnits.append(boostCard);
 
+// EQ globale a 5 bande (opzioni generali, salvato in presets.json con
+// "Salva opzioni"). Sempre in catena: il pulsante manda solo on/off live.
+const eqUnit = el("div", {className:"unit"});
+const eqh = el("h3"); eqh.append("EQ");
+const eqPower = el("button", {className:"power", textContent:"\u23fb"});
+eqPower.onclick = () => send({cmd:"eq", on:!last?.eq?.on});
+const eqReset = el("button", {className:"power", textContent:"\u21ba", title:"ripristina default (piatto)"});
+eqReset.onclick = () => send({cmd:"defaults", slot:"eq"});
+eqh.append(eqPower, eqReset); eqUnit.append(eqh);
+const eqBands = el("div", {className:"eq-bands"});
+const eqSliders = [];
+["80","250","800","2.5k","8k"].forEach((label, i) => {
+  const band = el("div", {className:"eq-band"});
+  const out = el("output", {textContent:"0.0"});
+  const slider = el("div", {className:"eq-slider"});
+  const inp = el("input", {type:"range", min:-12, max:12, step:0.5});
+  inp.value = "0";
+  let t = null;
+  inp.oninput = () => {
+    out.textContent = (+inp.value).toFixed(1);
+    clearTimeout(t);
+    t = setTimeout(() => send({cmd:"eq", band:i, gain:+inp.value}), 60);
+  };
+  slider.append(inp);
+  band.append(out, slider, el("span", {textContent:label}));
+  eqBands.append(band);
+  eqSliders.push({inp, out});
+});
+eqUnit.append(eqBands);
+rackUnits.append(eqUnit);
+eqUnit._power = eqPower; eqUnit._id = "eq";
+
 // Auto-engage (opzioni generali, salvate in presets.json): numeri editabili.
 const aeUnit = el("div", {className:"unit"});
 const aeh = el("h3"); aeh.append("Auto-engage"); aeUnit.append(aeh);
@@ -272,6 +321,13 @@ function inverseOf(cmd) {
     return inv;
   }
   if (cmd.cmd === "boost") return {cmd:"boost", on:!!last.boost};
+  if (cmd.cmd === "eq") {
+    if (cmd.band !== undefined) {
+      const g = last?.eq?.gains?.[cmd.band];
+      return g === undefined ? null : {cmd:"eq", band:cmd.band, gain:g};
+    }
+    if (cmd.on !== undefined) return {cmd:"eq", on:!!last?.eq?.on};
+  }
   if (cmd.cmd === "file") {
     const f = last.slots?.[cmd.slot]?.file;
     return f ? {cmd:"file", slot:cmd.slot, file:f} : null;
@@ -356,6 +412,18 @@ function render(st, fromPoll = false) {
     if (boostCard._knob && st.boost_db !== undefined) {
       if (document.activeElement !== boostCard._knob) boostCard._knob.value = st.boost_db;
       boostCard._out.textContent = (+st.boost_db).toFixed(1) + "dB";
+    }
+  }
+  if (eqUnit) {
+    eqUnit._power.classList.toggle("on", !!st.eq?.on);
+    if (st.eq && Array.isArray(st.eq.gains)) {
+      st.eq.gains.forEach((v, i) => {
+        const k = eqSliders[i];
+        if (!k) return;
+        // Come gli altri knob: mentre si trascina non si sovrascrive il valore.
+        if (document.activeElement !== k.inp) k.inp.value = v;
+        k.out.textContent = (+v).toFixed(1);
+      });
     }
   }
   if (modCard && st.slots && st.slots.mod) {

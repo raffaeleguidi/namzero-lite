@@ -161,6 +161,40 @@ dichiarativi.
 `true` stampa ogni 5 s blocchi elaborati, xrun e tempo massimo per blocco.
 Default: silenzioso, parla solo se qualcosa non va.
 
+## Opzioni generali in presets.json
+
+`config/presets.json` non è solo la mappa degli slot: contiene anche le opzioni
+globali, valide per tutti i preset. Le scrive la web UI con **Salva opzioni**
+(comando `save_options`); il tasto `s` aggiorna le stesse chiavi quando salva un
+preset. Il deploy **non** sovrascrive questo file.
+
+| Blocco | Chiavi | Note |
+|--------|---------|------|
+| `gate` | `threshold_db`, `attack_ms`, `release_ms` | parametri del gate globale |
+| `autoengage` | `threshold`, `release_threshold`, `engage_ms`, `release_ms` | auto-engage del wah |
+| `boost` | `on`, `db` | boost di fine catena |
+| `eq` | `on`, `gains` | EQ grafico globale a 5 bande |
+
+### eq
+
+EQ grafico **globale**, sempre presente in catena in fondo (dopo riverbero e
+looper, prima del gain master/boost). A 0 dB è piatto e trasparente.
+
+| Chiave | Default | Note |
+|--------|---------|------|
+| `on` | true | on/off dell'intero blocco |
+| `gains` | `[0,0,0,0,0]` | dB per banda, in ordine: 80, 250, 800, 2500, 8000 Hz |
+
+Le bande sono un low shelf a 80 Hz, tre peaking a 250/800/2500 Hz (Q 0.7) e un
+high shelf a 8000 Hz. I guadagni stanno fra -12 e +12 dB (passo 0.5). Se il
+blocco `eq` manca valgono i default (acceso, piatto): è così che la config viva
+esistente continua a funzionare dopo l'aggiornamento.
+
+Dal vivo il comando `{"cmd":"eq","on":bool}` accende/spegne, mentre
+`{"cmd":"eq","band":0..4,"gain":dB}` cambia una banda senza ricaricare il preset.
+Per renderli permanenti serve **Salva opzioni** (o `s`): il motore li rilegge da
+`presets.json` al prossimo avvio.
+
 ## Cosa non e' un preset
 
 - **La mappa MIDI** sta in `config/midi.json` e vale per tutti i preset. Un

@@ -101,6 +101,10 @@ add_executable(filter_test test/filter_test.cpp)
 target_include_directories(filter_test PRIVATE src)
 add_test(NAME filter COMMAND filter_test)
 
+add_executable(eq_test test/eq_test.cpp src/dsp/chain.cpp)
+target_include_directories(eq_test PRIVATE src)
+add_test(NAME eq COMMAND eq_test)
+
 add_executable(midi_parser_test test/midi_parser_test.cpp)
 target_include_directories(midi_parser_test PRIVATE src)
 add_test(NAME midi_parser COMMAND midi_parser_test)

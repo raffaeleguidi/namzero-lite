@@ -86,7 +86,6 @@ bool ControlSocket::flush(Client& c) {
         const ssize_t n = ::send(c.fd, c.out.data(), c.out.size(), MSG_NOSIGNAL);
         if (n > 0) {
             c.out.erase(0, static_cast<std::size_t>(n));
-            c.last = std::chrono::steady_clock::now();
             continue;
         }
         if (n < 0 && errno == EINTR) continue;
@@ -100,7 +99,10 @@ bool ControlSocket::queue(Client& c, const std::string& line) {
     if (c.out.size() + line.size() + 1 > kMaxOut) return false;
     c.out += line;
     c.out.push_back('\n');
-    c.last = std::chrono::steady_clock::now();
+    // c.last non si aggiorna qui: un client che riceve i broadcast ma non manda
+    // piu' comandi resta "inattivo" e va chiuso dopo idle_ms. Altrimenti la web
+    // UI aperta (che fa polling) terrebbe in vita per sempre ogni connessione
+    // appesa, e il timeout non scatterebbe mai.
     return true;
 }
 

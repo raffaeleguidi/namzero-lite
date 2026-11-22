@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -33,6 +34,7 @@
 #include "dsp/ir_slot.h"
 #include "dsp/nam_slot.h"
 #include "dsp/delay_slot.h"
+#include "dsp/eq_slot.h"
 #include "dsp/looper_slot.h"
 #include "dsp/reverb_slot.h"
 #include "control/midi.h"
@@ -132,6 +134,11 @@ struct Config {
     double reverb_mix = 0.25;
     double reverb_size = 0.55;
     double reverb_damp = 0.45;
+
+    // EQ grafico globale a 5 bande: vive in presets.json (come gate, boost e
+    // auto-engage), non nel preset del singolo slot. Sempre in catena.
+    bool eq_on = true;
+    std::array<double, 5> eq_gains{0.0, 0.0, 0.0, 0.0, 0.0};
 
     // comportamento
     // La mappa MIDI non sta qui ne' nei preset: vive in midi.json (vedi
@@ -1044,6 +1051,27 @@ int main(int argc, char** argv) {
             }
         }
     }
+    // EQ globale: come boost e auto-engage vive in presets.json, cosi' il
+    // deploy non lo sovrascrive e vale per tutti i preset. Assente = default
+    // (acceso, piatto).
+    {
+        std::ifstream ein("config/presets.json");
+        nlohmann::json ej;
+        if (ein && (ein >> ej) && ej.contains("eq") && ej["eq"].is_object()) {
+            const auto& e = ej["eq"];
+            cfg.eq_on = e.value("on", cfg.eq_on);
+            if (e.contains("gains") && e["gains"].is_array()) {
+                for (std::size_t i = 0; i < cfg.eq_gains.size() && i < e["gains"].size(); ++i) {
+                    if (e["gains"][i].is_number()) {
+                        cfg.eq_gains[i] =
+                            std::clamp(e["gains"][i].get<double>(),
+                                       static_cast<double>(namzero::EqSlot::kMinDb),
+                                       static_cast<double>(namzero::EqSlot::kMaxDb));
+                    }
+                }
+            }
+        }
+    }
     // Slot richiesto da tasto o Program Change: il loop audio esce e main
     // ri-esegue il processo con il nuovo preset (buco ~300 ms).
     std::atomic<int> switch_slot{-1};
@@ -1206,6 +1234,20 @@ int main(int argc, char** argv) {
         chain.add(std::move(lp));
     }
 
+    // EQ globale a 5 bande: sempre presente, ultimo stadio della catena (dopo
+    // riverbero e looper), prima del gain master/boost. L'on/off passa da
+    // chain.set_enabled come gli altri slot.
+    const std::size_t i_eq = chain.size();
+    namzero::EqSlot* eq_ptr = nullptr;
+    {
+        auto eq = std::make_unique<namzero::EqSlot>();
+        eq_ptr = eq.get();
+        for (std::size_t i = 0; i < cfg.eq_gains.size(); ++i) {
+            eq->set_gain(static_cast<int>(i), static_cast<float>(cfg.eq_gains[i]));
+        }
+        chain.add(std::move(eq));
+    }
+
 
     // --print-config: valori letti DAGLI SLOT, non dal Config. E' la verifica
     // che il preset sia arrivato fino in fondo (lettura + applicazione); il
@@ -1285,6 +1327,11 @@ int main(int argc, char** argv) {
         std::printf("cfg.reverb.mix=%.4f\n", reverb_ptr->wet());
         std::printf("cfg.reverb.size=%.4f\n", reverb_ptr->room_size());
         std::printf("cfg.reverb.damp=%.4f\n", reverb_ptr->damp());
+
+        std::printf("cfg.eq.on=%d\n", cfg.eq_on ? 1 : 0);
+        for (std::size_t i = 0; i < cfg.eq_gains.size(); ++i) {
+            std::printf("cfg.eq.gain%zu=%.4f\n", i, eq_ptr->gain_db(static_cast<int>(i)));
+        }
         return 0;
     }
 
@@ -1426,6 +1473,7 @@ int main(int argc, char** argv) {
     if (i_ir != kNoSlot) chain.set_enabled(i_ir, true);
     chain.set_enabled(i_delay, cfg.delay_on);
     chain.set_enabled(i_reverb, cfg.reverb_on);
+    chain.set_enabled(i_eq, cfg.eq_on);
     chain.reset();
 
     std::printf("gate: soglia %.1f dB | attack %.1f ms | release %.0f ms\n",
@@ -1436,19 +1484,23 @@ int main(int argc, char** argv) {
     std::printf("filter: wah spento (auto-engage) | q %.1f | mix %.2f | %.0f..%.0f Hz | pos %.2f\n",
                 cfg.filter_q, cfg.filter_mix, cfg.filter_low_hz, cfg.filter_high_hz,
                 cfg.filter_position);
-    std::printf("slot: gate %s | comp %s | filter %s | drive %s (%s) | mod %s (%s, %s) | amp %s | ir %s | delay %s | reverb %s\n",
+    std::printf("slot: gate %s | comp %s | filter %s | drive %s (%s) | mod %s (%s, %s) | amp %s | ir %s | delay %s | reverb %s | eq %s\n",
                 cfg.gate_on ? "on" : "off", cfg.comp_on ? "on" : "off",
                 cfg.filter_on ? "on" : "off",
                 cfg.drive_on ? "on" : "off", cfg.drive_type.c_str(),
                 cfg.mod_on ? "on" : "off", cfg.mod_type.c_str(), cfg.mod_position.c_str(),
                 has_amp ? "on" : "off", has_ir ? "on" : "off",
-                cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off");
+                cfg.delay_on ? "on" : "off", cfg.reverb_on ? "on" : "off",
+                cfg.eq_on ? "on" : "off");
+    std::printf("eq: %s | 80 %+.1f | 250 %+.1f | 800 %+.1f | 2.5k %+.1f | 8k %+.1f dB\n",
+                cfg.eq_on ? "on" : "off", cfg.eq_gains[0], cfg.eq_gains[1],
+                cfg.eq_gains[2], cfg.eq_gains[3], cfg.eq_gains[4]);
     std::string chain_desc = "gate -> comp -> filter(wah) -> drive -> ";
     if (mod_pre_amp) chain_desc += "mod -> ";
     chain_desc += "amp";
     if (has_ir) chain_desc += " -> ir";
     if (!mod_pre_amp) chain_desc += " -> mod";
-    chain_desc += " -> delay -> reverb";
+    chain_desc += " -> delay -> reverb -> looper -> eq";
     std::printf("catena: %s\n", chain_desc.c_str());
     const std::size_t latency = chain.latency_frames();
     std::printf("latenza catena: %zu campioni (%.2f ms)\n", latency,
@@ -1601,6 +1653,8 @@ int main(int argc, char** argv) {
                            {"release_threshold", midi_cfg.wah_release_threshold},
                            {"engage_ms", midi_cfg.wah_engage_ms},
                            {"release_ms", midi_cfg.wah_release_ms}};
+        s["eq"]["on"] = cfg.eq_on;
+        s["eq"]["gains"] = cfg.eq_gains;
         if (looper_ptr != nullptr) {
             s["looper"]["state"] = namzero::LooperSlot::state_name(looper_ptr->state());
             s["looper"]["pos"] = looper_ptr->position_seconds();
@@ -1697,6 +1751,8 @@ int main(int argc, char** argv) {
                 gj["autoengage"]["release_ms"] = g_midi->wah_release_ms;
                 gj["boost"]["on"] = g_boost_on;
                 gj["boost"]["db"] = g_midi->boost_db;
+                gj["eq"]["on"] = cfg.eq_on;
+                gj["eq"]["gains"] = cfg.eq_gains;
                 std::ofstream gout("config/presets.json");
                 if (!gout) throw std::runtime_error("presets.json non scrivibile");
                 gout << gj.dump(2) << '\n';
@@ -1909,6 +1965,13 @@ int main(int argc, char** argv) {
                         base_master * static_cast<float>(std::pow(10.0, midi_cfg.boost_db / 20.0)),
                         std::memory_order_relaxed);
                 }
+            } else if (slot == "eq") {
+                cfg.eq_on = d.eq_on;
+                cfg.eq_gains = d.eq_gains;
+                for (std::size_t i = 0; i < cfg.eq_gains.size(); ++i) {
+                    eq_ptr->set_gain(static_cast<int>(i), static_cast<float>(cfg.eq_gains[i]));
+                }
+                chain.set_enabled(i_eq, cfg.eq_on);
             }
         } else if (cmd == "looper") {
             const std::string action = j.value("action", "");
@@ -1934,6 +1997,26 @@ int main(int argc, char** argv) {
                                 : 1.0f;
             master_gain.store(base_master * b, std::memory_order_relaxed);
             apply_leds();
+        } else if (cmd == "eq") {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            // Due forme: {"cmd":"eq","on":bool} e
+            // {"cmd":"eq","band":0..4,"gain":db}. Nessuna delle due fa re-exec:
+            // lo slot e' sempre in catena e i guadagni sono atomici.
+            if (j.contains("on")) {
+                cfg.eq_on = j.value("on", cfg.eq_on);
+                chain.set_enabled(i_eq, cfg.eq_on);
+            }
+            if (j.contains("band")) {
+                const int band = j.value("band", -1);
+                if (band >= 0 && band < namzero::EqSlot::kBandCount) {
+                    const double gain = std::clamp(
+                        j.value("gain", cfg.eq_gains[static_cast<std::size_t>(band)]),
+                        static_cast<double>(namzero::EqSlot::kMinDb),
+                        static_cast<double>(namzero::EqSlot::kMaxDb));
+                    cfg.eq_gains[static_cast<std::size_t>(band)] = gain;
+                    eq_ptr->set_gain(band, static_cast<float>(gain));
+                }
+            }
         } else if (cmd == "set") {
             const std::string slot = j.value("slot", "");
             std::lock_guard<std::mutex> lk(ctrl_mtx);
@@ -2270,6 +2353,8 @@ int main(int argc, char** argv) {
                     gj["autoengage"]["release_ms"] = g_midi->wah_release_ms;
                     gj["boost"]["on"] = g_boost_on;
                     gj["boost"]["db"] = g_midi->boost_db;
+                    gj["eq"]["on"] = cfg.eq_on;
+                    gj["eq"]["gains"] = cfg.eq_gains;
                     std::ofstream gout("config/presets.json");
                     gout << gj.dump(2) << '\n';
                 } catch (...) {

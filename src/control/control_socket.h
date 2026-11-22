@@ -50,6 +50,8 @@ private:
         int id = -1;
         std::string in;
         std::string out;
+        // Ultimo comando ricevuto dal client (non l'ultimo invio): il timeout
+        // chiude chi non manda piu' niente, anche se sta leggendo i broadcast.
         std::chrono::steady_clock::time_point last;
     };
 
