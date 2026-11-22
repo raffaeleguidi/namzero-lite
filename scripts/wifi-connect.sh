@@ -1,33 +1,14 @@
 #!/usr/bin/env bash
-# Collega il Pi alla prima rete conosciuta raggiungibile (config/wifi.json),
-# per priorita' decrescente. Gira come servizio; l'AP non e' gestito qui.
+# Entry point del servizio WiFi (systemd/namzero-wifi.service).
+#
+# La logica sta in scripts/wifi_manager.py: reti note con priorita', AP di
+# fallback con DHCP condiviso, una sola radio (AP oppure STA) e isteresi.
+# Opzioni utili:
+#   ./scripts/wifi-connect.sh --dry-run          # decisione senza toccare NM
+#   ./scripts/wifi-connect.sh --dry-run --simulate no-link
+#   ./scripts/wifi-connect.sh --dry-run --simulate known
+#   ./scripts/wifi-connect.sh --test             # test delle decisioni
+#   journalctl -u namzero-wifi -f                # log con tag [wifi]
 set -u
-cd "$(dirname "$0")/.."
-while true; do
-  python3 - <<'PY'
-import json, subprocess
-try:
-    nets = json.load(open("config/wifi.json"))["networks"]
-except Exception:
-    nets = []
-if not nets:
-    raise SystemExit
-out = subprocess.run(["nmcli", "-t", "-f", "SSID", "device", "wifi", "list"],
-                     capture_output=True, text=True).stdout
-seen = {line.strip() for line in out.splitlines()}
-for n in sorted(nets, key=lambda x: -int(x.get("priority", 0))):
-    ssid = n.get("ssid", "")
-    if not ssid or ssid not in seen:
-        continue
-    existing = subprocess.run(["nmcli", "-t", "-f", "NAME", "connection", "show"],
-                              capture_output=True, text=True).stdout
-    if ssid not in existing.splitlines():
-        subprocess.run(["nmcli", "connection", "add", "type", "wifi", "con-name", ssid,
-                        "ifname", "wlan0", "ssid", ssid, "wifi-sec.key-mgmt", "wpa-psk",
-                        "wifi-sec.psk", n.get("password", "")], capture_output=True)
-    r = subprocess.run(["nmcli", "connection", "up", ssid], capture_output=True)
-    print("wifi:", ssid, "->", "ok" if r.returncode == 0 else "fallita", flush=True)
-    break
-PY
-  sleep 30
-done
+cd "$(dirname "$0")/.." || exit 1
+exec python3 scripts/wifi_manager.py "$@"

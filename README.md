@@ -70,12 +70,18 @@ learn è in roadmap); la GUI di gestione dei preset è il prossimo passo.
   bidirezionale via **SSE** (`GET /api/events`, polling come fallback),
   accordatore modale a 10-20 Hz, salvataggio preset e upload NAM/IR
   ([docs/web.md](docs/web.md))
+- **WiFi**: reti note con priorità e **AP di fallback** (`namzero-wifi`). Se
+  all'avvio nessuna rete nota è raggiungibile entro ~10 s avvia un hotspot
+  WPA2 con DHCP condiviso; in AP ricontrolla ogni ~50 s e torna in STA appena
+  ricompare una rete nota (una sola radio). Stato e credenziali AP in
+  Impostazioni ([docs/web.md](docs/web.md))
 - Servizi systemd per motore, bridge e web UI, governor persistente, capability
   (`install.sh`); G-Board e bridge sono opzionali
 - Build sul Pi (`build.sh`) o **cross-compilazione dal Mac** in container
   (`cross-build.sh` + `deploy.sh`)
 - Test: C++ (ctest, incluso `tuner_test` sul rilevatore), stress runtime
-  (`test/ctl_stress.py`: ctl + SSE), decoder bridge Python, verifica preset
+  (`test/ctl_stress.py`: ctl + SSE), decoder bridge Python, verifica preset,
+  decisioni WiFi/AP (`test/wifi_manager_test.py`, dry-run senza `nmcli`)
 
 ## Prossimi passi
 

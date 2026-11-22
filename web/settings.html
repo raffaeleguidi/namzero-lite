@@ -15,6 +15,8 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
 .field { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0; }
 .field input { width:92px; padding:4px 6px; background:#12151b; color:#e6e9ef;
   border:1px solid #2c3240; border-radius:6px; font-size:14px; }
+.field input.wide { width:150px; }
+.field input[type=checkbox] { width:auto; }
 .btn { display:inline-block; padding:5px 10px; background:#1e222b; color:#e6e9ef;
   border:1px solid #4fd1c5; border-radius:6px; text-decoration:none; font-size:13px;
   cursor:pointer; font:inherit; font-size:13px; }
@@ -47,13 +49,31 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   <button class="btn" id="t3k-disc">Disconnetti</button>
 </div></section>
 <section><h2>Reti WiFi conosciute</h2>
-<p class="hint">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità.</p>
+<p id="wifi-state" class="hint">Stato WiFi: …</p>
+<p class="hint">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità. Se nessuna è raggiungibile avvia l'AP di fallback (se abilitato).</p>
 <table id="wifi" style="border-collapse:collapse;font-size:13px"></table>
 <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
   <input id="w-ssid" placeholder="SSID" style="padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
   <input id="w-pass" placeholder="password" style="padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
   <input id="w-prio" placeholder="priorità" value="0" style="width:70px;padding:4px;background:#12151b;color:#e6e9ef;border:1px solid #2c3240;border-radius:6px">
   <button id="w-add" class="btn">Aggiungi</button>
+</div>
+<div style="margin-top:12px;border-top:1px solid #2c3240;padding-top:8px">
+  <h2>Access point di fallback</h2>
+  <div class="field"><label for="ap-enabled">Abilita AP</label>
+    <input id="ap-enabled" type="checkbox"></div>
+  <div class="field"><label for="ap-ssid">SSID AP</label>
+    <input id="ap-ssid" class="wide" autocomplete="off"></div>
+  <div class="field"><label for="ap-pass">Password AP</label>
+    <input id="ap-pass" class="wide" type="password" autocomplete="new-password"></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+    <button id="ap-save" class="btn">Salva AP</button>
+    <span id="ap-msg" class="hint"></span>
+  </div>
+  <p class="hint">L'AP richiede una password WPA2 di almeno 8 caratteri.
+  Una sola radio: quando l'AP è attivo la STA è spenta; appena torna una rete
+  nota il Pi passa in STA. Le modifiche si applicano entro ~1 minuto (se l'AP
+  è attivo viene riavviato).</p>
 </div></section>
 </main>
 <script>
@@ -151,6 +171,8 @@ $("up-irs").onchange = e => upload("irs", e.target);
 
 // ── WiFi ───────────────────────────────────────────────────────────────────
 let wifi = [];
+let wifiAp = {enabled:true, ssid:"namzero-lite", password:"namzero-lite"};
+
 function renderWifi() {
   const t = $("wifi");
   t.innerHTML = "";
@@ -165,14 +187,75 @@ function renderWifi() {
     d.append(del); tr.append(a, b, c, d); t.append(tr);
   });
 }
-function saveWifi() {
-  fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"},
-                      body:JSON.stringify({networks:wifi})})
-    .then(r => r.json()).then(j => { if (j.networks) { wifi = j.networks; renderWifi(); } })
-    .catch(() => {});
+function renderWifiAp() {
+  $("ap-enabled").checked = !!wifiAp.enabled;
+  $("ap-ssid").value = wifiAp.ssid || "";
+  $("ap-pass").value = wifiAp.password || "";
+}
+function readApForm() {
+  return {enabled: $("ap-enabled").checked,
+          ssid: $("ap-ssid").value.trim(),
+          password: $("ap-pass").value};
+}
+function validateAp(ap) {
+  if (!ap.ssid) return "SSID AP mancante";
+  if (ap.enabled && (ap.password.length < 8 || ap.password.length > 63))
+    return "La password dell'AP deve avere 8-63 caratteri";
+  return "";
+}
+// opts.ap: include il blocco ap (solo il pulsante Salva AP lo fa, così
+// aggiungere/rimuovere reti non valida né sovrascrive le credenziali AP).
+function saveWifi(opts) {
+  opts = opts || {};
+  const payload = {networks: wifi};
+  if (opts.ap) payload.ap = readApForm();
+  const msg = opts.msg || null;
+  if (msg) msg.textContent = "…";
+  return fetch("/api/wifi", {method:"POST", headers:{"Content-Type":"application/json"},
+                             body:JSON.stringify(payload)})
+    .then(r => r.json().then(j => ({ok:r.ok, j})))
+    .then(({ok, j}) => {
+      if (!ok || j.error) throw new Error(j.error || "errore");
+      wifi = j.networks || wifi;
+      if (j.ap) wifiAp = j.ap;
+      renderWifi();
+      if (opts.ap) renderWifiAp();
+      if (msg) {
+        msg.textContent = "Salvato ✓";
+        setTimeout(() => { msg.textContent = ""; }, 1500);
+      }
+      loadWifiStatus();
+      return true;
+    })
+    .catch(err => {
+      if (msg) msg.textContent = "Errore: " + err.message;
+      else alert("Errore WiFi: " + err.message);
+      return false;
+    });
 }
 function loadWifi() {
-  fetch("/api/wifi").then(r => r.json()).then(j => { wifi = j.networks || []; renderWifi(); }).catch(() => {});
+  fetch("/api/wifi").then(r => r.json()).then(j => {
+    wifi = j.networks || [];
+    wifiAp = j.ap || wifiAp;
+    renderWifi(); renderWifiAp();
+  }).catch(() => {});
+}
+function loadWifiStatus() {
+  fetch("/api/wifi/status").then(r => r.json()).then(s => {
+    const el = $("wifi-state");
+    if (!s || !s.mode) { el.textContent = "Stato WiFi: non disponibile"; return; }
+    if (s.mode === "ap")
+      el.textContent = "Stato: AP attivo · SSID " + (s.ssid || s.ap_ssid) +
+        (s.ip ? " · IP " + s.ip : "");
+    else if (s.mode === "sta")
+      el.textContent = "Stato: STA · rete " + (s.ssid || "?") +
+        (s.ip ? " · IP " + s.ip : "");
+    else
+      el.textContent = "Stato: nessuna connessione WiFi" +
+        (wifiAp.enabled ? " · AP di fallback in attesa" : "");
+  }).catch(() => {
+    $("wifi-state").textContent = "Stato WiFi: non disponibile";
+  });
 }
 $("w-add").onclick = () => {
   const ssid = $("w-ssid").value.trim();
@@ -182,6 +265,13 @@ $("w-add").onclick = () => {
   $("w-ssid").value = ""; $("w-pass").value = "";
   saveWifi();
 };
+$("ap-save").onclick = () => {
+  const ap = readApForm();
+  const err = validateAp(ap);
+  if (err) { $("ap-msg").textContent = err; return; }
+  saveWifi({ap:true, msg:$("ap-msg")});
+};
+setInterval(loadWifiStatus, 5000);
 
 // ── TONE3000 ───────────────────────────────────────────────────────────────
 function t3kStatus() {
@@ -196,6 +286,7 @@ $("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then
 loadTuner();
 loadFiles();
 loadWifi();
+loadWifiStatus();
 t3kStatus();
 </script><script src="ui.js"></script>
 </body></html>

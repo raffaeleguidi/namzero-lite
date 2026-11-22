@@ -184,12 +184,98 @@ Il flusso è pensato per la UI: `EventSource` è il canale principale, il pollin
 - **Uso da terminale**: `curl -N http://127.0.0.1:8080/api/events` stampa gli
   eventi in tempo reale (Ctrl-C per uscire).
 
-## Reti WiFi
+## Reti WiFi e AP di fallback
 
-In Settings si aggiungono/rimuovono le reti conosciute (`config/wifi.json`:
-ssid, password, priorita'). Il servizio `namzero-wifi` (installato da
-`install.sh`, gir as root) ogni 30 s cerca una rete raggiungibile tra quelle
-note e si collega con `nmcli`. L'access point di fallback non e' ancora gestito.
+La config viva è `config/wifi.json` (fonte di verità, `deploy.sh` non la
+sovrascrive):
+
+```json
+{
+  "networks": [
+    {"ssid": "Casa", "password": "…", "priority": 2}
+  ],
+  "ap": {
+    "enabled": true,
+    "ssid": "namzero-lite",
+    "password": "namzero-lite"
+  }
+}
+```
+
+Il servizio `namzero-wifi` (root, installato da `install.sh`) gestisce `wlan0`
+con NetworkManager:
+
+- **Avvio**: se non c'è già una STA attiva, prova le reti note in ordine di
+  priorità per **~10 s** (scan + `nmcli connection up`, creando la connessione
+  se manca).
+- **AP di fallback**: se nessuna rete nota è raggiungibile e `ap.enabled` è
+  `true`, chiude la STA e avvia un hotspot **WPA2** su `wlan0` (profilo NM
+  `namzero-lite-ap`, `ipv4.method shared`: DHCP e instradamento li gestisce
+  NetworkManager, che per il DHCP usa `dnsmasq-base`, già presente su
+  Raspberry Pi OS). L'IP dell'AP è di solito `10.42.0.1`; la web resta su
+  `0.0.0.0:8080` e lo script verifica una GET su `127.0.0.1` e sull'IP
+  dell'AP.
+- **Ritorno in STA**: in AP riscansiona ogni **~50 s**. Appena una rete nota è
+  visibile, chiude l'AP e si collega; se il collegamento fallisce riapre l'AP.
+- **Perdita della STA**: prova a ricollegarsi; dopo **due controlli** senza
+  link e senza reti note (isteresi, ~30-60 s) torna all'AP.
+- **Una sola radio**: AP e STA non sono mai attivi insieme. La STA viene
+  chiusa prima di avviare l'AP e l'AP prima di tornare in STA.
+- **STA già attiva**: se c'è già una connessione (anche una rete non in
+  elenco, per esempio una connessione netplan), il servizio la lascia stare.
+  L'AP parte solo quando non c'è più link: così non butta giù una connessione
+  funzionante (e l'SSH).
+- **Credenziali AP**: SSID e password si modificano da Impostazioni. La
+  password deve avere **8-63 caratteri** (WPA2) e la UI rifiuta valori più
+  corti quando l'AP è abilitato. Default documentato: SSID `namzero-lite`,
+  password `namzero-lite`; **cambiarla**. Le modifiche vengono rilevate entro
+  ~50 s e, se l'AP è attivo, lo script lo riavvia. Aggiungere/rimuovere reti
+  note non tocca il blocco `ap`.
+- **Log**: tag `[wifi]` nel journal, senza password (i comandi sono
+  redatti).
+- **Comandi di diagnostica**:
+
+  ```bash
+  ./scripts/wifi-connect.sh --dry-run                  # stato + decisione
+  ./scripts/wifi-connect.sh --dry-run --simulate no-link
+  ./scripts/wifi-connect.sh --dry-run --simulate known
+  ./scripts/wifi-connect.sh --test                     # test delle decisioni
+  python3 test/wifi_manager_test.py
+  journalctl -u namzero-wifi -f
+  nmcli -t -f DEVICE,STATE,CONNECTION device status
+  curl -s http://127.0.0.1:8080/api/wifi/status
+  ```
+
+  `--dry-run` legge lo stato con `nmcli` ma non esegue mai comandi che
+  modificano NetworkManager. `--simulate no-link` e `--simulate known`
+  ignorano lo stato corrente per verificare le due decisioni (AP o STA) in
+  sicurezza.
+
+### Test manuale dell'hotspot (rischioso)
+
+Attivare l'AP butta giù l'SSH se passa su `wlan0`. **Prima** di avviarlo,
+programmare un revert automatico staccato; sostituire `<rete-abituale>` con il
+nome della connessione NM della rete abituale (si vede con
+`nmcli -t -f NAME,TYPE connection show`):
+
+```bash
+# sul Pi, PRIMA di toccare l'AP (il revert gira da root, come il servizio)
+sudo sh -c '(sleep 120; nmcli connection down namzero-lite-ap; \
+  nmcli connection up "<rete-abituale>"; logger -t wifi "revert AP -> STA")' \
+  >/tmp/wifi-revert.log 2>&1 &
+
+# poi, con sudo (il servizio è root)
+sudo systemctl restart namzero-wifi
+
+# dal telefono: collegarsi a SSID "namzero-lite" e aprire http://10.42.0.1:8080
+# dopo ~120 s, quando il revert è scattato:
+journalctl -u namzero-wifi -n 100 --no-pager
+nmcli -t -f DEVICE,STATE,CONNECTION device status
+```
+
+Se non si riesce a verificare in sicurezza, **non attivare l'AP**: `--dry-run`,
+`--simulate` e `--test` coprono le decisioni. Il test reale serve solo a
+validare hotspot, DHCP e raggiungibilità della web dal telefono.
 
 ## Caricamento
 
@@ -220,7 +306,9 @@ Con sudo: `sudo systemctl restart namzero-web`.
 | POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`, `tuner`) |
 | POST | `/api/save` | salva il preset |
 | GET | `/api/files?kind=models|irs` | elenco file |
-| GET/POST | `/api/wifi` | reti conosciute |
+| GET | `/api/wifi` | reti conosciute + blocco `ap` |
+| POST | `/api/wifi` | salva reti e/o blocco `ap` (password AP 8-63 se abilitato) |
+| GET | `/api/wifi/status` | `{"mode":"sta|ap|none","ssid":"…","ip":"…","ap_ssid":"…"}` da `nmcli` |
 | POST | `/api/upload?kind=models|irs` | corpo = file, header `X-Filename` |
 
 Il socket di controllo è `/tmp/namzero-lite-ctl.sock` (righe JSON).

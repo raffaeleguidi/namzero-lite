@@ -1,12 +1,16 @@
 [Unit]
-Description=namzero-lite known wifi networks
-After=NetworkManager.service
-Wants=NetworkManager.service
+Description=namzero-lite reti WiFi note + AP di fallback
+After=NetworkManager.service namzero-web.service
+Wants=NetworkManager.service namzero-web.service
 
 [Service]
+Type=simple
 ExecStart=/home/pi/namzero-lite/scripts/wifi-connect.sh
 Restart=always
 RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

@@ -10,5 +10,10 @@
       "password": "esempio",
       "priority": 1
     }
-  ]
+  ],
+  "ap": {
+    "enabled": true,
+    "ssid": "namzero-lite",
+    "password": "namzero-lite"
+  }
 }

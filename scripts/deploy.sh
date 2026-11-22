@@ -44,6 +44,11 @@ rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" \
 echo "== sincronizzo la web UI"
 rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" web/ "$PI:~/namzero-lite/web/"
 
+echo "== sincronizzo gli script WiFi (reti note + AP di fallback)"
+rsync -a -e "ssh -i $SSH_KEY -o BatchMode=yes" \
+    scripts/wifi-connect.sh scripts/wifi_manager.py \
+    "$PI:~/namzero-lite/scripts/"
+
 echo "== copio il binario (rename: se il motore e' in esecuzione non da' ETXTBSY)"
 scp -i "$SSH_KEY" -o BatchMode=yes "$BIN" "$PI:~/namzero-lite/build/namzero-lite.new"
 ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'mv -f ~/namzero-lite/build/namzero-lite.new ~/namzero-lite/build/namzero-lite'

@@ -8,6 +8,13 @@
 
 ## Fatto di recente
 
+- **AP di fallback WiFi**: il servizio `namzero-wifi` collega le reti note e,
+  se nessuna è raggiungibile entro ~10 s, avvia un hotspot WPA2
+  (`namzero-lite`, DHCP `shared` di NetworkManager). In AP riscansiona ogni
+  ~50 s e torna in STA appena compare una rete nota; isteresi sulla perdita
+  della STA, una sola radio (AP *o* STA), dry-run/test sicuri, stato e
+  credenziali AP nelle Impostazioni.
+
 - **Fuzz Octavia**: parametro `octave` (0..1) nel blocco **drive**, significativo
   solo con tipo `fuzz`: raddrizzamento a onda intera + passa-alto a 200 Hz
   miscelato al fuzz, carattere Octavia (non un pitch shifter). Manopola nella
@@ -15,13 +22,7 @@
 
 ## Da fare (ordine proposto)
 
-1. **AP di fallback WiFi**: se nessuna rete conosciuta è raggiungibile entro
-   ~10 s dall'avvio, parte un **access point** (NetworkManager hotspot, SSID
-   `namzero-lite` + password in config, DHCP) così la web UI resta raggiungibile
-   anche senza rete; il servizio continua a scansionare e torna in STA appena
-   compare una rete nota (una sola radio: AP *o* STA). Stato e credenziali AP
-   nelle Impostazioni.
-2. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
+1. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
    collegate (da `aplay -l`), scelta del device, **kHz**, **ingressi** (canale
    d'ingresso per chitarra/dry del tuner), buffer/periodi; “Applica” = salva +
    reload. Il motore resta a 48 kHz internamente: per device che accettano solo

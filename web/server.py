@@ -13,6 +13,7 @@ import os
 import secrets
 import select
 import socket
+import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -20,7 +21,11 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
 CTL = "/tmp/namzero-lite-ctl.sock"
-WIFI = os.path.join(ROOT, "config/wifi.json")
+# Override solo per test: la config viva resta config/wifi.json.
+WIFI = os.environ.get("NAMZERO_WIFI_CONFIG") or os.path.join(ROOT, "config/wifi.json")
+WIFI_AP_DEFAULT = {"enabled": True, "ssid": "namzero-lite",
+                   "password": "namzero-lite"}
+WIFI_AP_CON = "namzero-lite-ap"
 T3K_API = "https://www.tone3000.com"
 T3K_CFG = os.path.join(ROOT, "config/tone3000.json")
 PORT = int(os.environ.get("NAMZERO_WEB_PORT", "8080"))
@@ -190,6 +195,128 @@ def presets_list():
     return out
 
 
+# ── WiFi: config e stato NM ────────────────────────────────────────────────
+
+def _as_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on", "si", "sì")
+    return default
+
+
+def _clean_networks(nets):
+    clean = []
+    for net in nets or []:
+        if not isinstance(net, dict):
+            continue
+        ssid = str(net.get("ssid", "")).strip()
+        if not ssid:
+            continue
+        try:
+            priority = int(net.get("priority", 0))
+        except (TypeError, ValueError):
+            priority = 0
+        clean.append({"ssid": ssid,
+                      "password": str(net.get("password", "")),
+                      "priority": priority})
+    return clean
+
+
+def wifi_config():
+    """Config WiFi normalizzata: reti note + blocco ap (default se assente)."""
+    try:
+        with open(WIFI) as f:
+            raw = json.load(f)
+    except Exception:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    ap = dict(WIFI_AP_DEFAULT)
+    raw_ap = raw.get("ap")
+    if isinstance(raw_ap, dict):
+        ap["enabled"] = _as_bool(raw_ap.get("enabled", ap["enabled"]),
+                                 ap["enabled"])
+        ap["ssid"] = str(raw_ap.get("ssid", ap["ssid"])).strip() or ap["ssid"]
+        ap["password"] = str(raw_ap.get("password", ap["password"]))
+    return {"networks": _clean_networks(raw.get("networks")), "ap": ap}
+
+
+def _clean_ap(raw, current):
+    """Valida il blocco ap del POST; solleva ValueError con un messaggio."""
+    if not isinstance(raw, dict):
+        raise ValueError("blocco ap non valido")
+    ap = dict(current)
+    if "enabled" in raw:
+        ap["enabled"] = _as_bool(raw["enabled"], ap["enabled"])
+    if "ssid" in raw:
+        ap["ssid"] = str(raw["ssid"]).strip()
+    if "password" in raw:
+        ap["password"] = str(raw["password"])
+    if not ap["ssid"]:
+        raise ValueError("SSID AP mancante")
+    if len(ap["ssid"].encode("utf-8")) > 32:
+        raise ValueError("SSID AP troppo lungo (max 32 byte)")
+    if ap["enabled"] and not 8 <= len(ap["password"]) <= 63:
+        raise ValueError("password AP: servono 8-63 caratteri")
+    return ap
+
+
+def _write_wifi(cfg):
+    tmp = WIFI + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, WIFI)
+
+
+def _nm_get(obj_args, field, timeout=3):
+    """Valore di un campo nmcli con -g, senza parsing di output fragile."""
+    try:
+        p = subprocess.run(["nmcli", "-g", field] + list(obj_args),
+                           capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if p.returncode != 0:
+        return ""
+    return p.stdout.strip()
+
+
+def _first_line(value):
+    return value.strip().splitlines()[0].strip() if value and value.strip() else ""
+
+
+def wifi_status():
+    """Stato della radio per la UI: mode sta|ap|none + ssid/ip/ap_ssid."""
+    cfg = wifi_config()
+    out = {"mode": "none", "ssid": "", "ip": "",
+           "ap_ssid": cfg["ap"]["ssid"]}
+    try:
+        state = _nm_get(["device", "show", "wlan0"], "GENERAL.STATE")
+        code = state.split()[0] if state.split() else ""
+        if code != "100":
+            return out
+        con = _first_line(_nm_get(["device", "show", "wlan0"],
+                                  "GENERAL.CONNECTION"))
+        if not con:
+            return out
+        mode = _first_line(_nm_get(["connection", "show", con],
+                                   "802-11-wireless.mode"))
+        ssid = (_first_line(_nm_get(["connection", "show", con],
+                                    "802-11-wireless.ssid")) or con)
+        ip = _first_line(_nm_get(["device", "show", "wlan0"], "IP4.ADDRESS"))
+        if "/" in ip:
+            ip = ip.split("/", 1)[0]
+        out.update({"mode": "ap" if mode == "ap" or con == WIFI_AP_CON else "sta",
+                    "ssid": ssid, "ip": ip})
+    except Exception:
+        pass
+    return out
+
+
 # ── HTTP ────────────────────────────────────────────────────────────────────
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -340,12 +467,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             files = sorted(f for f in os.listdir(d) if f.lower().endswith(ext)) if os.path.isdir(d) else []
             self._json({"files": files})
             return
-        if self.path.startswith("/api/wifi"):
-            try:
-                with open(WIFI) as f:
-                    self._json(json.load(f))
-            except Exception:
-                self._json({"networks": []})
+        if self.path.split("?", 1)[0] == "/api/wifi/status":
+            self._json(wifi_status())
+            return
+        if self.path.split("?", 1)[0] == "/api/wifi":
+            self._json(wifi_config())
             return
         if self.path.startswith("/api/t3k/status"):
             cfg = t3k_cfg()
@@ -484,21 +610,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 t3k_save(cfg)
                 self._json({"ok": True})
                 return
-            if self.path.startswith("/api/wifi"):
+            if self.path.split("?", 1)[0] == "/api/wifi":
                 data = json.loads(body)
-                nets = data.get("networks", [])
-                clean = []
-                for net in nets:
-                    ssid = str(net.get("ssid", "")).strip()
-                    if not ssid:
-                        continue
-                    clean.append({"ssid": ssid,
-                                  "password": str(net.get("password", "")),
-                                  "priority": int(net.get("priority", 0))})
-                with open(WIFI, "w") as f:
-                    json.dump({"networks": clean}, f, indent=2)
-                os.chmod(WIFI, 0o600)
-                self._json({"ok": True, "networks": clean})
+                current = wifi_config()
+                clean = _clean_networks(data.get("networks",
+                                                 current["networks"]))
+                ap = current["ap"]
+                if "ap" in data:
+                    try:
+                        ap = _clean_ap(data["ap"], current["ap"])
+                    except ValueError as exc:
+                        self._json({"error": str(exc)}, 400)
+                        return
+                cfg = {"networks": clean, "ap": ap}
+                _write_wifi(cfg)
+                self._json({"ok": True, "networks": clean, "ap": ap})
                 return
             if self.path.startswith("/api/upload"):
                 name = os.path.basename(self.headers.get("X-Filename", ""))
