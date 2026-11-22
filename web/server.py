@@ -669,12 +669,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 except OSError:
                     pass
 
-    def end_headers(self):
-        # Pagine sempre fresche: il browser non deve alternare versioni vecchie.
-        if not any(b"Cache-Control" in h for h in getattr(self, "_headers_buffer", [])):
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-        super().end_headers()
-
     def do_GET(self):
         if self.path.split("?", 1)[0] == "/api/events":
             self._sse()
