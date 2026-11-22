@@ -66,6 +66,9 @@ sudo systemctl enable "$BRIDGE" "$SERVICE" namzero-web namzero-wifi >/dev/null 2
 sudo systemctl restart "$BRIDGE"
 sudo systemctl restart "$SERVICE"
 sudo systemctl restart namzero-web
+say "drop-in DNS per il nome namzero-lite nell'AP"
+sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+printf 'address=/namzero-lite/10.42.0.1\n' | sudo tee /etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf >/dev/null
 sudo systemctl restart namzero-wifi
 
 say "verifica"

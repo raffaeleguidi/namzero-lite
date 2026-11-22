@@ -188,7 +188,15 @@ e pulsante **Applica**.
   buffer/periodi e ingresso. Se il configurato non si apre ma parte un fallback
   mostra `FALLBACK`; se nessun device si apre mostra l'errore in rosso.
 
-### API
+#### Come raggiungere la web dall'AP
+
+- `http://namzero-lite:8080` — funziona se `install.sh` ha creato il drop-in
+  `/etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf` (`address=/namzero-lite/10.42.0.1`):
+  i client dell'AP usano il DNS dell'AP e risolvono il nome;
+- `http://namzero-lite.local:8080` — mDNS (iPhone/macOS; Android dipende);
+- `http://10.42.0.1:8080` — IP dell'AP, sempre valido.
+
+## API
 
 `GET /api/audio` restituisce la config salvata e lo stato del motore:
 
@@ -406,6 +414,14 @@ curl -s http://127.0.0.1:8090/api/presets
 ```
 
 Con sudo: `sudo systemctl restart namzero-web`.
+
+### Come raggiungere la web dall'AP
+
+- `http://namzero-lite:8080` — funziona se `install.sh` ha creato il drop-in
+  `/etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf` (`address=/namzero-lite/10.42.0.1`):
+  i client dell'AP usano il DNS dell'AP e risolvono il nome;
+- `http://namzero-lite.local:8080` — mDNS (iPhone/macOS; Android dipende);
+- `http://10.42.0.1:8080` — IP dell'AP, sempre valido.
 
 ## API
 
