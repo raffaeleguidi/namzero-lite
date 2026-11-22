@@ -22,7 +22,13 @@
 
 ## Da fare (ordine proposto)
 
-1. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
+1. **Cambio preset dai PC della G-Board**: i PC 0-7 (liberi dopo il passaggio a
+   CC degli effetti) selezionano gli **slot 0-7**. La G-Board in **Program
+   mode** = preset, in **Control/CC mode** = effetti (CC 50-57). Config
+   `gboard.preset_pc` (default on); i vecchi PC-effetto deprecati (restano solo
+   come fallback LED), i CC restano gli ingressi effetti. Flash del LED sullo
+   slot come oggi; test runtime (PC -> slot, `.last_slot`, re-exec) e doc.
+2. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
    collegate (da `aplay -l`), scelta del device, **kHz**, **ingressi** (canale
    d'ingresso per chitarra/dry del tuner), buffer/periodi; “Applica” = salva +
    reload. Il motore resta a 48 kHz internamente: per device che accettano solo
