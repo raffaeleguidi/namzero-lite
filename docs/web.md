@@ -37,6 +37,13 @@ ssid, password, priorita'). Il servizio `namzero-wifi` (installato da
 `install.sh`, gir as root) ogni 30 s cerca una rete raggiungibile tra quelle
 note e si collega con `nmcli`. L'access point di fallback non e' ancora gestito.
 
+## Caricamento
+
+Cambio preset, cambio modello/IR e spostamento del mod ricostruiscono il motore
+(re-exec, ~0,5-2 s): la pagina mostra un **rotellone** a tutto schermo e lo toglie
+solo quando lo stato riporta il nuovo slot **e** il nuovo nome preset (o, per i
+cambi file/posizione, al primo stato dopo il riavvio). Timeout di sicurezza 6 s.
+
 ## API
 
 | Metodo | Percorso | Note |
