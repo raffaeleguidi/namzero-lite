@@ -128,6 +128,14 @@ questo algoritmo (un leggero "warble" da granular); per l'intonazione perfetta
 servirebbe un pitch shifter in frequenza, molto piu' costoso. Il test unitario
 `pitch_shifter_test` misura frequenza, unisono, mix dry e cambio tipo.
 
+Nota sull'auto-engage: la sua polarita' e' separata da `filter.position` e vive
+in `midi.json` (`wah_autoengage.invert`) oppure nel blocco `autoengage` di
+`presets.json`. Con `invert: true` (il valore attuale della config viva) il
+filter si accende verso il **tacco**, come il wah; per il whammy conviene
+`invert: false`, altrimenti il filter si spegne (dopo `release_ms`) proprio
+mentre il pedale sale di tonalita'. Non e' una regola del motore: e' una scelta
+della mappa, e il tipo `wah`/`whammy` non la cambia.
+
 ### mod
 
 | Chiave | Default | Note |
