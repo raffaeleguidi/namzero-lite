@@ -29,9 +29,15 @@ docker run --rm \
     cmake -S . -B build-arm64 -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE=/src/docker/aarch64-toolchain.cmake \
       -DNAM_DIR=/nam >/tmp/cfg.log 2>&1 || { tail -20 /tmp/cfg.log; exit 1; }
-    cmake --build build-arm64 -j"$(nproc)" 2>&1 | grep -E "error:|warning:" | head -20 || true
+    # Prima la build (exit propagato), poi solo gli avvisi: il tee con grep
+    # mascherava i fallimenti. Il comando file manca nell immagine: innocuo.
+    if ! cmake --build build-arm64 -j"$(nproc)" >/tmp/build.log 2>&1; then
+      tail -40 /tmp/build.log
+      exit 1
+    fi
+    grep -E "error:|warning:" /tmp/build.log | head -20 || true
     ls -l build-arm64/namzero-lite
-    file build-arm64/namzero-lite
+    command -v file >/dev/null 2>&1 && file build-arm64/namzero-lite || echo "file: comando assente (innocuo)"
   '
 echo
 echo "pronto: build-arm64/namzero-lite (aarch64). Copialo sul Pi con ./scripts/deploy.sh"

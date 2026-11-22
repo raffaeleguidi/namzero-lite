@@ -11,7 +11,27 @@ PI="${PI:-pi@namzero-lite}"
 [ -x "$BIN" ] || { echo "manca $BIN: prima ./scripts/cross-build.sh" >&2; exit 1; }
 
 echo "== fermo il motore sul Pi (se attivo)"
-ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" 'sudo -n systemctl stop namzero-lite 2>/dev/null || true; pkill -x namzero-lite 2>/dev/null || true'
+# Senza sudo il servizio non si puo' fermare con systemctl: si usa pkill
+# (SIGTERM, gestito: il motore esce pulito). Se systemd lo rilanciasse, il
+# processo resterebbe col binario vecchio: lo si rileva e lo si segnala.
+ssh -i "$SSH_KEY" -o BatchMode=yes "$PI" '
+if systemctl is-active --quiet namzero-lite 2>/dev/null; then
+  if sudo -n systemctl stop namzero-lite 2>/dev/null; then
+    echo "servizio namzero-lite fermato"
+  else
+    echo "ATTENZIONE: namzero-lite.service e attivo e sudo non e disponibile: uso pkill"
+  fi
+fi
+pkill -x namzero-lite 2>/dev/null || true
+for i in $(seq 1 20); do
+  pgrep -x namzero-lite >/dev/null 2>&1 || break
+  sleep 0.2
+done
+if pgrep -x namzero-lite >/dev/null 2>&1; then
+  echo "ATTENZIONE: il motore e ancora in esecuzione (rilanciato da systemd col binario vecchio)."
+  echo "  Al termine del deploy serve: sudo systemctl restart namzero-lite"
+fi
+'
 
 # La config viva (preset, presets.json, wifi.json, tone3000.json) si modifica
 # sul Pi via web UI: il deploy la salta e sincronizza il resto (midi.json ecc.).

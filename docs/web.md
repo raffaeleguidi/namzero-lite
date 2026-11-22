@@ -49,3 +49,38 @@ note e si collega con `nmcli`. L'access point di fallback non e' ancora gestito.
 | POST | `/api/upload?kind=models|irs` | corpo = file, header `X-Filename` |
 
 Il socket di controllo è `/tmp/namzero-lite-ctl.sock` (righe JSON).
+
+## Socket di controllo (multi-client)
+
+Il motore ascolta su `/tmp/namzero-lite-ctl.sock` (righe JSON). La web UI apre
+una connessione per richiesta: manda il comando, poi `{"cmd":"state"}`, legge
+l'ultima riga disponibile e chiude.
+
+- Il motore accetta **tutte** le connessioni pendenti a ogni poll (backlog 64,
+  fino a 128 client simultanei), legge da ognuno senza bloccarsi e tiene un
+  buffer separato per client: un client lento non ferma gli altri.
+- Lo stato e' in **broadcast**: la risposta a `state` e ogni snapshot periodico
+  (circa 50 ms, solo quando lo stato cambia) vanno a tutti i client; chi si
+  collega riceve subito uno snapshot, senza aspettare il poll successivo.
+- I client **inattivi da piu' di 10 s** vengono chiusi dal motore, cosi' una
+  connessione appesa non occupa un descrittore. Viene chiuso anche chi non
+  smaltisce l'uscita (buffer oltre 1 MiB).
+- Al cambio preset il motore fa re-exec: la socket viene chiusa e riaperta in
+  ~0,3-0,5 s. Il client deve riconnettersi (la web UI ritenta per ~1 s).
+
+## Cambio preset e systemd
+
+Il re-exec usa `execv`, quindi **il PID non cambia**: systemd (`Type=simple`,
+`Restart=on-failure`) non vede un riavvio e non incrementa `NRestarts`. Se il
+motore esce davvero per un errore (device audio perso, `execv` fallito) esce con
+codice 1, cosi' `Restart=on-failure` lo rilancia; un'uscita richiesta con
+`q`/Ctrl-C resta codice 0 e il servizio si ferma.
+
+Un'uscita 0 (`q`/Ctrl-C, SIGTERM gestito) non fa scattare `Restart=on-failure`;
+un errore (codice 1) o un crash con segnale non gestito si'.
+
+Senza sudo `deploy.sh` non puo' fermare il servizio con `systemctl`: usa
+`pkill` (SIGTERM, gestito: uscita pulita). Se systemd rilancia il motore (per
+esempio se il segnale arriva durante l'avvio), il processo resta col binario
+vecchio: il deploy lo rileva e lo segnala. In quel caso serve
+`sudo systemctl restart namzero-lite`.

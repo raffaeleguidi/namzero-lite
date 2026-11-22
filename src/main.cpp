@@ -1670,7 +1670,9 @@ int main(int argc, char** argv) {
         const std::string cmd = j.value("cmd", "");
         if (cmd == "state") {
             std::lock_guard<std::mutex> lk(ctrl_mtx);
-            ctl.send(build_state());
+            // Lo stato va a tutti: chi si e' appena collegato (o ha aperto la
+            // connessione insieme a un cambio preset) non deve aspettare.
+            ctl.broadcast(build_state());
         } else if (cmd == "slot") {
             const int n = j.value("n", -1);
             if (n >= 0 && n < 10) {
@@ -2294,13 +2296,13 @@ int main(int argc, char** argv) {
 
     std::thread ctl_thread([&]() {
         std::string last;
-        bool was = false;
+        std::uint64_t seen_clients = 0;
         while (g_running.load()) {
-            std::vector<std::string> lines;
+            std::vector<namzero::CtlLine> lines;
             ctl.poll(lines);
-            for (const auto& line : lines) {
+            for (const auto& in : lines) {
                 try {
-                    handle_ctl(line);
+                    handle_ctl(in.line);
                 } catch (const std::exception& e) {
                     std::fprintf(stderr, "ctl: %s\n", e.what());
                 }
@@ -2310,12 +2312,15 @@ int main(int argc, char** argv) {
                 std::lock_guard<std::mutex> lk(ctrl_mtx);
                 snap = build_state();
             }
-            const bool now = ctl.connected();
-            if (now && (!was || snap != last)) {
-                ctl.send(snap);
+            // Broadcast: snapshot a TUTTI i client, anche a chi si e' appena
+            // collegato (accepted_total cambia anche se il client e' gia'
+            // uscito) e a ogni cambiamento di stato.
+            const std::uint64_t accepted = ctl.accepted_total();
+            if (ctl.connected() && (accepted != seen_clients || snap != last)) {
+                ctl.broadcast(snap);
                 last = snap;
             }
-            was = now;
+            seen_clients = accepted;
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
@@ -2762,6 +2767,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Se si arriva qui con g_running ancora vero il loop audio e' uscito per un
+    // errore (device perso, read/write fallita) oppure il re-exec non e'
+    // riuscito. Uscire con 0 farebbe credere a systemd (Restart=on-failure) che
+    // va tutto bene: il servizio resterebbe morto. Codice 1 = da riavviare.
+    const bool abnormal_stop = g_running.load();
     g_running.store(false);
     stats_stop.store(true);
     if (stats_thread.joinable()) stats_thread.join();
@@ -2774,5 +2784,5 @@ int main(int argc, char** argv) {
 
     std::printf("\nriepilogo: %" PRIu64 " blocchi, %" PRIu64 " xrun\n",
                 stats.blocks.load(), stats.xruns.load());
-    return 0;
+    return abnormal_stop ? 1 : 0;
 }

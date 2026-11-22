@@ -40,68 +40,70 @@ def _lan_ip():
 
 # ── motore ──────────────────────────────────────────────────────────────────
 
-def ctl(payload):
-    # Il cambio preset rilancia il motore (~300 ms): il socket sparisce e
-    # ricompare, quindi si ritenta per ~1 s invece di rispondere 503.
-    s = None
-    last = None
-    for attempt in range(5):
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(2.5)
-        try:
-            s.connect(CTL)
-            break
-        except OSError as exc:
-            s.close()
-            s = None
-            last = exc
-            if attempt < 4:
-                time.sleep(0.25)
-    if s is None:
-        raise last
-    f = s.makefile("rwb")
-    if payload is not None:
-        f.write((json.dumps(payload) + "\n").encode())
-        f.flush()
-        if payload.get("cmd") == "looper":
-            # il looper applica il comando nel thread audio al blocco dopo:
-            # si aspetta un attimo prima di leggere lo stato.
-            time.sleep(0.09)
-        if (payload.get("cmd") == "set" and payload.get("slot") == "mod"
-                and "position" in payload):
-            # Il cambio posizione del mod salva il preset e fa re-exec del
-            # motore (~300 ms): la connessione cade. Si riapre e si legge lo
-            # stato nuovo, invece di restituire un errore alla UI.
-            s.close()
-            time.sleep(0.7)
-            for _ in range(12):
-                try:
-                    return ctl(None)
-                except Exception:
-                    time.sleep(0.25)
-            raise RuntimeError("motore non raggiungibile dopo il reload")
-    f.write(b'{"cmd":"state"}\n')
-    f.flush()
-    line = f.readline()
-    # L'engine manda anche uno snapshot all'apertura della connessione: il
-    # primo messaggio puo' essere quello (stato PRIMA del comando). Busco
-    # l'ultimo disponibile, che e' la risposta allo state post-comando.
-    # Il motore manda uno snapshot all'apertura: la risposta allo state e' la
-    # riga successiva. Si legge quella e si chiude SUBITO (il server del motore
-    # serve una connessione alla volta: non va tenuta aperta).
-    s.settimeout(0.03)
+# Comandi idempotenti: se il re-exec chiude la connessione a meta' richiesta si
+# possono ripetere senza applicarli due volte (looper e rename restano fuori).
+_RETRYABLE = {"state", "slot", "reload", "param", "set", "file", "save",
+              "save_options", "defaults", "boost", "autoengage"}
+
+
+def _ctl_once(payload):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(2.5)
     try:
-        while True:
-            nxt = f.readline()
-            if not nxt:
-                break
-            line = nxt
-    except (socket.timeout, OSError):
-        pass
-    s.close()
-    if not line:
-        raise RuntimeError("motore senza risposta")
-    return json.loads(line)
+        s.connect(CTL)
+        f = s.makefile("rwb")
+        if payload is not None:
+            f.write((json.dumps(payload) + "\n").encode())
+            f.flush()
+            if payload.get("cmd") == "looper":
+                # il looper applica il comando nel thread audio al blocco dopo:
+                # si aspetta un attimo prima di leggere lo stato.
+                time.sleep(0.09)
+            if (payload.get("cmd") == "set" and payload.get("slot") == "mod"
+                    and "position" in payload):
+                # Il cambio posizione del mod salva il preset e fa re-exec del
+                # motore (~300 ms): la connessione cade. Si riapre e si legge
+                # lo stato nuovo, invece di restituire un errore alla UI.
+                s.close()
+                time.sleep(0.7)
+                return ctl(None)
+        f.write(b'{"cmd":"state"}\n')
+        f.flush()
+        line = f.readline()
+        # L'engine manda anche gli snapshot in broadcast: il primo messaggio
+        # puo' essere quello precedente al comando. Si legge l'ultimo
+        # disponibile in una finestra breve e si chiude subito (il motore
+        # accetta piu' client, ma la connessione non va tenuta aperta).
+        s.settimeout(0.03)
+        try:
+            while True:
+                nxt = f.readline()
+                if not nxt:
+                    break
+                line = nxt
+        except (socket.timeout, OSError):
+            pass
+        if not line:
+            raise RuntimeError("motore senza risposta")
+        return json.loads(line)
+    finally:
+        s.close()
+
+
+def ctl(payload):
+    # Il cambio preset rilancia il motore (~300-500 ms): la socket sparisce e
+    # ricompare, e la connessione puo' cadere anche dopo il connect se l'exec
+    # avviene nel mezzo. Si ripete per ~4 s invece di rispondere 503: la UI
+    # non deve mostrare "disconnesso" durante un cambio preset.
+    retryable = payload is None or payload.get("cmd") in _RETRYABLE
+    deadline = time.time() + 4.0
+    while True:
+        try:
+            return _ctl_once(payload)
+        except Exception:
+            if not retryable or time.time() >= deadline:
+                raise
+            time.sleep(0.1)
 
 
 # ── TONE3000 ────────────────────────────────────────────────────────────────
