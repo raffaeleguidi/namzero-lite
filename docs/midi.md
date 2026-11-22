@@ -42,9 +42,13 @@ compilati (solo `mod` 10, `drive` 20, `delay` 11 — il comportamento storico).
 (`--midi-device`, `--no-midi`, `--expr-invert`, `--wah-invert`).
 
 **Validazione**: il file viene rifiutato, con messaggio, se un CC è fuori da 0–127, se
-due azioni usano lo stesso CC o se un CC coincide con quello dell'espressione. Un file
-sbagliato deve fermare l'avvio: un binding muto è più difficile da diagnosticare di un
-errore esplicito.
+due azioni usano lo stesso CC o se un CC coincide con quello dell'espressione. Anche
+gli ingressi CC della G-Board (`gboard.mod_cc`/`drive_cc`/`boost_cc`) non possono
+coincidere con un CC già usato (espressione, azioni, select, boost, looper,
+navigazione 22/24/25): una pressione farebbe partire due azioni. Per autorizzare un
+conflitto voluto si mette `gboard.allow_cc_conflicts: true`. Un file sbagliato deve
+fermare l'avvio: un binding muto è più difficile da diagnosticare di un errore
+esplicito.
 
 ## 2. Azioni e CC
 
@@ -113,6 +117,34 @@ Due conseguenze:
 I tre gruppi sono la base su cui decidere la mappa: A per gli stomp, B/C per la
 navigazione, oppure PC per i preset e CC per gli stomp.
 
+### G-Board: CC 50-57 (e PC storici)
+
+La G-Board ha una mappa separata, sempre in `config/midi.json`. I suoi pulsanti
+mandano oggi **CC 50-57**; il motore accetta anche i **Program Change 0-7**
+storici come fallback:
+
+| Tasto | CC | PC legacy | Azione | LED |
+|---|---|---|---|---|
+| 1 | 54 | 4 | mod tremolo | 4 |
+| 2 | 55 | 5 | mod univibe | 5 |
+| 3 | 56 | 6 | mod flanger | 6 |
+| 4 | 57 | 7 | mod phaser | 7 |
+| 5 | 50 | 0 | drive fuzz | 0 |
+| 6 | 51 | 1 | drive klon | 1 |
+| 7 | 52 | 2 | drive tubescreamer | 2 |
+| 8 | 53 | 3 | boost on/off | 3 |
+
+- I CC usano lo stesso comportamento dei radio button: lo stesso tasto spegne,
+  un tasto diverso cambia tipo e accende.
+- Per i CC conta solo il **fronte di salita 127**, con debounce 150 ms; il
+  rilascio 0 non produce alcuna azione. La G-Board usa sempre questa regola,
+  indipendentemente da `switches` (che descrive gli switch a stato dell'XTONE).
+- I PC restano **one-shot** come prima: ogni Program Change è una pressione.
+- I **LED sono invariati** e indipendenti dai numeri in ingresso:
+  `gboard.mod_led`/`drive_led`/`boost_led` (default 4-7 / 0-2 / 3) sono le note
+  Note On mandate al pedale. Cambiare un CC non cambia il LED.
+- Dettagli e riconfigurazione del pedale: [g-board.md](g-board.md).
+
 ### Radio button: `mod_select`, `drive_select`, `delay_select`
 
 Le tre mappe funzionano tutte allo stesso modo:
@@ -147,6 +179,10 @@ rawmidi (hw:XTONE)
 - Il thread MIDI fa `poll` ogni 2 ms e non alloca nel ciclo.
 - La tabella `cc → azione` è un array di 128 interi costruito una volta: il thread non
   fa catene di confronti. Le collisioni sono già state rifiutate dal loader.
+- I CC della G-Board (50-57) sono riconosciuti **prima** della tabella e hanno un
+  loro `SwitchDebounce` sempre in modo `edge`: fronte 127 = pressione, rilascio 0
+  ignorato. I Program Change storici passano dallo stesso codice ma restano
+  one-shot (nessun debounce).
 - I toggle scrivono lo stato dell'app e `chain.set_enabled`; il thread audio legge solo
   atomici. Tastiera e MIDI condividono un mutex perché scrivono lo stesso stato.
 
@@ -225,6 +261,9 @@ con `any` su switch momentanei il rilascio conta come seconda pressione e il blo
 accende e rispegne subito. Il debounce è 150 ms in entrambi i casi; in `edge`, se il
 controller non manda mai il rilascio, due pressioni si distinguono dopo 600 ms.
 
+La G-Board fa eccezione: i suoi CC 50-57 usano **sempre** un debounce dedicato in
+modo `edge`, perché i suoi pulsanti mandano 127/0. `switches` vale solo per l'XTONE.
+
 ## 7. Test
 
 Senza ALSA, quindi eseguibili anche fuori dal Pi:
@@ -234,7 +273,8 @@ Senza ALSA, quindi eseguibili anche fuori dal Pi:
 | `switch_debounce_test` | modi `any`/`edge`, rimbalzi, pressione tenuta a lungo, soli-127 |
 | `wah_autoengage_test` | soglie, isteresi, tempi, polarità invertita del gate |
 | `filter_test` | blocco FILTER come seconda istanza wah, posizione indipendente, tabella dei 4 tipi di mod |
-| `midi_config_test` | default, file completo, `-1`, doppioni, conflitto con l'espressione, `wah` rifiutato in `mod_select`, JSON rotto |
+| `midi_config_test` | default, file completo, `-1`, doppioni, conflitto con l'espressione, `wah` rifiutato in `mod_select`, JSON rotto, CC/LED G-Board e collisioni |
+| `gboard_cc_runtime.py` (sul Pi, non ctest) | inietta CC 50-57 sulla socket BLE: mod/drive/boost, LED con le note 4-7/0-2/3, debounce, rilascio ignorato, PC legacy one-shot |
 | `drive_klon_test` | modello Klon (non MIDI, ma sta nello stesso slot comandato dai CC) |
 
 ```bash
@@ -246,7 +286,9 @@ cmake --build build -j1 && cd build && ctest
 | Sintomo | Causa probabile |
 |---------|-----------------|
 | Nessun messaggio nel log | device sbagliato (`amidi -l`), `enabled: false`, cavo/OTG |
-| Il log mostra `noteon`/`programchange` | gli switch non mandano CC: il binding per CC non può scattare |
+| Il log mostra `noteon`/`programchange` | gli switch non mandano CC: per la G-Board i PC restano accettati, per altri controller il binding per CC non può scattare |
+| I CC 50-57 della G-Board non fanno nulla | manca `gboard.mod_cc`/`drive_cc`/`boost_cc` in `midi.json`, il device non è `hw:V103`, o il pedale manda ancora PC (che funzionano lo stesso) |
+| Il rilascio del pedale fa un'altra azione | la G-Board deve mandare 127/0; con un controller a stato (un solo messaggio per pressione) servono i CC della mappa XTONE, non quelli G-Board |
 | Il blocco si accende e si spegne subito | switch momentanei con `switches: any` → mettere `edge` |
 | Metà delle pressioni ignorate | switch a stato con `switches: edge` → mettere `any` |
 | Il wah non si spegne mai | manca `wah_autoengage.invert` per la convenzione "punta = spento" |

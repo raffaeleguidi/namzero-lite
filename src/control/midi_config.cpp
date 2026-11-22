@@ -1,6 +1,7 @@
 #include "control/midi_config.h"
 
 #include <fstream>
+#include <utility>
 
 namespace namzero {
 namespace {
@@ -183,53 +184,143 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
             }
             cfg.gboard_device = gb["device"].get<std::string>();
         }
-        auto read_pcs = [&](const char* key, int* out, std::size_t count) -> bool {
+        // Legge un array di `count` interi. -1 disattiva la singola voce.
+        auto read_ints = [&](const char* key, int* out, std::size_t count) -> bool {
             if (!gb.contains(key)) return true;
             const auto& arr = gb[key];
             if (!arr.is_array() || arr.size() != count) {
                 err = std::string("midi.json: gboard.") + key + " deve avere " +
-                      std::to_string(count) + " CC";
+                      std::to_string(count) + " elementi";
                 return false;
             }
             for (std::size_t i = 0; i < count; ++i) {
-                if (!arr[i].is_number_integer() || !in_cc_range(arr[i].get<int>())) {
-                    err = std::string("midi.json: gboard.") + key + " fuori range";
+                if (!arr[i].is_number_integer()) {
+                    err = std::string("midi.json: gboard.") + key +
+                          " deve contenere interi";
                     return false;
                 }
-                out[i] = arr[i].get<int>();
+                const int v = arr[i].get<int>();
+                if (v != -1 && !in_cc_range(v)) {
+                    err = std::string("midi.json: gboard.") + key +
+                          " fuori range (0-127, oppure -1)";
+                    return false;
+                }
+                out[i] = v;
             }
             return true;
         };
-        if (!read_pcs("mod_pc", cfg.gboard_mod_pc.data(), cfg.gboard_mod_pc.size())) {
+
+        const bool has_mod_led = gb.contains("mod_led");
+        const bool has_drive_led = gb.contains("drive_led");
+        const bool has_boost_led = gb.contains("boost_led");
+
+        if (!read_ints("mod_cc", cfg.gboard_mod_cc.data(), cfg.gboard_mod_cc.size())) {
             return false;
         }
-        if (!read_pcs("drive_pc", cfg.gboard_drive_pc.data(), cfg.gboard_drive_pc.size())) {
+        if (!read_ints("drive_cc", cfg.gboard_drive_cc.data(),
+                       cfg.gboard_drive_cc.size())) {
+            return false;
+        }
+        if (gb.contains("boost_cc")) {
+            if (!gb["boost_cc"].is_number_integer()) {
+                err = "midi.json: gboard.boost_cc deve essere un intero";
+                return false;
+            }
+            cfg.gboard_boost_cc = gb["boost_cc"].get<int>();
+            if (cfg.gboard_boost_cc != -1 && !in_cc_range(cfg.gboard_boost_cc)) {
+                err = "midi.json: gboard.boost_cc fuori range (0-127, oppure -1)";
+                return false;
+            }
+        }
+        if (!read_ints("mod_led", cfg.gboard_mod_led.data(),
+                       cfg.gboard_mod_led.size())) {
+            return false;
+        }
+        if (!read_ints("drive_led", cfg.gboard_drive_led.data(),
+                       cfg.gboard_drive_led.size())) {
+            return false;
+        }
+        if (gb.contains("boost_led")) {
+            if (!gb["boost_led"].is_number_integer()) {
+                err = "midi.json: gboard.boost_led deve essere un intero";
+                return false;
+            }
+            cfg.gboard_boost_led = gb["boost_led"].get<int>();
+            if (cfg.gboard_boost_led != -1 && !in_cc_range(cfg.gboard_boost_led)) {
+                err = "midi.json: gboard.boost_led fuori range (0-127, oppure -1)";
+                return false;
+            }
+        }
+        if (!read_ints("mod_pc", cfg.gboard_mod_pc.data(), cfg.gboard_mod_pc.size())) {
+            return false;
+        }
+        if (!read_ints("drive_pc", cfg.gboard_drive_pc.data(),
+                       cfg.gboard_drive_pc.size())) {
             return false;
         }
         if (gb.contains("boost_pc")) {
-            if (!gb["boost_pc"].is_number_integer() || !in_cc_range(gb["boost_pc"].get<int>())) {
-                err = "midi.json: gboard.boost_pc fuori range";
+            if (!gb["boost_pc"].is_number_integer()) {
+                err = "midi.json: gboard.boost_pc deve essere un intero";
                 return false;
             }
             cfg.gboard_boost_pc = gb["boost_pc"].get<int>();
+            if (cfg.gboard_boost_pc != -1 && !in_cc_range(cfg.gboard_boost_pc)) {
+                err = "midi.json: gboard.boost_pc fuori range (0-127, oppure -1)";
+                return false;
+            }
         }
+        // Retrocompatibilita': nei file vecchi lo stesso numero era sia PC sia
+        // nota LED. Se manca il campo LED esplicito ma c'e' il PC, si continua
+        // a usare quello; se mancano entrambi restano i default 4-7/0-2/3.
+        if (!has_mod_led && gb.contains("mod_pc")) {
+            cfg.gboard_mod_led = cfg.gboard_mod_pc;
+        }
+        if (!has_drive_led && gb.contains("drive_pc")) {
+            cfg.gboard_drive_led = cfg.gboard_drive_pc;
+        }
+        if (!has_boost_led && gb.contains("boost_pc")) {
+            cfg.gboard_boost_led = cfg.gboard_boost_pc;
+        }
+
+        get_bool(gb, "allow_cc_conflicts", cfg.gboard_allow_cc_conflicts);
         if (gb.contains("flash_ms")) {
             if (!gb["flash_ms"].is_number_integer()) {
                 err = "midi.json: gboard.flash_ms deve essere un intero";
                 return false;
             }
             cfg.gboard_flash_ms = gb["flash_ms"].get<int>();
-            if (j.contains("looper")) {
-                const auto& lp = j["looper"];
-                if (lp.contains("toggle")) cfg.looper_toggle_cc = lp["toggle"].get<int>();
-                if (lp.contains("stop")) cfg.looper_stop_cc = lp["stop"].get<int>();
-                if (lp.contains("clear")) cfg.looper_clear_cc = lp["clear"].get<int>();
-            }
             if (cfg.gboard_flash_ms < 0 || cfg.gboard_flash_ms > 2000) {
                 err = "midi.json: gboard.flash_ms deve stare fra 0 e 2000";
                 return false;
             }
         }
+    }
+
+    // Looper: stava per errore dentro il blocco gboard.flash_ms, quindi senza
+    // flash_ms i tre CC non venivano letti.
+    if (j.contains("looper")) {
+        const auto& lp = j["looper"];
+        if (!lp.is_object()) {
+            err = "midi.json: \"looper\" deve essere un oggetto {toggle, stop, clear}";
+            return false;
+        }
+        auto read_looper = [&](const char* key, int& out) -> bool {
+            if (!lp.contains(key)) return true;
+            if (!lp[key].is_number_integer()) {
+                err = std::string("midi.json: looper.") + key + " deve essere un intero";
+                return false;
+            }
+            out = lp[key].get<int>();
+            if (out != -1 && !in_cc_range(out)) {
+                err = std::string("midi.json: looper.") + key +
+                      " fuori range (0-127, oppure -1)";
+                return false;
+            }
+            return true;
+        };
+        if (!read_looper("toggle", cfg.looper_toggle_cc)) return false;
+        if (!read_looper("stop", cfg.looper_stop_cc)) return false;
+        if (!read_looper("clear", cfg.looper_clear_cc)) return false;
     }
 
     if (j.contains("boost")) {
@@ -476,6 +567,122 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
                 err = std::string("midi.json: boost usa lo stesso CC di drive_select \"") +
                       kDriveTypeNames[k] + "\"";
                 return false;
+            }
+        }
+    }
+
+    // G-Board: gli ingressi CC non possono coincidere con un altro binding,
+    // altrimenti una pressione farebbe partire due azioni. I vecchi PC restano
+    // accettati in parallelo: sono un altro tipo di messaggio, non collidono.
+    {
+        std::vector<std::pair<int, std::string>> gboard_ccs;
+        for (std::size_t i = 0; i < cfg.gboard_mod_cc.size(); ++i) {
+            if (cfg.gboard_mod_cc[i] >= 0) {
+                gboard_ccs.emplace_back(cfg.gboard_mod_cc[i],
+                                        "mod_cc[" + std::to_string(i) + "]");
+            }
+        }
+        for (std::size_t i = 0; i < cfg.gboard_drive_cc.size(); ++i) {
+            if (cfg.gboard_drive_cc[i] >= 0) {
+                gboard_ccs.emplace_back(cfg.gboard_drive_cc[i],
+                                        "drive_cc[" + std::to_string(i) + "]");
+            }
+        }
+        if (cfg.gboard_boost_cc >= 0) {
+            gboard_ccs.emplace_back(cfg.gboard_boost_cc, "boost_cc");
+        }
+        for (std::size_t i = 0; i < gboard_ccs.size(); ++i) {
+            for (std::size_t k = 0; k < i; ++k) {
+                if (gboard_ccs[i].first == gboard_ccs[k].first) {
+                    err = "midi.json: gboard." + gboard_ccs[k].second + " e gboard." +
+                          gboard_ccs[i].second + " usano lo stesso CC " +
+                          std::to_string(gboard_ccs[i].first);
+                    return false;
+                }
+            }
+        }
+
+        std::vector<std::pair<int, std::string>> gboard_leds;
+        for (std::size_t i = 0; i < cfg.gboard_mod_led.size(); ++i) {
+            if (cfg.gboard_mod_led[i] >= 0) {
+                gboard_leds.emplace_back(cfg.gboard_mod_led[i],
+                                         "mod_led[" + std::to_string(i) + "]");
+            }
+        }
+        for (std::size_t i = 0; i < cfg.gboard_drive_led.size(); ++i) {
+            if (cfg.gboard_drive_led[i] >= 0) {
+                gboard_leds.emplace_back(cfg.gboard_drive_led[i],
+                                         "drive_led[" + std::to_string(i) + "]");
+            }
+        }
+        if (cfg.gboard_boost_led >= 0) {
+            gboard_leds.emplace_back(cfg.gboard_boost_led, "boost_led");
+        }
+        for (std::size_t i = 0; i < gboard_leds.size(); ++i) {
+            for (std::size_t k = 0; k < i; ++k) {
+                if (gboard_leds[i].first == gboard_leds[k].first) {
+                    err = "midi.json: gboard." + gboard_leds[k].second + " e gboard." +
+                          gboard_leds[i].second + " usano la stessa nota LED " +
+                          std::to_string(gboard_leds[i].first);
+                    return false;
+                }
+            }
+        }
+
+        if (!cfg.gboard_allow_cc_conflicts) {
+            std::vector<std::pair<int, std::string>> occupied;
+            for (int c : cfg.expression_ccs) {
+                occupied.emplace_back(c, "expression.cc");
+            }
+            for (std::size_t i = 0; i < kMidiActionCount; ++i) {
+                if (cfg.slot_cc[i] >= 0) {
+                    occupied.emplace_back(cfg.slot_cc[i],
+                                          std::string("cc.") +
+                                              midi_action_name(static_cast<MidiAction>(i)));
+                }
+            }
+            for (std::size_t i = 0; i < kModTypeCount; ++i) {
+                if (cfg.mod_select_cc[i] >= 0) {
+                    occupied.emplace_back(cfg.mod_select_cc[i],
+                                          std::string("mod_select.") + kModTypeNames[i]);
+                }
+            }
+            for (std::size_t i = 0; i < kDriveTypeCount; ++i) {
+                if (cfg.drive_select_cc[i] >= 0) {
+                    occupied.emplace_back(cfg.drive_select_cc[i],
+                                          std::string("drive_select.") + kDriveTypeNames[i]);
+                }
+            }
+            for (std::size_t i = 0; i < kDelayModeCount; ++i) {
+                if (cfg.delay_select_cc[i] >= 0) {
+                    occupied.emplace_back(cfg.delay_select_cc[i],
+                                          std::string("delay_select.") + kDelayModeNames[i]);
+                }
+            }
+            if (cfg.boost_cc >= 0) occupied.emplace_back(cfg.boost_cc, "boost.cc");
+            if (cfg.looper_toggle_cc >= 0) {
+                occupied.emplace_back(cfg.looper_toggle_cc, "looper.toggle");
+            }
+            if (cfg.looper_stop_cc >= 0) {
+                occupied.emplace_back(cfg.looper_stop_cc, "looper.stop");
+            }
+            if (cfg.looper_clear_cc >= 0) {
+                occupied.emplace_back(cfg.looper_clear_cc, "looper.clear");
+            }
+            // La navigazione preset (22/24/25) e' cablata in main.cpp e non
+            // configurabile: va trattata come occupata.
+            static const int kNavCcs[] = {22, 24, 25};
+            for (int c : kNavCcs) occupied.emplace_back(c, "navigazione preset");
+
+            for (const auto& g : gboard_ccs) {
+                for (const auto& o : occupied) {
+                    if (g.first == o.first) {
+                        err = "midi.json: gboard." + g.second + "=" +
+                              std::to_string(g.first) + " usa lo stesso CC di " + o.second +
+                              " (se e' voluto: gboard.allow_cc_conflicts = true)";
+                        return false;
+                    }
+                }
             }
         }
     }

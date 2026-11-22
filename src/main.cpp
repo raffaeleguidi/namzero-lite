@@ -1542,7 +1542,8 @@ int main(int argc, char** argv) {
     if (!midi_cfg.gboard_device.empty()) {
         std::string lerr;
         if (led_out.open(midi_cfg.gboard_device, lerr)) {
-            std::printf("led: %s (Note On ch1, note 0-7)\n", midi_cfg.gboard_device.c_str());
+            std::printf("led: %s (Note On ch1, note da midi.json: 4-7/0-2/3)\n",
+                        midi_cfg.gboard_device.c_str());
         } else {
             std::fprintf(stderr, "led: %s (si prosegue senza)\n", lerr.c_str());
         }
@@ -1747,22 +1748,40 @@ int main(int argc, char** argv) {
     // stdin e' in modalita' raw, quindi i tasti arrivano senza Invio.
     // Il mutex serializza tastiera e MIDI: scrivono entrambi lo stesso stato.
     std::mutex ctrl_mtx;
-    // Stato dei LED: riga 1 = mod (note 0-3), riga 2 = drive (note 4-6),
-    // nota 7 libera. Il LED acceso e' quello dell'effetto selezionato.
+    // Stato dei LED: 4 mod (note 4,5,6,7), 3 drive (0,1,2), 1 boost (3).
+    // Le note vengono da midi.json e sono INDIPENDENTI dai CC/PC in ingresso.
+    // Si tiene l'ultimo valore mandato anche quando il G-Board non c'e', cosi'
+    // /api/state lo mostra e i test runtime possono verificarlo.
+    struct GboardLed {
+        int note = -1;
+        bool on = false;
+    };
+    std::array<GboardLed, 8> gboard_led_state{};
     auto apply_leds = [&]() {
-        if (!led_out.is_open()) return;
         static const int mod_led_type[4] = {0, 1, 2, 3};  // tremolo/univibe/flanger/phaser
         const int mt = namzero::mod_type_index(cfg.mod_type);
         for (int i = 0; i < 4; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(4 + i),
-                              (cfg.mod_on && mt == mod_led_type[i]) ? 127 : 0);
+            const bool on = cfg.mod_on && mt == mod_led_type[i];
+            const int note = midi_cfg.gboard_mod_led[static_cast<std::size_t>(i)];
+            gboard_led_state[static_cast<std::size_t>(i)] = {note, on};
+            if (note >= 0 && led_out.is_open()) {
+                led_out.send_note(0, static_cast<uint8_t>(note), on ? 127 : 0);
+            }
         }
         const int dt = namzero::drive_type_index(cfg.drive_type);
         for (int i = 0; i < 3; ++i) {
-            led_out.send_note(0, static_cast<uint8_t>(i),
-                              (cfg.drive_on && dt == i) ? 127 : 0);
+            const bool on = cfg.drive_on && dt == i;
+            const int note = midi_cfg.gboard_drive_led[static_cast<std::size_t>(i)];
+            gboard_led_state[static_cast<std::size_t>(4 + i)] = {note, on};
+            if (note >= 0 && led_out.is_open()) {
+                led_out.send_note(0, static_cast<uint8_t>(note), on ? 127 : 0);
+            }
         }
-        led_out.send_note(0, 3, g_boost_on ? 127 : 0);
+        const int boost_note = midi_cfg.gboard_boost_led;
+        gboard_led_state[7] = {boost_note, g_boost_on};
+        if (boost_note >= 0 && led_out.is_open()) {
+            led_out.send_note(0, static_cast<uint8_t>(boost_note), g_boost_on ? 127 : 0);
+        }
     };
     apply_leds();
 
@@ -1773,6 +1792,21 @@ int main(int argc, char** argv) {
         s["preset"] = preset_path;
         s["boost"] = g_boost_on;
         s["boost_db"] = midi_cfg.boost_db;
+        // G-Board vista dalla UI/test: ingressi configurati e note dei LED.
+        // "leds" e' l'ultimo stato mandato (note reali, non numeri di CC).
+        {
+            nlohmann::json& gb = s["gboard"];
+            gb["mod_cc"] = midi_cfg.gboard_mod_cc;
+            gb["drive_cc"] = midi_cfg.gboard_drive_cc;
+            gb["boost_cc"] = midi_cfg.gboard_boost_cc;
+            gb["mod_led"] = midi_cfg.gboard_mod_led;
+            gb["drive_led"] = midi_cfg.gboard_drive_led;
+            gb["boost_led"] = midi_cfg.gboard_boost_led;
+            gb["leds"] = nlohmann::json::array();
+            for (const auto& l : gboard_led_state) {
+                gb["leds"].push_back({{"note", l.note}, {"on", l.on}});
+            }
+        }
         s["autoengage"] = {{"threshold", midi_cfg.wah_threshold},
                            {"release_threshold", midi_cfg.wah_release_threshold},
                            {"engage_ms", midi_cfg.wah_engage_ms},
@@ -2786,6 +2820,52 @@ int main(int argc, char** argv) {
         namzero::SwitchDebounce switches;
         switches.set_mode(midi_cfg.switches == "edge" ? namzero::SwitchDebounce::Mode::kEdge
                                                         : namzero::SwitchDebounce::Mode::kAny);
+        // La G-Board manda 127 alla pressione e 0 al rilascio: per lei conta
+        // sempre e solo il fronte di salita, indipendentemente da `switches`
+        // (che vale per gli switch a stato dell'XTONE).
+        namzero::SwitchDebounce gboard_switches;
+        gboard_switches.set_mode(namzero::SwitchDebounce::Mode::kEdge);
+
+        // Le tre azioni della G-Board stanno qui una volta sola: le usano sia i
+        // CC (50-57) sia i vecchi Program Change. I LED si aggiornano sempre
+        // con le note di midi.json, mai con il numero del messaggio ricevuto.
+        auto gboard_mod = [&](int idx, const char* kind, int number) {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            const bool same = (cfg.mod_type == namzero::kModTypeNames[idx] && cfg.mod_on);
+            cfg.mod_type = namzero::kModTypeNames[idx];
+            cfg.mod_rate_hz = kModDefaultRate[idx];
+            cfg.mod_feedback = kModDefaultFeedback[idx];
+            mod_ptr->set_type(mod_type_enum(idx));
+            mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
+            mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
+            cfg.mod_on = !same;
+            if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
+            apply_leds();
+            std::printf("  mod: %s %s (%s%d)\n", cfg.mod_type.c_str(),
+                        cfg.mod_on ? "on" : "off", kind, number);
+            std::fflush(stdout);
+        };
+        auto gboard_drive = [&](int idx, const char* kind, int number) {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            const bool same =
+                (cfg.drive_type == namzero::kDriveTypeNames[idx] && cfg.drive_on);
+            cfg.drive_type = namzero::kDriveTypeNames[idx];
+            drive_ptr->set_type(drive_type_enum(idx));
+            cfg.drive_on = !same;
+            if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
+            apply_leds();
+            std::printf("  drive: %s %s (%s%d)\n", cfg.drive_type.c_str(),
+                        cfg.drive_on ? "on" : "off", kind, number);
+            std::fflush(stdout);
+        };
+        auto gboard_boost = [&](const char* kind, int number) {
+            std::lock_guard<std::mutex> lk(ctrl_mtx);
+            g_boost_on = !g_boost_on;
+            update_master();
+            apply_leds();
+            std::printf("  boost: %s (%s%d)\n", g_boost_on ? "on" : "off", kind, number);
+            std::fflush(stdout);
+        };
 
         namzero::WahAutoEngage ae;
         ae.configure(static_cast<float>(midi_cfg.wah_threshold), midi_cfg.wah_engage_ms,
@@ -2900,56 +2980,54 @@ int main(int argc, char** argv) {
                     std::fflush(stdout);
                 }
 
-                if ((e.status & 0xF0) == 0xC0) {
-                    // G-Board: i pulsanti mandano Program Change.
-                    // Riga 1 (PC 4-7) = mod, riga 2 (PC 0-2) = drive.
-                    int mod_led = -1;
-                    int drive_led = -1;
+                // G-Board configurata per mandare CC (50-57): fronte di
+                // salita = una pressione, il rilascio (0) non fa nulla. Il
+                // debounce e' dedicato e in modo edge, cosi' non dipende da
+                // `switches` (che descrive gli switch a stato dell'XTONE).
+                if (is_cc) {
+                    int mod_idx = -1;
+                    int drive_idx = -1;
                     for (int i = 0; i < 4; ++i) {
-                        if (midi_cfg.gboard_mod_pc[i] == e.cc) mod_led = i;
+                        if (midi_cfg.gboard_mod_cc[i] == e.cc) mod_idx = i;
                     }
                     for (int i = 0; i < 3; ++i) {
-                        if (midi_cfg.gboard_drive_pc[i] == e.cc) drive_led = i;
+                        if (midi_cfg.gboard_drive_cc[i] == e.cc) drive_idx = i;
                     }
-                    static const int mod_led_type[4] = {0, 1, 2, 3};
-                    if (mod_led >= 0) {
-                        std::lock_guard<std::mutex> lk(ctrl_mtx);
-                        const int type_idx = mod_led_type[mod_led];
-                        const bool same =
-                            (cfg.mod_type == namzero::kModTypeNames[type_idx] && cfg.mod_on);
-                        cfg.mod_type = namzero::kModTypeNames[type_idx];
-                        cfg.mod_rate_hz = kModDefaultRate[type_idx];
-                        cfg.mod_feedback = kModDefaultFeedback[type_idx];
-                        mod_ptr->set_type(mod_type_enum(type_idx));
-                        mod_ptr->set_rate_hz(static_cast<float>(cfg.mod_rate_hz));
-                        mod_ptr->set_feedback(static_cast<float>(cfg.mod_feedback));
-                        cfg.mod_on = !same;
-                        if (i_mod != kNoSlot) chain.set_enabled(i_mod, cfg.mod_on);
-                        apply_leds();
-                        std::printf("  mod: %s %s (PC%d)\n", cfg.mod_type.c_str(),
-                                    cfg.mod_on ? "on" : "off", e.cc);
-                        std::fflush(stdout);
+                    const bool is_gboard_boost =
+                        midi_cfg.gboard_boost_cc >= 0 && e.cc == midi_cfg.gboard_boost_cc;
+                    if (mod_idx >= 0 || drive_idx >= 0 || is_gboard_boost) {
+                        if (gboard_switches.pressed(e.cc, e.value, now_ms)) {
+                            if (mod_idx >= 0) {
+                                gboard_mod(mod_idx, "CC", e.cc);
+                            } else if (drive_idx >= 0) {
+                                gboard_drive(drive_idx, "CC", e.cc);
+                            } else {
+                                gboard_boost("CC", e.cc);
+                            }
+                        }
+                        continue;
+                    }
+                }
+
+                if ((e.status & 0xF0) == 0xC0) {
+                    // Retrocompatibilita': i pulsanti possono ancora mandare
+                    // Program Change. Restano one-shot come prima (nessun
+                    // debounce: un PC = una pressione).
+                    int mod_idx = -1;
+                    int drive_idx = -1;
+                    for (int i = 0; i < 4; ++i) {
+                        if (midi_cfg.gboard_mod_pc[i] == e.cc) mod_idx = i;
+                    }
+                    for (int i = 0; i < 3; ++i) {
+                        if (midi_cfg.gboard_drive_pc[i] == e.cc) drive_idx = i;
+                    }
+                    if (mod_idx >= 0) {
+                        gboard_mod(mod_idx, "PC", e.cc);
                     } else if (midi_cfg.gboard_boost_pc >= 0 &&
                                e.cc == midi_cfg.gboard_boost_pc) {
-                        std::lock_guard<std::mutex> lk(ctrl_mtx);
-                        g_boost_on = !g_boost_on;
-                        update_master();
-                        apply_leds();
-                        std::printf("  boost: %s (PC%d)\n", g_boost_on ? "on" : "off", e.cc);
-                        std::fflush(stdout);
-                    } else if (drive_led >= 0) {
-                        std::lock_guard<std::mutex> lk(ctrl_mtx);
-                        const bool same =
-                            (cfg.drive_type == namzero::kDriveTypeNames[drive_led] &&
-                             cfg.drive_on);
-                        cfg.drive_type = namzero::kDriveTypeNames[drive_led];
-                        drive_ptr->set_type(drive_type_enum(drive_led));
-                        cfg.drive_on = !same;
-                        if (i_drive != kNoSlot) chain.set_enabled(i_drive, cfg.drive_on);
-                        apply_leds();
-                        std::printf("  drive: %s %s (PC%d)\n", cfg.drive_type.c_str(),
-                                    cfg.drive_on ? "on" : "off", e.cc);
-                        std::fflush(stdout);
+                        gboard_boost("PC", e.cc);
+                    } else if (drive_idx >= 0) {
+                        gboard_drive(drive_idx, "PC", e.cc);
                     }
                     continue;
                 }

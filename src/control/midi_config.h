@@ -91,12 +91,27 @@ struct MidiConfig {
     int boost_cc = -1;
     double boost_db = 6.0;
 
-    // G-Board: i suoi pulsanti mandano Program Change; qui si dice quale PC
-    // seleziona quale effetto e su quale device pilotare i LED (Note On).
+    // G-Board. I pulsanti possono mandare CC (configurazione attuale) oppure
+    // Program Change (configurazione storica): si accettano entrambi.
     std::string gboard_device;              // vuoto = nessun LED
-    std::array<int, 4> gboard_mod_pc = {-1, -1, -1, -1};    // tremolo/univibe/flanger/phaser
-    std::array<int, 3> gboard_drive_pc = {-1, -1, -1};      // fuzz/klon/tubescreamer
-    int gboard_boost_pc = -1;               // PC del tasto boost (on/off)
+    // Ingressi CC: un tasto per tipo, nell'ordine degli array. -1 = disattivato.
+    std::array<int, 4> gboard_mod_cc = {-1, -1, -1, -1};    // tremolo/univibe/flanger/phaser
+    std::array<int, 3> gboard_drive_cc = {-1, -1, -1};      // fuzz/klon/tubescreamer
+    int gboard_boost_cc = -1;               // CC del tasto boost (on/off)
+    // NOTE dei LED, indipendenti dai numeri dei CC/PC: la G-Board accende la
+    // nota che riceve. -1 = LED non pilotato.
+    std::array<int, 4> gboard_mod_led = {4, 5, 6, 7};
+    std::array<int, 3> gboard_drive_led = {0, 1, 2};
+    int gboard_boost_led = 3;
+    // Ingressi Program Change storici (retrocompatibilita'). Se il campo LED
+    // corrispondente non e' nel file, si usano questi valori anche come note
+    // LED, come faceva la configurazione precedente. -1 = disattivato.
+    std::array<int, 4> gboard_mod_pc = {-1, -1, -1, -1};
+    std::array<int, 3> gboard_drive_pc = {-1, -1, -1};
+    int gboard_boost_pc = -1;
+    // Un CC del G-Board che coincide con un altro binding e' un errore: due
+    // azioni scattano insieme. Chi lo vuole davvero mette questo a true.
+    bool gboard_allow_cc_conflicts = false;
     int gboard_flash_ms = 150;
 
     // Looper: CC del gruppo rosso dell'XTONE (30 toggle, 43 stop, 42 clear).

@@ -57,6 +57,30 @@
   ],
   "gboard": {
     "device": "hw:V103",
+    "mod_cc": [
+      54,
+      55,
+      56,
+      57
+    ],
+    "drive_cc": [
+      50,
+      51,
+      52
+    ],
+    "boost_cc": 53,
+    "mod_led": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "drive_led": [
+      0,
+      1,
+      2
+    ],
+    "boost_led": 3,
     "mod_pc": [
       4,
       5,
@@ -68,8 +92,8 @@
       1,
       2
     ],
-    "flash_ms": 150,
-    "boost_pc": 3
+    "boost_pc": 3,
+    "flash_ms": 150
   },
   "looper": {
     "toggle": 30,
