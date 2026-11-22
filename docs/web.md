@@ -108,7 +108,9 @@ verde entro ±5 cent, frequenza in Hz, riferimento effettivo e confidenza.
   Il gate RMS è **adattivo** con pavimento a circa -70 dBFS (prima era fisso a
   -56 dBFS): la coda debole dei cantini non sparisce più appena scende sotto
   la vecchia soglia. Il rumore di fondo stimato alza la soglia solo piano e
-  solo finché resta sotto -54 dBFS.
+  solo finché resta sotto -54 dBFS; un ronzio stabile a basso livello viene
+  quindi imparato e scartato dopo qualche secondo, invece di restare come nota
+  fantasma.
 - **Hold**: quando la confidenza scende (corda che si spegne o rumore) la nota
   e l'ago restano per **~600 ms** con la confidenza in fade, poi la UI torna a
   "—". Una nuova nota forte (confidenza ≥0,90) sostituisce subito la

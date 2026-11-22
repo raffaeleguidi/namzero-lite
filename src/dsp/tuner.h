@@ -182,7 +182,7 @@ public:
     static constexpr double kNoiseGate = 2.0;     // 2x il rumore stimato
     static constexpr double kNoiseTrackMax = 0.002;  // sopra: non e' rumore
     static constexpr double kNoiseDownTau = 0.4;  // s, insegue il silenzio
-    static constexpr double kNoiseUpTau = 5.0;    // s, si adatta piano
+    static constexpr double kNoiseUpTau = 3.0;    // s, impara il ronzio stabile
 
     static constexpr double kThreshold = 0.15;  // CMNDF: primo minimo valido
     static constexpr double kFallback = 0.45;   // oltre: niente nota
@@ -334,7 +334,7 @@ public:
         const double freq = dr / period;
         const double confidence = std::clamp(1.0 - best_val, 0.0, 1.0);
         const bool fresh = freq >= kTunerMinHz && freq <= kTunerMaxHz;
-        update_noise(out.rms, fresh, dt);
+        update_noise(out.rms, fresh && out.rms >= kNoiseTrackMax, dt);
         hold_or_publish(out, fresh, freq, confidence, dt);
         return out;
     }
@@ -371,6 +371,9 @@ private:
 
     // Stima del rumore di fondo: scende in fretta verso il silenzio, sale
     // piano e solo quando il livello e' abbastanza basso da essere rumore.
+    // Anche un segnale "voiced" ma molto basso (es. ronzio di rete stabile)
+    // entra nella stima: altrimenti resterebbe una nota fantasma per sempre.
+    // Una nota vera e forte (sopra kNoiseTrackMax) non tocca la stima.
     void update_noise(double rms, bool voiced, double dt) {
         if (voiced) return;
         if (rms < noise_rms_) {

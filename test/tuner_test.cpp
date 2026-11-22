@@ -374,6 +374,21 @@ int main() {
             any = any || p.voiced;
         }
         check(!any, "rumore: nessuna nota fantasma");
+
+        // Ronzio di rete stabile e basso: il gate adattivo lo impara e lo
+        // scarta dopo qualche secondo, senza lasciare una nota fantasma.
+        TunerDetector hum_detector;
+        std::vector<float> hum(TunerDetector::kWindow);
+        bool late_hum = false;
+        for (int f = 0; f < 90; ++f) {
+            for (std::size_t i = 0; i < hum.size(); ++i) {
+                const double t = static_cast<double>(i) / kRate;
+                hum[i] = static_cast<float>(0.001 * std::sin(2.0 * kPi * 100.0 * t));
+            }
+            const auto p = hum_detector.analyze(hum.data(), hum.size(), kRate);
+            if (f >= 75 && p.voiced) late_hum = true;
+        }
+        check(!late_hum, "ronzio stabile: il gate adattivo lo scarta");
     }
 
     // 13) TunerTap: push/read_latest restituisce gli ultimi campioni.
