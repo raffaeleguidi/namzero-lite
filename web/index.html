@@ -278,9 +278,19 @@ function inverseOf(cmd) {
   }
   return null;
 }
+let pendingSlot = null;
+let pendingOldPreset = null;
+let pendingPoll = false;
 function send(cmd, record = true) {
-  if (cmd && (cmd.cmd === "slot" || cmd.cmd === "file" || cmd.cmd === "reload" ||
-              (cmd.cmd === "set" && typeof cmd.position === "string"))) {
+  if (cmd && cmd.cmd === "slot") {
+    pendingSlot = cmd.n;
+    pendingOldPreset = last ? last.preset : null;
+    pendingPoll = false;
+    showSpinner();
+  } else if (cmd && (cmd.cmd === "file" || cmd.cmd === "reload" ||
+                     (cmd.cmd === "set" && typeof cmd.position === "string"))) {
+    pendingSlot = null;
+    pendingPoll = true;
     showSpinner();
   }
   if (record) {
@@ -295,8 +305,20 @@ undoBtn.onclick = () => {
   undoBtn.disabled = undoStack.length === 0;
   if (inv) send(inv, false);
 };
-function render(st) {
-  hideSpinner();
+function render(st, fromPoll = false) {
+  if (spinnerEl) {
+    if (pendingSlot !== null) {
+      // Il caricamento e' finito solo quando slot E nome preset sono nuovi.
+      if (st.slot === pendingSlot && st.preset !== pendingOldPreset) {
+        pendingSlot = null;
+        hideSpinner();
+      }
+    } else if (pendingPoll) {
+      if (fromPoll) { pendingPoll = false; hideSpinner(); }
+    } else {
+      hideSpinner();
+    }
+  }
   last = st;
   const statustext = document.getElementById("statustext");
   if (statustext) statustext.textContent = `[${st.slot}] `;
@@ -372,7 +394,7 @@ function render(st) {
 let failCount = 0;
 function refresh() {
   fetch("/api/state").then(r => r.json()).then(j => {
-    if (j && !j.error) { failCount = 0; render(j); }
+    if (j && !j.error) { failCount = 0; render(j, true); }
     else if (++failCount > 10) document.getElementById("statustext").textContent = "disconnesso";
   }).catch(() => { if (++failCount > 10) document.getElementById("statustext").textContent = "disconnesso"; });
 }
