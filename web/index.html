@@ -14,6 +14,7 @@ body { margin:0; font:14px/1.35 -apple-system,system-ui,sans-serif; background:v
 header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
 h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.5px; }
 #status { color:var(--dim); font-size:12px; min-width:0; display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums; }
+#renameInput.hidden { display:none; }
 #presetselect { background:var(--card); color:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-size:18px; font-weight:600; max-width:320px; min-width:0; cursor:pointer; }
 #actions { display:flex; gap:8px; align-items:center; margin-left:auto; }
 
@@ -136,7 +137,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 <body>
 <header>
   <h1>namzero-lite</h1>
-  <span id="status"><span id="statustext">…</span><select id="presetselect" title="preset" aria-label="preset"></select></span>
+  <span id="status"><span id="statustext">…</span><select id="presetselect" title="preset" aria-label="preset"></select><button class="act" id="renameBtn" type="button" title="rinomina preset" aria-label="rinomina preset" style="padding:3px 8px;font-size:13px">✎</button><input id="renameInput" class="hidden" maxlength="32" style="font-size:18px;font-weight:600;color:#fff;background:var(--card);border:1px solid var(--acc);border-radius:6px;padding:3px 8px;width:160px;min-width:0">
   <button class="act" id="menu" type="button" aria-label="menu" aria-expanded="false" aria-controls="actions">☰</button>
   <div id="actions">
     <button class="act" id="undo" disabled title="annulla ultima modifica">Annulla</button>
@@ -558,6 +559,39 @@ presetSelect.onchange = () => {
   if (Number.isFinite(n)) send({cmd:"slot", n});
 };
 loadPresets();
+
+// Rinomina del preset corrente: l'icona apre un input al posto della combo;
+// invio salva (engine rename), Esc/uscita annulla. Dopo il rename si ricarica
+// la lista cosi' la combo mostra il nuovo nome.
+const renameBtn = document.getElementById("renameBtn");
+const renameInput = document.getElementById("renameInput");
+let renaming = false;
+function endRename() {
+  renaming = false;
+  renameInput.classList.add("hidden");
+  presetSelect.classList.remove("hidden");
+}
+renameBtn.onclick = () => {
+  renaming = true;
+  const cur = presetSelect.options[presetSelect.selectedIndex];
+  renameInput.value = cur ? cur.textContent : "";
+  presetSelect.classList.add("hidden");
+  renameInput.classList.remove("hidden");
+  renameInput.focus();
+  renameInput.select();
+};
+function commitRename() {
+  const n = renameInput.value.trim();
+  if (!n) { endRename(); return; }
+  fetch("/api/cmd", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cmd:"rename", name:n})})
+    .then(r => r.json()).then(j => { endRename(); if (j && !j.error) loadPresets(); })
+    .catch(() => endRename());
+}
+renameInput.onkeydown = (e) => {
+  if (e.key === "Enter") commitRename();
+  else if (e.key === "Escape") endRename();
+};
+renameInput.onblur = () => { if (renaming) commitRename(); };
 
 // Menu hamburger (solo sotto 720 px): contiene gli stessi undo/Salva/settings
 // dell'header desktop, con gli stessi handler.
