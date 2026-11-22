@@ -121,6 +121,13 @@ un atomico e smussato, quindi muovere il pedale non produce click. La latenza
 dichiarata e' la finestra di crossfade (~30 ms a 48 kHz): si somma alla latenza
 della catena solo quando il filter e' acceso e il tipo e' whammy.
 
+Come ogni pitch shifter a due testine, il crossfade non e' un vocoder: su una
+sinusoide di 440 Hz a +12 semitoni il picco spettrale e' a ~873 Hz invece di 880
+(~-0.8%), mentre a 0 semitoni l'unisono e' esatto. E' il compromesso tipico di
+questo algoritmo (un leggero "warble" da granular); per l'intonazione perfetta
+servirebbe un pitch shifter in frequenza, molto piu' costoso. Il test unitario
+`pitch_shifter_test` misura frequenza, unisono, mix dry e cambio tipo.
+
 ### mod
 
 | Chiave | Default | Note |

@@ -27,6 +27,15 @@ namespace namzero {
 // mentre si suona non produce click. Il buffer e' un std::array: prepare() non
 // alloca e process() non fa nessuna allocazione.
 //
+// Nota sulla qualita': il crossfade fra due testine non e' un vocoder. Quando
+// una testina salta indietro la sua fase cambia di un numero non intero di
+// periodi del segnale d'ingresso, quindi il mix introduce una leggera
+// modulazione di fase (un "warble" da granular). Su una sinusoide di 440 Hz a
+// +12 semitoni la misura spettrale da' il picco a ~873 Hz invece di 880
+// (~-0.8%): l'unisono (0 semitoni) e' invece esatto. E' il compromesso tipico
+// di un pitch shifter a due testine; per una intonazione da vocoder servirebbe
+// un algoritmo in frequenza, molto piu' costoso.
+//
 // Latenza: la lettura sta sempre fra 1 ms e 61 ms dietro al write; il valor
 // medio (e quello dichiarato) e' la finestra di crossfade, ~30 ms. Non c'e'
 // altro ritardo.

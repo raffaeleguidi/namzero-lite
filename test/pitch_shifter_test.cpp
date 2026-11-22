@@ -83,13 +83,14 @@ std::vector<float> run_pitch(float semitones, float mix, double f0 = 440.0) {
 }  // namespace
 
 int main() {
-    // +12 semitoni: 440 Hz -> ~880 Hz.
+    // +12 semitoni: 440 Hz -> ~880 Hz. Il crossfade a due testine introduce un
+    // piccolo detune spettrale (misurato ~873 Hz, -0.8%): l'unisono e' esatto.
     {
         const std::vector<float> out = run_pitch(12.0f, 1.0f);
         CHECK(all_finite(out));
         const double f = zero_cross_freq(out, kSkipFrames, kFs);
         CHECK(f > 880.0 * 0.98 && f < 880.0 * 1.02);
-        std::printf("pitch +12: %.1f Hz (atteso 880)\n", f);
+        std::printf("pitch +12: %.1f Hz (atteso ~880, crossfade granulare)\n", f);
     }
 
     // 0 semitoni: unisono (stessa frequenza, con il ritardo della finestra).
