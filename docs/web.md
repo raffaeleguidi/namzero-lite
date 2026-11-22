@@ -203,7 +203,13 @@ sovrascrive):
 ```
 
 Il servizio `namzero-wifi` (root, installato da `install.sh`) gestisce `wlan0`
-con NetworkManager:
+con NetworkManager. Se manca solo la unit:
+
+```bash
+sudo cp systemd/namzero-wifi.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now namzero-wifi
+```
 
 - **Avvio**: se non c'è già una STA attiva, prova le reti note in ordine di
   priorità per **~10 s** (scan + `nmcli connection up`, creando la connessione
