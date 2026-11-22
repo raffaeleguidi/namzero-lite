@@ -8,15 +8,15 @@ h1 { font-size:16px; margin:0; }
 a { color:#4fd1c5; text-decoration:none; }
 /* Tab bar sotto l'header: sempre su una riga, scrolla in orizzontale quando le
    voci non ci stanno (mobile). Un solo pannello visibile alla volta. */
-nav.tabs { display:flex; gap:6px; overflow-x:auto; padding:8px 16px; background:#15171c;
+nav.tabs { display:flex; gap:4px; align-items:flex-end; overflow-x:auto; padding:8px 16px 0; background:#15171c;
   border-bottom:1px solid #2c3240; position:sticky; top:0; z-index:20;
   scrollbar-width:none; -webkit-overflow-scrolling:touch; }
 nav.tabs::-webkit-scrollbar { display:none; }
-nav.tabs .tab { flex:0 0 auto; padding:7px 12px; background:transparent; color:#8b93a7;
-  border:1px solid transparent; border-radius:8px; font:inherit; font-size:13px;
+nav.tabs .tab { flex:0 0 auto; padding:8px 14px; background:transparent; color:#8b93a7;
+  border:1px solid transparent; border-bottom:none; border-radius:10px 10px 0 0; font:inherit; font-size:13px;
   white-space:nowrap; cursor:pointer; }
 nav.tabs .tab:hover { color:#e6e9ef; }
-nav.tabs .tab.active { color:#4fd1c5; background:#1e222b; border-color:#2c3240; font-weight:600; }
+nav.tabs .tab.active { color:#fff; background:#1e222b; border-color:#2c3240; border-bottom-color:#1e222b; margin-bottom:-1px; font-weight:600; }
 nav.tabs .tab:focus-visible { outline:2px solid #4fd1c5; outline-offset:1px; }
 main { padding:16px; }
 .panel { display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
