@@ -203,12 +203,19 @@ def presets_list():
 
 # ── Interfaccia audio ──────────────────────────────────────────────────────
 
-AUDIO_DEFAULTS = {"device": "hw:XTONE", "buffer": 64, "periods": 3, "input": 0}
+AUDIO_DEFAULTS = {"device": "hw:XTONE", "buffer": 64, "periods": 3, "input": 0,
+                  "output": 0}
 AUDIO_RATE = 48000  # fisso: NAM/IR/accordatore assumono 48 kHz
-AUDIO_LIMITS = {"buffer": (16, 2048), "periods": (2, 8), "input": (0, 1)}
+AUDIO_LIMITS = {"buffer": (16, 2048), "periods": (2, 8), "input": (0, 1),
+                "output": (0, 2)}
 AUDIO_INPUTS = [
     {"index": 0, "label": "Canale 1 (L)"},
     {"index": 1, "label": "Canale 2 (R)"},
+]
+AUDIO_OUTPUTS = [
+    {"index": 0, "label": "Stereo L/R"},
+    {"index": 1, "label": "Canale 1"},
+    {"index": 2, "label": "Canale 2"},
 ]
 
 
@@ -234,7 +241,7 @@ def audio_config():
     device = block.get("device")
     if isinstance(device, str) and device.strip():
         cfg["device"] = device.strip()
-    for key in ("buffer", "periods", "input"):
+    for key in ("buffer", "periods", "input", "output"):
         value = block.get(key)
         if isinstance(value, int) and not isinstance(value, bool):
             cfg[key] = max(AUDIO_LIMITS[key][0], min(AUDIO_LIMITS[key][1], value))
@@ -267,7 +274,7 @@ def _validate_audio(data, current):
             raise ValueError("device non puo' contenere spazi o caratteri di controllo")
         out["device"] = device
 
-    for key in ("buffer", "periods", "input"):
+    for key in ("buffer", "periods", "input", "output"):
         if key not in data:
             continue
         value = data[key]
@@ -286,7 +293,8 @@ def _write_audio(cfg):
     raw["audio"] = {"device": cfg["device"],
                     "buffer": cfg["buffer"],
                     "periods": cfg["periods"],
-                    "input": cfg["input"]}
+                    "input": cfg["input"],
+                    "output": cfg["output"]}
     tmp = PRESETS_CFG + ".tmp"
     try:
         parent = os.path.dirname(PRESETS_CFG)
@@ -685,7 +693,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 cfg = audio_config()
                 status = _audio_status()
                 self._json({"ok": True, **cfg, "rate": AUDIO_RATE,
-                            "inputs": AUDIO_INPUTS, "status": status})
+                            "inputs": AUDIO_INPUTS, "outputs": AUDIO_OUTPUTS,
+                            "status": status})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
             return

@@ -18,6 +18,9 @@ struct AudioConfig {
     // Canale di cattura (0 = L, 1 = R) che il chiamante usa come ingresso.
     // AlsaDuplex apre comunque 2 canali: la selezione avviene nel loop audio.
     unsigned input = 0;
+    // Uscita (0 = stereo L/R, 1 = mono sul canale 1, 2 = mono sul canale 2).
+    // Il mix mono (L+R)/2 viene fatto dal chiamante nel loop di playback.
+    unsigned output = 0;
 };
 
 // Full-duplex I/O su un'unica scheda ALSA.
@@ -42,7 +45,7 @@ public:
     // Imposta i parametri nominali senza aprire ALSA: serve alla modalita'
     // offline, cosi' catena, stato e UI hanno comunque rate/periodo coerenti.
     void configure_offline(unsigned rate, unsigned period_frames, unsigned periods,
-                           unsigned input);
+                           unsigned input, unsigned output);
 
     // Restituisce il numero di frame letti/scritti, oppure un errno negativo
     // (es. -EPIPE su xrun). Bloccante: attende il periodo completo.
@@ -64,6 +67,7 @@ public:
     unsigned periods() const { return periods_; }
     unsigned buffer_frames() const { return buffer_frames_; }
     unsigned input_channel() const { return input_; }
+    unsigned output_channel() const { return output_; }
     const std::string& device() const { return device_; }
 
 private:
@@ -84,6 +88,7 @@ private:
     unsigned periods_ = 0;
     unsigned buffer_frames_ = 0;
     unsigned input_ = 0;
+    unsigned output_ = 0;
 };
 
 }  // namespace namzero

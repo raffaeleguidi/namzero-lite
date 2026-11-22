@@ -75,14 +75,21 @@ card 0: Device [Long Card Name], device 1: Some PCM [Some PCM]
 
 
 class ValidationTest(unittest.TestCase):
-    CURRENT = {"device": "hw:XTONE", "buffer": 64, "periods": 3, "input": 0}
+    CURRENT = {"device": "hw:XTONE", "buffer": 64, "periods": 3, "input": 0,
+               "output": 0}
 
     def test_valid(self):
         cfg = server._validate_audio(
-            {"device": " plughw:XTONE ", "buffer": 128, "periods": 4, "input": 1},
+            {"device": " plughw:XTONE ", "buffer": 128, "periods": 4,
+             "input": 1, "output": 2},
             self.CURRENT)
         self.assertEqual(cfg, {"device": "plughw:XTONE", "buffer": 128,
-                               "periods": 4, "input": 1})
+                               "periods": 4, "input": 1, "output": 2})
+
+    def test_output_valid_values(self):
+        for value in (0, 1, 2):
+            cfg = server._validate_audio({"output": value}, self.CURRENT)
+            self.assertEqual(cfg["output"], value)
 
     def test_missing_fields_keep_current(self):
         self.assertEqual(server._validate_audio({}, self.CURRENT), self.CURRENT)
@@ -108,6 +115,11 @@ class ValidationTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(value)):
                 server._validate_audio({"input": value}, self.CURRENT)
 
+    def test_output_invalid(self):
+        for value in (-1, 3, "0", 0.5, True, None):
+            with self.assertRaises(ValueError, msg=repr(value)):
+                server._validate_audio({"output": value}, self.CURRENT)
+
     def test_body_not_object(self):
         for value in ([], "x", None, 3):
             with self.assertRaises(ValueError):
@@ -132,22 +144,26 @@ class ConfigFileTest(unittest.TestCase):
     def test_defaults_when_missing(self):
         self.assertEqual(server.audio_config(),
                          {"device": "hw:XTONE", "buffer": 64, "periods": 3,
-                          "input": 0})
+                          "input": 0, "output": 0})
 
     def test_read_and_clamp(self):
         self.write({"gate": {"threshold_db": -70},
                     "audio": {"device": "  plughw:XTONE  ", "buffer": 9999,
-                              "periods": 1, "input": 9}})
+                              "periods": 1, "input": 9, "output": 9}})
         self.assertEqual(server.audio_config(),
                          {"device": "plughw:XTONE", "buffer": 2048,
-                          "periods": 2, "input": 1})
+                          "periods": 2, "input": 1, "output": 2})
+
+    def test_output_clamped_low(self):
+        self.write({"audio": {"output": -1}})
+        self.assertEqual(server.audio_config()["output"], 0)
 
     def test_bad_types_fall_back(self):
         self.write({"audio": {"device": 3, "buffer": "x", "periods": True,
-                              "input": None}})
+                              "input": None, "output": False}})
         self.assertEqual(server.audio_config(),
                          {"device": "hw:XTONE", "buffer": 64, "periods": 3,
-                          "input": 0})
+                          "input": 0, "output": 0})
 
     def test_write_preserves_other_blocks_and_makes_backup(self):
         original = {"gate": {"threshold_db": -70}, "wifi": {"x": 1},
@@ -156,14 +172,15 @@ class ConfigFileTest(unittest.TestCase):
         with open(self.path) as f:
             before = f.read()
         server._write_audio({"device": "hw:XTONE", "buffer": 128,
-                             "periods": 4, "input": 1})
+                             "periods": 4, "input": 1, "output": 2})
         with open(self.path) as f:
             saved = json.load(f)
         self.assertEqual(saved["gate"], original["gate"])
         self.assertEqual(saved["wifi"], original["wifi"])
         self.assertEqual(saved["slots"], original["slots"])
         self.assertEqual(saved["audio"], {"device": "hw:XTONE", "buffer": 128,
-                                          "periods": 4, "input": 1})
+                                          "periods": 4, "input": 1,
+                                          "output": 2})
         with open(self.path + ".bak") as f:
             self.assertEqual(f.read(), before)
         self.assertFalse(os.path.exists(self.path + ".tmp"))
@@ -194,8 +211,9 @@ class HttpTest(unittest.TestCase):
                     "status": {"open": True, "device": cfg["device"],
                                "config_device": cfg["device"], "fallback": False,
                                "buffer": cfg["buffer"], "periods": cfg["periods"],
-                               "input": cfg["input"], "rate": 48000,
-                               "error": "", "boot_id": 2}}
+                               "input": cfg["input"], "output": cfg["output"],
+                               "outputs": server.AUDIO_OUTPUTS,
+                               "rate": 48000, "error": "", "boot_id": 2}}
 
         self.patches = [
             mock.patch.object(server, "_audio_reload", side_effect=fake_reload),
@@ -204,6 +222,8 @@ class HttpTest(unittest.TestCase):
                                             "config_device": "hw:XTONE",
                                             "fallback": False, "buffer": 64,
                                             "periods": 3, "input": 0,
+                                            "output": 0,
+                                            "outputs": server.AUDIO_OUTPUTS,
                                             "rate": 48000, "error": "",
                                             "boot_id": 1}),
         ]
@@ -236,8 +256,11 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(data["buffer"], 64)
         self.assertEqual(data["periods"], 3)
         self.assertEqual(data["input"], 0)
+        self.assertEqual(data["output"], 0)
         self.assertEqual(data["rate"], 48000)
         self.assertEqual([i["index"] for i in data["inputs"]], [0, 1])
+        self.assertEqual([o["index"] for o in data["outputs"]], [0, 1, 2])
+        self.assertEqual(data["outputs"][1]["label"], "Canale 1")
         self.assertTrue(data["status"]["open"])
 
     def test_get_devices(self):
@@ -254,7 +277,9 @@ class HttpTest(unittest.TestCase):
         with open(self.path) as f:
             before = f.read()
         for payload in ({"device": ""}, {"buffer": 15}, {"periods": 9},
-                        {"input": 2}, {"buffer": "64"}, {"device": "hw: X"}):
+                        {"input": 2}, {"output": -1}, {"output": 3},
+                        {"output": "0"}, {"output": 1.5}, {"buffer": "64"},
+                        {"device": "hw: X"}):
             status, data = self.request("POST", "/api/audio", payload)
             self.assertEqual(status, 400, msg=repr(payload))
             self.assertIn("error", data)
@@ -267,18 +292,19 @@ class HttpTest(unittest.TestCase):
     def test_post_valid_saves_and_reloads(self):
         status, data = self.request("POST", "/api/audio",
                                     {"device": "plughw:XTONE", "buffer": 128,
-                                     "periods": 4, "input": 1})
+                                     "periods": 4, "input": 1, "output": 2})
         self.assertEqual(status, 200, msg=repr(data))
         self.assertTrue(data["ok"])
         self.assertTrue(data["reloaded"])
         with open(self.path) as f:
             saved = json.load(f)
         self.assertEqual(saved["audio"], {"device": "plughw:XTONE", "buffer": 128,
-                                          "periods": 4, "input": 1})
+                                          "periods": 4, "input": 1,
+                                          "output": 2})
         self.assertEqual(saved["gate"], {"threshold_db": -70})
         self.assertEqual(self.reload_calls, [{"device": "plughw:XTONE",
                                               "buffer": 128, "periods": 4,
-                                              "input": 1}])
+                                              "input": 1, "output": 2}])
 
 
 if __name__ == "__main__":

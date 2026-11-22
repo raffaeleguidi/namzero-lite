@@ -189,13 +189,16 @@ verde entro ±5 cent, frequenza in Hz, riferimento effettivo e confidenza.
 ## Interfaccia audio
 
 La sezione **Interfaccia audio** di `settings.html` e' l'ultimo pezzo di sistema
-configurabile senza ricompilare: device ALSA, buffer, periodi, canale d'ingresso
-e pulsante **Applica**.
+configurabile senza ricompilare: device ALSA, buffer, periodi, canale d'ingresso,
+canale di uscita e pulsante **Applica**.
 
 - **Device**: select popolata da `GET /api/audio/devices`, che parsa `aplay -l`
   (card, device, nome, id) e mostra per ogni card sia `hw:...` sia
-  `plughw:...`. `default` e' sempre in testa; il campo **PCM manuale** accetta
-  qualunque nome ALSA (per esempio `hw:CARD=XTONE,DEV=0`).
+  `plughw:...`. `default` e' sempre in testa (anche se `aplay -l` non elenca
+  nulla); il campo **PCM manuale** accetta qualunque nome ALSA (per esempio
+  `hw:CARD=XTONE,DEV=0`) e, se compilato, prevale sul select. Il valore
+  selezionato riflette la config corrente: se il device configurato non compare
+  in `aplay -l` viene aggiunto come voce "(configurato)".
 - **Buffer / periodi**: 16..2048 frame e 2..8 periodi. Fuori range il POST
   risponde 400 e la UI non salva. Il motore fa comunque clamp all'avvio.
 - **Frequenza**: mostrata fissa a **48000 Hz**. Non e' configurabile: NAM, IR,
@@ -205,9 +208,13 @@ e pulsante **Applica**.
   apre sempre 2 canali; il loop audio prende il canale scelto e lo duplica su
   L/R. Per interfacce con piu' di 2 canali serve un nome/plugin ALSA che ne
   esponga 2.
+- **Uscita**: canale di playback, 0 = **Stereo L/R** (invariato), 1 = mono sul
+  **Canale 1**, 2 = mono sul **Canale 2**. Con 1/2 il loop fa il mix
+  `(L+R)/2`, lo scrive sul canale scelto e azzera l'altro: utile per ampli o
+  monitor mono. Default 0.
 - **Stato**: la riga in cima mostra il device **realmente aperto**, rate,
-  buffer/periodi e ingresso. Se il configurato non si apre ma parte un fallback
-  mostra `FALLBACK`; se nessun device si apre mostra l'errore in rosso.
+  buffer/periodi, ingresso e uscita. Se il configurato non si apre ma parte un
+  fallback mostra `FALLBACK`; se nessun device si apre mostra l'errore in rosso.
 
 #### Come raggiungere la web dall'AP
 
@@ -261,12 +268,19 @@ WantedBy=multi-user.target
   "buffer": 64,
   "periods": 3,
   "input": 0,
+  "output": 0,
   "rate": 48000,
   "inputs": [{"index": 0, "label": "Canale 1 (L)"},
              {"index": 1, "label": "Canale 2 (R)"}],
+  "outputs": [{"index": 0, "label": "Stereo L/R"},
+              {"index": 1, "label": "Canale 1"},
+              {"index": 2, "label": "Canale 2"}],
   "status": {"config_device": "hw:XTONE", "device": "hw:XTONE",
              "open": true, "fallback": false, "rate": 48000,
-             "buffer": 64, "periods": 3, "input": 0,
+             "buffer": 64, "periods": 3, "input": 0, "output": 0,
+             "outputs": [{"index": 0, "label": "Stereo L/R"},
+                         {"index": 1, "label": "Canale 1"},
+                         {"index": 2, "label": "Canale 2"}],
              "error": "", "boot_id": 123456789}
 }
 ```
@@ -293,11 +307,11 @@ Se `aplay` manca o fallisce si restituisce comunque `default` e il campo
 `error`.
 
 `POST /api/audio` accetta `{"device": "...", "buffer": 64, "periods": 3,
-"input": 0}`:
+"input": 0, "output": 0}`:
 
 1. valida (device non vuoto, senza spazi/controlli, max 128 caratteri; buffer
-   16..2048; periods 2..8; input 0..1) e risponde **400** con `{"error": "..."}`
-   se qualcosa non va;
+   16..2048; periods 2..8; input 0..1; output 0..2) e risponde **400** con
+   `{"error": "..."}` se qualcosa non va;
 2. salva **solo** il blocco `audio` in `config/presets.json`, in modo atomico
    (file temporaneo + `os.replace`) e con backup `config/presets.json.bak`; le
    altre chiavi restano intatte;
@@ -517,7 +531,7 @@ WantedBy=multi-user.target
 | GET | `/api/state` | snapshot dello stato (fallback del polling) |
 | GET | `/api/events` | SSE: `data:` con lo snapshot a ogni cambiamento, heartbeat 15 s |
 | GET | `/api/presets` | elenco preset: `[{"slot":0,"name":"vox_wah"}, ...]` da `config/presets.json` |
-| GET | `/api/audio` | config audio + ingressi + stato del motore (`open`, `fallback`, errore) |
+| GET | `/api/audio` | config audio + ingressi/uscite + stato del motore (`open`, `fallback`, errore) |
 | GET | `/api/audio/devices` | device da `aplay -l` con card/device/nome/id e nomi `hw`/`plughw` |
 | POST | `/api/audio` | valida e salva il blocco `audio`, poi reload del motore (200/400) |
 | POST | `/api/cmd` | comando JSON al motore (`param`, `set`, `slot`, `boost`, `eq`, `tuner`, `looper`) |

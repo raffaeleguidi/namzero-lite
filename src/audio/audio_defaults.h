@@ -22,12 +22,17 @@ constexpr unsigned kAudioPeriodsMax = 8;
 // ALSA solo tramite un plugin che espone 2 canali.
 constexpr unsigned kAudioInputMin = 0;
 constexpr unsigned kAudioInputMax = 1;
+// Uscita: 0 = stereo L/R come esce dalla catena, 1 = mix mono (L+R)/2 sul
+// canale 1 (L), 2 = mix mono sul canale 2 (R), con l'altro canale a zero.
+constexpr unsigned kAudioOutputMin = 0;
+constexpr unsigned kAudioOutputMax = 2;
 
 struct AudioSettings {
     std::string device = "hw:XTONE";
     unsigned buffer = 64;
     unsigned periods = 3;
     unsigned input = 0;
+    unsigned output = 0;
 };
 
 inline unsigned clamp_audio_buffer(unsigned v) {
@@ -40,6 +45,10 @@ inline unsigned clamp_audio_periods(unsigned v) {
 
 inline unsigned clamp_audio_input(unsigned v) {
     return std::clamp(v, kAudioInputMin, kAudioInputMax);
+}
+
+inline unsigned clamp_audio_output(unsigned v) {
+    return std::clamp(v, kAudioOutputMin, kAudioOutputMax);
 }
 
 // Ordine di apertura: il device configurato, poi "default", poi il device

@@ -58,8 +58,8 @@ un preset portabile). Con la config viva normale il blocco globale vince su
 | `gain_db` | 0.0 | gain master, dopo la catena |
 
 Da riga di comando gli stessi valori si passano con `--device`, `--buffer`,
-`--periods` e `--input`; questi override valgono per l'avvio corrente e **non**
-vengono persistiti.
+`--periods`, `--input` e `--output`; questi override valgono per l'avvio corrente
+e **non** vengono persistiti.
 
 ### gate
 
@@ -234,7 +234,7 @@ preset. Il deploy **non** sovrascrive questo file.
 
 | Blocco | Chiavi | Note |
 |--------|---------|------|
-| `audio` | `device`, `buffer`, `periods`, `input` | interfaccia audio usata dal motore |
+| `audio` | `device`, `buffer`, `periods`, `input`, `output` | interfaccia audio usata dal motore |
 | `gate` | `threshold_db`, `attack_ms`, `release_ms` | parametri del gate globale |
 | `autoengage` | `threshold`, `release_threshold`, `engage_ms`, `release_ms` | auto-engage del wah |
 | `boost` | `on`, `db` | boost di fine catena |
@@ -253,7 +253,8 @@ sistema configurabile senza ricompilare.
   "device": "hw:XTONE",
   "buffer": 64,
   "periods": 3,
-  "input": 0
+  "input": 0,
+  "output": 0
 }
 ```
 
@@ -263,6 +264,10 @@ sistema configurabile senza ricompilare.
 | `buffer` | 64 | frame per periodo, 16..2048 (clamp) |
 | `periods` | 3 | periodi nel buffer, 2..8 (clamp) |
 | `input` | 0 | canale di cattura usato come ingresso: 0 = L, 1 = R (0..1) |
+| `output` | 0 | canale di uscita: 0 = stereo L/R, 1 = mono sul canale 1, 2 = mono sul canale 2 (0..2) |
+
+Con `output` 1/2 il loop di playback fa il mix mono `(L+R)/2`, lo scrive sul
+canale scelto e azzera l'altro; con 0 l'uscita resta lo stereo della catena.
 
 Il **rate non e' configurabile**: tutta la catena (NAM, IR, delay, accordatore)
 assume **48000 Hz**. Un device che accetta solo 44.1 kHz si indica con

@@ -19,7 +19,9 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -89,12 +91,32 @@ def wait_audio(api, expected, timeout=12.0):
             if (last and last.get("config_device") == expected.get("device")
                     and last.get("buffer") == expected.get("buffer")
                     and last.get("periods") == expected.get("periods")
+                    and last.get("output") == expected.get("output", 0)
                     and "open" in last):
                 return last
         except Exception:
             pass
         time.sleep(0.3)
     return last
+
+
+def engine_print_config(repo, output):
+    """Esegue --print-config (esce prima di aprire ALSA) per verificare il clamp.
+
+    Gira in una directory vuota: con un config/presets.json presente il motore
+    entrerebbe in slot mode e rifiuterebbe i flag (`--preset` + flag).
+    """
+    binary = os.path.abspath(os.path.join(repo, "build/namzero-lite"))
+    if not os.path.isfile(binary):
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            return subprocess.run(
+                [binary, "--print-config", "--output", str(output)],
+                cwd=tmp, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("NOTA: --print-config non eseguibile: %s" % exc, flush=True)
+        return None
 
 
 def without_audio(cfg):
@@ -122,13 +144,33 @@ def main():
         status, audio = api.get("/api/audio")
         check("GET /api/audio risponde 200", status == 200)
         check("config audio completa", all(k in audio for k in
-              ("device", "buffer", "periods", "input", "rate", "inputs", "status")),
+              ("device", "buffer", "periods", "input", "output", "rate",
+               "inputs", "outputs", "status")),
               str(audio))
         check("rate fisso 48000", audio.get("rate") == 48000)
         check("ingressi disponibili", isinstance(audio.get("inputs"), list)
               and len(audio["inputs"]) >= 1, str(audio.get("inputs")))
+        check("uscite disponibili", isinstance(audio.get("outputs"), list)
+              and [o.get("index") for o in audio["outputs"]] == [0, 1, 2],
+              str(audio.get("outputs")))
+        check("output in 0..2", audio.get("output") in (0, 1, 2),
+              str(audio.get("output")))
         device = audio["device"]
         check("device configurato non vuoto", bool(device), device)
+        if device == "hw:XTONE":
+            check("device corrente hw:XTONE", True)
+
+        # Clamp del motore: --output fuori range non deve mai arrivare ad ALSA.
+        proc = engine_print_config(args.repo, 3)
+        if proc is not None:
+            check("CLI --output 3 clampato a 2",
+                  proc.returncode == 0 and "output=2" in proc.stdout,
+                  (proc.stderr or proc.stdout)[-300:])
+        proc = engine_print_config(args.repo, 0)
+        if proc is not None:
+            check("CLI --output 0 accettato",
+                  proc.returncode == 0 and "output=0" in proc.stdout,
+                  (proc.stderr or proc.stdout)[-300:])
 
         status, devs = api.get("/api/audio/devices")
         check("GET /api/audio/devices risponde 200", status == 200)
@@ -154,6 +196,10 @@ def main():
             ({"periods": 9}, "periodi sopra 8"),
             ({"input": 2}, "input fuori range"),
             ({"input": "0"}, "input stringa"),
+            ({"output": -1}, "output sotto 0"),
+            ({"output": 3}, "output sopra 2"),
+            ({"output": "0"}, "output stringa"),
+            ({"output": 1.5}, "output non intero"),
         ]
         for payload, label in invalid:
             status, data = api.post("/api/audio", payload)
@@ -167,10 +213,11 @@ def main():
 
         # ── POST valido: salva + reload + riapertura ──────────────────────
         target = {"device": device, "buffer": audio["buffer"],
-                  "periods": audio["periods"], "input": audio["input"]}
-        # Cambia solo il buffer per dimostrare che il motore ha riaperto con la
-        # config nuova; si torna subito al valore iniziale.
-        target["buffer"] = 128 if target["buffer"] != 128 else 64
+                  "periods": audio["periods"], "input": audio["input"],
+                  "output": audio["output"]}
+        # Cambia SOLO il canale di uscita (device e buffer restano quelli in
+        # uso): nessun rischio per l'audio oltre al re-exec necessario.
+        target["output"] = 2 if target["output"] != 2 else 1
         status, resp = api.post("/api/audio", target)
         check("POST valido -> 200", status == 200, "status %s" % status)
         check("POST valido: reload confermato", resp.get("reloaded") is True,
@@ -178,10 +225,14 @@ def main():
         saved = read_json(presets_path)
         check("blocco audio persistito", saved.get("audio") == target,
               str(saved.get("audio")))
+        check("device invariato dopo il POST",
+              saved.get("audio", {}).get("device") == device, str(saved.get("audio")))
         st = wait_audio(api, target)
         check("motore ripartito con la config nuova", st is not None, str(st))
         check("audio aperto", bool(st and st.get("open")),
               str(st.get("error", "") if st else "stato assente"))
+        check("output applicato dal motore",
+              bool(st and st.get("output") == target["output"]), str(st))
         if st and st.get("open"):
             actual = st.get("device")
             check("device riaperto (o fallback)", actual in (device, "default",
@@ -203,7 +254,8 @@ def main():
         restored = read_json(presets_path)
         check("config iniziale ripristinata",
               restored.get("audio") == {k: audio[k] for k in
-                                        ("device", "buffer", "periods", "input")})
+                                        ("device", "buffer", "periods", "input",
+                                         "output")})
         check("altre chiavi invariate dopo il ripristino",
               without_audio(restored) == without_audio(backup))
     finally:

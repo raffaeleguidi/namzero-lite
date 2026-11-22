@@ -70,11 +70,13 @@ struct Config {
     unsigned period = 64;
     unsigned periods = 3;
     unsigned input_channel = 0;
+    unsigned output_channel = 0;
     // Flag CLI: se impostati vincono sul blocco audio di presets.json.
     bool cli_device_set = false;
     bool cli_buffer_set = false;
     bool cli_periods_set = false;
     bool cli_input_set = false;
+    bool cli_output_set = false;
     double gain_db = 0.0;
 
     // slot
@@ -179,6 +181,7 @@ nlohmann::json audio_json(const Config& c) {
     a["buffer"] = c.period;
     a["periods"] = c.periods;
     a["input"] = c.input_channel;
+    a["output"] = c.output_channel;
     return a;
 }
 
@@ -252,6 +255,8 @@ AudioFileConfig load_audio_block(const std::string& path) {
              out.settings.periods);
     get_uint("input", namzero::kAudioInputMin, namzero::kAudioInputMax,
              out.settings.input);
+    get_uint("output", namzero::kAudioOutputMin, namzero::kAudioOutputMax,
+             out.settings.output);
     return out;
 }
 
@@ -313,6 +318,7 @@ void usage() {
         "  --buffer <frame>     frame per periodo (default 64)\n"
         "  --periods <n>        periodi nel buffer (default 3)\n"
         "  --input <0|1>        canale di ingresso dalla capture (default 0)\n"
+        "  --output <0|1|2>     uscita: 0 stereo L/R, 1 mono su L, 2 mono su R (default 0)\n"
         "  --gain <db>          gain master (default 0)\n"
         "  --nam <file.nam>     modello NAM nello slot amp\n"
         "  --nam-slim <0..1>    sottomodello (default 0.49 = lite)\n"
@@ -808,6 +814,13 @@ bool parse_args(int argc, char** argv, Config& cfg, MidiCli& mcli, std::string& 
                 return false;
             }
             cfg.cli_input_set = true;
+        } else if (a == "--output") {
+            const char* v = next("--output");
+            if (v == nullptr || !parse_uint(v, cfg.output_channel)) {
+                err = "valore non valido per --output (0, 1 o 2)";
+                return false;
+            }
+            cfg.cli_output_set = true;
         } else if (a == "--gain") {
             const char* v = next("--gain");
             if (v == nullptr || !parse_float(v, cfg.gain_db)) {
@@ -1152,6 +1165,7 @@ int main(int argc, char** argv) {
         if (!cfg.cli_buffer_set) cfg.period = audio_file.settings.buffer;
         if (!cfg.cli_periods_set) cfg.periods = audio_file.settings.periods;
         if (!cfg.cli_input_set) cfg.input_channel = audio_file.settings.input;
+        if (!cfg.cli_output_set) cfg.output_channel = audio_file.settings.output;
     }
     {
         const auto trim = [](std::string s) {
@@ -1174,9 +1188,11 @@ int main(int argc, char** argv) {
         const unsigned old_buffer = cfg.period;
         const unsigned old_periods = cfg.periods;
         const unsigned old_input = cfg.input_channel;
+        const unsigned old_output = cfg.output_channel;
         cfg.period = namzero::clamp_audio_buffer(cfg.period);
         cfg.periods = namzero::clamp_audio_periods(cfg.periods);
         cfg.input_channel = namzero::clamp_audio_input(cfg.input_channel);
+        cfg.output_channel = namzero::clamp_audio_output(cfg.output_channel);
         if (old_buffer != cfg.period) {
             std::fprintf(stderr, "audio: buffer %u fuori da %u..%u, uso %u\n",
                          old_buffer, namzero::kAudioBufferMin,
@@ -1192,6 +1208,11 @@ int main(int argc, char** argv) {
                          old_input, namzero::kAudioInputMin,
                          namzero::kAudioInputMax, cfg.input_channel);
         }
+        if (old_output != cfg.output_channel) {
+            std::fprintf(stderr, "audio: output %u fuori da %u..%u, uso %u\n",
+                         old_output, namzero::kAudioOutputMin,
+                         namzero::kAudioOutputMax, cfg.output_channel);
+        }
         if (cfg.rate != namzero::kAudioRate) {
             std::fprintf(stderr,
                          "audio: rate %u non supportato: il motore resta a %u Hz. "
@@ -1199,8 +1220,9 @@ int main(int argc, char** argv) {
                          cfg.rate, namzero::kAudioRate);
             cfg.rate = namzero::kAudioRate;
         }
-        std::printf("audio: config device=%s buffer=%u periods=%u input=%u\n",
-                    cfg.device.c_str(), cfg.period, cfg.periods, cfg.input_channel);
+        std::printf("audio: config device=%s buffer=%u periods=%u input=%u output=%u\n",
+                    cfg.device.c_str(), cfg.period, cfg.periods, cfg.input_channel,
+                    cfg.output_channel);
     }
 
     // Un tipo scritto male non deve diventare un modello a caso: si torna al
@@ -1757,6 +1779,7 @@ int main(int argc, char** argv) {
     acfg.period_frames = cfg.period;
     acfg.periods = cfg.periods;
     acfg.input = cfg.input_channel;
+    acfg.output = cfg.output_channel;
 
     namzero::AlsaDuplex io;
     // Fallback: device configurato -> "default" -> "hw:XTONE". Un device
@@ -1788,7 +1811,8 @@ int main(int argc, char** argv) {
                      candidate.c_str(), open_err.c_str());
     }
     if (!audio_online) {
-        io.configure_offline(cfg.rate, cfg.period, cfg.periods, cfg.input_channel);
+        io.configure_offline(cfg.rate, cfg.period, cfg.periods, cfg.input_channel,
+                             cfg.output_channel);
         std::fprintf(stderr,
                      "audio: nessun device apribile (%s).\n"
                      "       il motore resta attivo SENZA audio per permettere la "
@@ -1801,9 +1825,10 @@ int main(int argc, char** argv) {
                          "audio: in uso \"%s\" (fallback; il configurato resta \"%s\")\n",
                          audio_used.c_str(), cfg.device.c_str());
         }
-        std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi | input %u\n",
+        std::printf("audio: %s | %u Hz | periodo %u frame | buffer %u frame | %u periodi | input %u | output %u\n",
                     io.device().c_str(), io.rate(), io.period_frames(),
-                    io.buffer_frames(), io.periods(), io.input_channel());
+                    io.buffer_frames(), io.periods(), io.input_channel(),
+                    io.output_channel());
     }
     chain.prepare(io.rate(), io.period_frames());
 
@@ -2152,6 +2177,12 @@ int main(int argc, char** argv) {
             {"buffer", io.period_frames()},
             {"periods", io.periods()},
             {"input", cfg.input_channel},
+            {"output", cfg.output_channel},
+            {"outputs", nlohmann::json::array({
+                {{"index", 0}, {"label", "Stereo L/R"}},
+                {{"index", 1}, {"label", "Canale 1"}},
+                {{"index", 2}, {"label", "Canale 2"}},
+            })},
             {"error", audio_online ? std::string{} : audio_error},
             {"boot_id", audio_boot_id},
         };
@@ -3643,6 +3674,8 @@ int main(int argc, char** argv) {
     const float mute_coef =
         1.0f - std::exp(-1.0f / (0.004f * static_cast<float>(io.rate())));
     float mute_gain = 1.0f;
+    // Uscita scelta in config audio.output (0 = stereo, 1/2 = mono su un lato).
+    const unsigned out_ch = io.output_channel();
 
     while (g_running.load()) {
         const int pending = switch_slot.load();
@@ -3701,7 +3734,19 @@ int main(int argc, char** argv) {
         clock_gettime(CLOCK_MONOTONIC, &t1);
         store_max(stats.max_us, elapsed_us(t0, t1));
 
-        for (std::size_t i = 0; i < samples; ++i) out_i32[i] = to_i32(buf[i]);
+        // Uscita: con output 0 la catena resta stereo L/R; con output 1/2 il
+        // mix mono (L+R)/2 va sul canale scelto e l'altro canale va a zero.
+        if (out_ch == 0) {
+            for (std::size_t i = 0; i < samples; ++i) out_i32[i] = to_i32(buf[i]);
+        } else {
+            const std::size_t ch = out_ch - 1;
+            for (std::size_t i = 0; i < frames; ++i) {
+                const float mono = 0.5f * (buf[i * 2] + buf[i * 2 + 1]);
+                out_i32[i * 2] = 0;
+                out_i32[i * 2 + 1] = 0;
+                out_i32[i * 2 + ch] = to_i32(mono);
+            }
+        }
 
         const long w = io.write_i32(out_i32.data(), frames);
         if (w < 0) {

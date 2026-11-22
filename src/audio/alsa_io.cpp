@@ -41,7 +41,8 @@ void AlsaDuplex::close() {
 }
 
 void AlsaDuplex::configure_offline(unsigned rate, unsigned period_frames,
-                                   unsigned periods, unsigned input) {
+                                   unsigned periods, unsigned input,
+                                   unsigned output) {
     close();
     // Il device resta quello configurato: la UI mostra "aperto: no" e il
     // messaggio d'errore, ma il campo device non sparisce.
@@ -50,6 +51,7 @@ void AlsaDuplex::configure_offline(unsigned rate, unsigned period_frames,
     periods_ = periods;
     buffer_frames_ = period_frames * periods;
     input_ = clamp_audio_input(input);
+    output_ = clamp_audio_output(output);
 }
 
 bool AlsaDuplex::open_one(snd_pcm_t** pcm, const char* what,
@@ -171,6 +173,7 @@ bool AlsaDuplex::open(const AudioConfig& cfg, std::string& err) {
     close();
     device_ = cfg.device;
     input_ = clamp_audio_input(cfg.input);
+    output_ = clamp_audio_output(cfg.output);
 
     if (!open_one(&capture_, "capture", SND_PCM_STREAM_CAPTURE, err)) {
         close();

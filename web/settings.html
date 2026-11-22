@@ -7,7 +7,7 @@ header { padding:12px 16px; border-bottom:1px solid #2c3240; display:flex; gap:1
 h1 { font-size:16px; margin:0; }
 a { color:#4fd1c5; text-decoration:none; }
 main { padding:16px; display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
-section { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padding:12px; min-width:260px; max-width:420px; }
+section { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padding:12px; min-width:260px; max-width:420px; box-sizing:border-box; }
 h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#8b93a7; margin:0 0 8px; }
 input[type=file] { color:#e6e9ef; max-width:100%; }
 li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
@@ -30,6 +30,12 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
 #spinner .ring { width:64px; height:64px; border:5px solid rgba(255,255,255,.15);
   border-top-color:#4fd1c5; border-radius:50%; animation:spinner-spin .8s linear infinite; }
 @keyframes spinner-spin { to { transform:rotate(360deg); } }
+@media (max-width: 560px) {
+  main { padding:12px; gap:16px; }
+  section { width:100%; max-width:100%; min-width:0; }
+  .field { flex-wrap:wrap; }
+  .field input, .field input.wide, .field select { width:100%; max-width:100%; box-sizing:border-box; }
+}
 </style></head><body>
 <header><h1>Impostazioni</h1><a href="index.html">← pedaliera</a></header>
 <main>
@@ -37,7 +43,7 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   <h2>Interfaccia audio</h2>
   <p id="audio-status" class="hint">Stato: …</p>
   <div class="field"><label for="audio-device">Device</label>
-    <select id="audio-device"></select></div>
+    <select id="audio-device"><option value="default">default — PCM di sistema</option></select></div>
   <div class="field"><label for="audio-custom">PCM manuale</label>
     <input id="audio-custom" class="wide" placeholder="es. plughw:XTONE (vuoto = select)"></div>
   <div class="field"><label for="audio-buffer">Buffer (frame)</label>
@@ -48,6 +54,8 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
     <span class="hint">48000 Hz (fissa)</span></div>
   <div class="field"><label for="audio-input">Ingresso</label>
     <select id="audio-input"></select></div>
+  <div class="field"><label for="audio-output">Canale di uscita</label>
+    <select id="audio-output"></select></div>
   <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
     <button class="btn" id="audio-apply">Applica</button>
     <span id="audio-msg" class="hint"></span>
@@ -118,7 +126,20 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
 // motore. La UI segue il ritorno con /api/state e mostra fallback/errore.
 const AUDIO_BUFFER_MIN = 16, AUDIO_BUFFER_MAX = 2048;
 const AUDIO_PERIODS_MIN = 2, AUDIO_PERIODS_MAX = 8;
+const AUDIO_OUTPUT_FALLBACK = [
+  {index: 0, label: "Stereo L/R"},
+  {index: 1, label: "Canale 1"},
+  {index: 2, label: "Canale 2"},
+];
 let audioDevices = [];
+let audioOutputs = AUDIO_OUTPUT_FALLBACK;
+
+function audioOutputLabel(value) {
+  const n = Number(value);
+  const hit = audioOutputs.find(o => Number(o.index) === n) ||
+              AUDIO_OUTPUT_FALLBACK.find(o => o.index === n);
+  return hit ? hit.label : String(value);
+}
 
 function audioMsg(text, isError) {
   const el = $("audio-msg");
@@ -131,6 +152,7 @@ function audioStatusText(a) {
     let text = "In uso: " + (a.device || a.config_device) +
       " · " + (a.rate || 48000) + " Hz · buffer " + a.buffer + " × " + a.periods;
     if (a.input !== undefined) text += " · ingresso " + (Number(a.input) + 1);
+    if (a.output !== undefined) text += " · uscita " + audioOutputLabel(a.output);
     if (a.fallback) text += " · FALLBACK (configurato: " + a.config_device + ")";
     return {text: "Stato: " + text, err: false};
   }
@@ -156,27 +178,56 @@ function fillAudioInputs(inputs, current) {
   });
   sel.value = String(current === undefined ? 0 : current);
 }
+function fillAudioOutputs(outputs, current) {
+  const sel = $("audio-output");
+  sel.innerHTML = "";
+  const list = (outputs && outputs.length) ? outputs : AUDIO_OUTPUT_FALLBACK;
+  list.forEach(o => {
+    const opt = document.createElement("option");
+    opt.value = String(o.index);
+    opt.textContent = o.label;
+    sel.append(opt);
+  });
+  if (!sel.options.length) {
+    const opt = document.createElement("option");
+    opt.value = "0";
+    opt.textContent = "Stereo L/R";
+    sel.append(opt);
+  }
+  const wanted = String(current === undefined ? 0 : current);
+  sel.value = Array.from(sel.options).some(o => o.value === wanted) ? wanted : "0";
+}
 function fillAudioDevices(devices, current) {
   const sel = $("audio-device");
+  if (!sel) return;
   sel.innerHTML = "";
   const seen = new Set();
   const add = (value, label) => {
-    if (!value || seen.has(value)) return;
+    if (typeof value !== "string" || !value.trim() || seen.has(value)) return;
     seen.add(value);
     const o = document.createElement("option");
     o.value = value;
     o.textContent = label;
     sel.append(o);
   };
+  // "default" resta sempre in testa, anche se `aplay -l` non elenca nulla:
+  // il select non deve mai restare vuoto.
   add("default", "default — PCM di sistema");
-  (devices || []).forEach(d => {
-    const base = d.label || (d.id + " — " + d.name);
+  (Array.isArray(devices) ? devices : []).forEach(d => {
+    if (!d || typeof d !== "object") return;
+    const base = d.label || [d.id, d.name].filter(Boolean).join(" — ") || d.pcm;
+    if (!base) return;
     add(d.pcm, base + " — hw");
     add(d.plughw, base + " — plughw (conversione)");
   });
-  // Un device configurato a mano (es. hw:CARD=XTONE,DEV=0) resta selezionabile.
-  add(current, (current || "") + " (configurato)");
-  sel.value = current && seen.has(current) ? current : "default";
+  // Un device configurato a mano (es. hw:CARD=XTONE,DEV=0) resta selezionabile
+  // anche se non compare nell'elenco di `aplay -l`.
+  if (typeof current === "string" && current.trim()) {
+    add(current, current + " (configurato)");
+  }
+  sel.value = (typeof current === "string" && seen.has(current)) ? current : "default";
+  if (!sel.options.length) add("default", "default — PCM di sistema");
+  if (!sel.value) sel.value = "default";
 }
 function audioNumber(id, min, max, label) {
   const n = Number($(id).value);
@@ -195,6 +246,7 @@ function readAudioForm() {
     buffer: audioNumber("audio-buffer", AUDIO_BUFFER_MIN, AUDIO_BUFFER_MAX, "buffer"),
     periods: audioNumber("audio-periods", AUDIO_PERIODS_MIN, AUDIO_PERIODS_MAX, "periodi"),
     input: audioNumber("audio-input", 0, 1, "ingresso"),
+    output: audioNumber("audio-output", 0, 2, "uscita"),
   };
 }
 function showSpinner(ms) {
@@ -276,6 +328,8 @@ function loadAudioForm() {
     $("audio-buffer").value = a.buffer;
     $("audio-periods").value = a.periods;
     fillAudioInputs(a.inputs, a.input);
+    audioOutputs = a.outputs || (a.status && a.status.outputs) || AUDIO_OUTPUT_FALLBACK;
+    fillAudioOutputs(audioOutputs, a.output);
     renderAudioStatus(a.status);
   }).catch(err => {
     audioMsg("Errore: " + err.message, true);

@@ -20,7 +20,8 @@ preset è il prossimo passo.
   UI; periodo e periodi configurabili (default 64 frame @ 48 kHz)
 - **Interfaccia audio configurabile** in Impostazioni: elenco device da
   `aplay -l`, PCM manuale, buffer 16..2048, periodi 2..8, canale d'ingresso 0/1,
-  **Applica** = salva in `presets.json` + reload. Rate interno **fisso 48 kHz**
+  canale di uscita (stereo L/R oppure mono su canale 1/2), **Applica** = salva
+  in `presets.json` + reload. Rate interno **fisso 48 kHz**
   (per device solo-44.1k si usa `plughw:CARD,DEV`). Se il device non si apre:
   fallback `default` -> `hw:XTONE`, poi modalita' offline senza crash loop, cosi'
   la UI puo' correggere ([docs/web.md](docs/web.md))
@@ -139,6 +140,19 @@ installa la unit del bridge BLE. Una build fatta a mano con `cmake` è identica 
 realtime non disponibile"*, con più probabilità di xrun a buffer piccoli. In quel
 caso basta `./scripts/install.sh`.
 
+Dopo un deploy fatto senza sudo, `systemctl` non può fermare/riavviare il
+servizio (NOPASSWD copre solo `setcap`). Per i test si avvia il motore a mano,
+dalla directory del repo:
+
+```bash
+cd ~/namzero-lite
+setsid nohup ./build/namzero-lite >/tmp/namzero-lite.log 2>&1 </dev/null &
+```
+
+La web UI si riavvia con `pkill -f "[w]eb/server.py"` (systemd la rilancia subito
+col codice nuovo). Quando si torna alla gestione systemd:
+`sudo systemctl restart namzero-lite`.
+
 ## Uso
 
 ```bash
@@ -158,7 +172,7 @@ aplay -l; arecord -l
 ./build/namzero-lite --no-rt --buffer 256
 
 # interfaccia audio da riga di comando (override dell'avvio, non persistito)
-./build/namzero-lite --device plughw:XTONE --buffer 128 --periods 4 --input 0
+./build/namzero-lite --device plughw:XTONE --buffer 128 --periods 4 --input 0 --output 0
 ```
 
 Statistiche ogni 5 secondi: blocchi elaborati, xrun, tempo massimo di
@@ -173,6 +187,7 @@ elaborazione del blocco.
 | `--buffer` | `64` | frame per periodo, 16..2048 |
 | `--periods` | `3` | periodi nel buffer, 2..8 |
 | `--input` | `0` | canale di cattura usato come ingresso (0 = L, 1 = R) |
+| `--output` | `0` | uscita: 0 = stereo L/R, 1 = mono sul canale 1, 2 = mono sul canale 2 |
 | `--gain` | `0.0` | dB sul master |
 | `--prio` | `80` | priorità FIFO del thread audio |
 | `--no-rt` | off | non impostare priorità realtime |
