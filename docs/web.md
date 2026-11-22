@@ -123,6 +123,30 @@ Sempre sotto i 720 px:
 - header, rack e fondo usano `env(safe-area-inset-*)` con `viewport-fit=cover`,
   quindi la UI non finisce sotto notch/home indicator.
 
+## Impostazioni: tab
+
+`settings.html` divide i pannelli in **quattro tab**, con una tab bar
+orizzontale subito sotto l'header:
+
+- **Modelli & IR / TONE3000**: upload NAM, upload IR, liste dei file caricati e
+  sezione TONE3000 (stato, **Scegli ampli**, **Scegli IR**, **Disconnetti**);
+- **Interfaccia audio**: device, PCM manuale, buffer, periodi, ingresso, canale
+  di uscita, **Applica** e stato del motore;
+- **WiFi**: reti conosciute e access point di fallback (SSID, password, stato);
+- **Accordatore**: riferimento A4, transpose e riferimento effettivo.
+
+La tab bar è sticky e su mobile scorre in orizzontale (le voci non vanno a capo;
+la tab attiva viene portata in vista). Un solo pannello è visibile alla volta:
+gli altri sono `hidden` ma restano nel DOM con gli stessi id, quindi il JS di
+audio/wifi/tuner/upload/TONE3000 non cambia e le fetch partono comunque al
+caricamento della pagina (un pannello nascosto non blocca nulla).
+
+L'ultima tab scelta è ricordata in `localStorage` (`namzero-settings-tab`) e si
+può aprire un pannello direttamente dal link: `#tab=models`, `#tab=audio`,
+`#tab=wifi`, `#tab=tuner`. Le tab hanno i ruoli ARIA (`tablist`/`tab`/
+`tabpanel`) e si cambiano anche con le frecce sinistra/destra quando hanno il
+focus.
+
 ## Accordatore
 
 La voce **Accordatore** sta nel rack "Opzioni generali" (accanto a **Salva

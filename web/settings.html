@@ -6,7 +6,21 @@ body { margin:0; font:14px/1.4 -apple-system,system-ui,sans-serif; background:#1
 header { padding:12px 16px; border-bottom:1px solid #2c3240; display:flex; gap:12px; align-items:center; }
 h1 { font-size:16px; margin:0; }
 a { color:#4fd1c5; text-decoration:none; }
-main { padding:16px; display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
+/* Tab bar sotto l'header: sempre su una riga, scrolla in orizzontale quando le
+   voci non ci stanno (mobile). Un solo pannello visibile alla volta. */
+nav.tabs { display:flex; gap:6px; overflow-x:auto; padding:8px 16px; background:#15171c;
+  border-bottom:1px solid #2c3240; position:sticky; top:0; z-index:20;
+  scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+nav.tabs::-webkit-scrollbar { display:none; }
+nav.tabs .tab { flex:0 0 auto; padding:7px 12px; background:transparent; color:#8b93a7;
+  border:1px solid transparent; border-radius:8px; font:inherit; font-size:13px;
+  white-space:nowrap; cursor:pointer; }
+nav.tabs .tab:hover { color:#e6e9ef; }
+nav.tabs .tab.active { color:#4fd1c5; background:#1e222b; border-color:#2c3240; font-weight:600; }
+nav.tabs .tab:focus-visible { outline:2px solid #4fd1c5; outline-offset:1px; }
+main { padding:16px; }
+.panel { display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
+.panel[hidden] { display:none; }
 section { background:#1e222b; border:1px solid #2c3240; border-radius:12px; padding:12px; min-width:260px; max-width:420px; box-sizing:border-box; }
 h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#8b93a7; margin:0 0 8px; }
 input[type=file] { color:#e6e9ef; max-width:100%; }
@@ -31,14 +45,39 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   border-top-color:#4fd1c5; border-radius:50%; animation:spinner-spin .8s linear infinite; }
 @keyframes spinner-spin { to { transform:rotate(360deg); } }
 @media (max-width: 560px) {
-  main { padding:12px; gap:16px; }
+  nav.tabs { padding:8px 12px; }
+  nav.tabs .tab { padding:9px 12px; font-size:13px; }
+  main { padding:12px; }
+  .panel { flex-direction:column; gap:16px; width:100%; }
   section { width:100%; max-width:100%; min-width:0; }
   .field { flex-wrap:wrap; }
   .field input, .field input.wide, .field select { width:100%; max-width:100%; box-sizing:border-box; }
 }
 </style></head><body>
 <header><h1>Impostazioni</h1><a href="index.html">← pedaliera</a></header>
+<nav class="tabs" id="settings-tabs" role="tablist" aria-label="Sezioni impostazioni">
+  <button class="tab active" type="button" role="tab" id="tab-models" data-tab="models"
+          aria-controls="panel-models" aria-selected="true">Modelli &amp; IR / TONE3000</button>
+  <button class="tab" type="button" role="tab" id="tab-audio" data-tab="audio"
+          aria-controls="panel-audio" aria-selected="false" tabindex="-1">Interfaccia audio</button>
+  <button class="tab" type="button" role="tab" id="tab-wifi" data-tab="wifi"
+          aria-controls="panel-wifi" aria-selected="false" tabindex="-1">WiFi</button>
+  <button class="tab" type="button" role="tab" id="tab-tuner" data-tab="tuner"
+          aria-controls="panel-tuner" aria-selected="false" tabindex="-1">Accordatore</button>
+</nav>
 <main>
+<div class="panel" id="panel-models" role="tabpanel" aria-labelledby="tab-models">
+<section><h2>Modelli NAM (.nam)</h2><input type="file" id="up-models" accept=".nam"><ul id="list-models"></ul></section>
+<section><h2>IR (.wav)</h2><input type="file" id="up-irs" accept=".wav"><ul id="list-irs"></ul></section>
+<section><h2>TONE3000</h2>
+<p id="t3k-status" class="hint">…</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+  <a class="btn" href="/t3k/start?gear=amp">Scegli ampli</a>
+  <a class="btn" href="/t3k/start?gear=ir">Scegli IR</a>
+  <button class="btn" id="t3k-disc">Disconnetti</button>
+</div></section>
+</div>
+<div class="panel" id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden>
 <section>
   <h2>Interfaccia audio</h2>
   <p id="audio-status" class="hint">Stato: …</p>
@@ -67,30 +106,8 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   <code>default</code> e poi <code>hw:XTONE</code>; se nessuno si apre resta
   attivo senza audio, così puoi correggere da qui.</p>
 </section>
-<section>
-  <h2>Accordatore</h2>
-  <div class="field"><label for="tuner-ref">Riferimento A4 (Hz)</label>
-    <input id="tuner-ref" type="number" min="415" max="450" step="0.1" value="440"></div>
-  <div class="field"><label for="tuner-tr">Transpose (semitoni)</label>
-    <input id="tuner-tr" type="number" min="-6" max="6" step="1" value="0"></div>
-  <p id="tuner-eff" class="hint">Riferimento effettivo: 440.0 Hz</p>
-  <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-    <button class="btn" id="tuner-save">Salva accordatore</button>
-    <span id="tuner-msg" class="hint"></span>
-  </div>
-  <p class="hint">Il transpose cambia solo la lettura della nota (non il suono).
-  Chi suona un semitono sotto può usare transpose −1 oppure riferimento 415.3 Hz:
-  il riferimento effettivo è A4 × 2^(transpose/12).</p>
-</section>
-<section><h2>Modelli NAM (.nam)</h2><input type="file" id="up-models" accept=".nam"><ul id="list-models"></ul></section>
-<section><h2>IR (.wav)</h2><input type="file" id="up-irs" accept=".wav"><ul id="list-irs"></ul></section>
-<section><h2>TONE3000</h2>
-<p id="t3k-status" class="hint">…</p>
-<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-  <a class="btn" href="/t3k/start?gear=amp">Scegli ampli</a>
-  <a class="btn" href="/t3k/start?gear=ir">Scegli IR</a>
-  <button class="btn" id="t3k-disc">Disconnetti</button>
-</div></section>
+</div>
+<div class="panel" id="panel-wifi" role="tabpanel" aria-labelledby="tab-wifi" hidden>
 <section><h2>Reti WiFi conosciute</h2>
 <p id="wifi-state" class="hint">Stato WiFi: …</p>
 <p class="hint">Il Pi si collega alla prima rete raggiungibile, in ordine di priorità. Se nessuna è raggiungibile avvia l'AP di fallback (se abilitato).</p>
@@ -118,9 +135,93 @@ li { color:#4fd1c5; font-family:ui-monospace,monospace; font-size:12px; }
   nota il Pi passa in STA. Le modifiche si applicano entro ~1 minuto (se l'AP
   è attivo viene riavviato).</p>
 </div></section>
+</div>
+<div class="panel" id="panel-tuner" role="tabpanel" aria-labelledby="tab-tuner" hidden>
+<section>
+  <h2>Accordatore</h2>
+  <div class="field"><label for="tuner-ref">Riferimento A4 (Hz)</label>
+    <input id="tuner-ref" type="number" min="415" max="450" step="0.1" value="440"></div>
+  <div class="field"><label for="tuner-tr">Transpose (semitoni)</label>
+    <input id="tuner-tr" type="number" min="-6" max="6" step="1" value="0"></div>
+  <p id="tuner-eff" class="hint">Riferimento effettivo: 440.0 Hz</p>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+    <button class="btn" id="tuner-save">Salva accordatore</button>
+    <span id="tuner-msg" class="hint"></span>
+  </div>
+  <p class="hint">Il transpose cambia solo la lettura della nota (non il suono).
+  Chi suona un semitono sotto può usare transpose −1 oppure riferimento 415.3 Hz:
+  il riferimento effettivo è A4 × 2^(transpose/12).</p>
+</section>
+</div>
 </main>
 <div id="spinner" class="hidden"><div class="ring"></div></div>
 <script>
+// ── Tab delle impostazioni ─────────────────────────────────────────────────
+// Solo disposizione: i pannelli restano nel DOM (gli id non cambiano) e le
+// fetch di audio/wifi/tuner/upload/t3k partono comunque al caricamento, anche
+// se il pannello è nascosto. L'ultima tab scelta resta in localStorage e si
+// può aprire un pannello dal link (#tab=audio, #tab=wifi, ...).
+const TABS = ["models", "audio", "wifi", "tuner"];
+const TAB_KEY = "namzero-settings-tab";
+function tabFromHash() {
+  const m = /(?:^|[#&])tab=([a-z]+)/.exec(location.hash || "");
+  return m && TABS.indexOf(m[1]) >= 0 ? m[1] : "";
+}
+function applyTab(id) {
+  if (TABS.indexOf(id) < 0) id = TABS[0];
+  TABS.forEach(t => {
+    const btn = document.getElementById("tab-" + t);
+    const panel = document.getElementById("panel-" + t);
+    const on = t === id;
+    if (btn) {
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+      btn.tabIndex = on ? 0 : -1;
+    }
+    if (panel) panel.hidden = !on;
+  });
+  try { localStorage.setItem(TAB_KEY, id); } catch (e) {}
+  // Deep-link senza ricaricare la pagina. Su file:// replaceState può lanciare
+  // SecurityError: in quel caso resta comunque la tab scelta in memoria.
+  try {
+    if (location.hash !== "#tab=" + id) history.replaceState(null, "", "#tab=" + id);
+  } catch (e) {}
+  // Su mobile la tab bar scrolla: porta in vista la tab attiva (block:"nearest"
+  // così la pagina non si muove in verticale).
+  const nav = document.getElementById("settings-tabs");
+  const active = document.getElementById("tab-" + id);
+  if (nav && active) {
+    try { active.scrollIntoView({block:"nearest", inline:"nearest"}); } catch (e) {}
+  }
+}
+function initTabs() {
+  let id = tabFromHash();
+  if (!id) {
+    try { id = localStorage.getItem(TAB_KEY) || ""; } catch (e) {}
+  }
+  applyTab(id);
+}
+document.getElementById("settings-tabs").addEventListener("click", e => {
+  const btn = e.target.closest("[data-tab]");
+  if (btn) applyTab(btn.getAttribute("data-tab"));
+});
+// Frecce sinistra/destra: navigazione da tastiera come una tablist standard.
+document.getElementById("settings-tabs").addEventListener("keydown", e => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const cur = document.activeElement && document.activeElement.getAttribute("data-tab");
+  const i = TABS.indexOf(cur);
+  if (i < 0) return;
+  e.preventDefault();
+  const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
+  applyTab(next);
+  const btn = document.getElementById("tab-" + next);
+  if (btn) btn.focus();
+});
+window.addEventListener("hashchange", () => {
+  const id = tabFromHash();
+  if (id) applyTab(id);
+});
+
 // ── Interfaccia audio ──────────────────────────────────────────────────────
 // Config in config/presets.json (blocco "audio"); Applica salva e ricarica il
 // motore. La UI segue il ritorno con /api/state e mostra fallback/errore.
@@ -551,6 +652,7 @@ $("t3k-disc").onclick = () => fetch("/api/t3k/disconnect", {method:"POST"}).then
 
 $("audio-apply").onclick = applyAudio;
 
+initTabs();
 loadAudioForm();
 loadTuner();
 loadFiles();
