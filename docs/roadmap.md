@@ -10,15 +10,19 @@
 
 1. **Fuzz octaver** — nuovo tipo nel blocco **drive** (fuzz + raddrizzatore per
    l'ottava, parametro "octave"), carattere Octavia.
-2. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
+2. **AP di fallback WiFi**: se nessuna rete conosciuta è raggiungibile entro
+   ~10 s dall'avvio, parte un **access point** (NetworkManager hotspot, SSID
+   `namzero-lite` + password in config, DHCP) così la web UI resta raggiungibile
+   anche senza rete; il servizio continua a scansionare e torna in STA appena
+   compare una rete nota (una sola radio: AP *o* STA). Stato e credenziali AP
+   nelle Impostazioni.
+3. **Configurazione interfaccia audio** (Impostazioni): elenco delle interfacce
    collegate (da `aplay -l`), scelta del device, **kHz**, **ingressi** (canale
    d'ingresso per chitarra/dry del tuner), buffer/periodi; “Applica” = salva +
    reload. Il motore resta a 48 kHz internamente: per device che accettano solo
    44.1 kHz si usa `plughw:` (conversione ALSA) o si valida il device. Fallback
    al default se l'apertura fallisce. Stima: **1,5–2 giorni** (MVP), +1–2 per
    hotplug/riconnessione.
-3. **AP di fallback WiFi** (rimandato): se nessuna rete nota è raggiungibile
-   entro ~10 s dall'avvio, parte l'access point; la web UI gestisce reti e AP.
 
 ## Rimandati / da valutare
 
