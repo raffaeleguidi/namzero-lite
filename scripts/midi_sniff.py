@@ -111,9 +111,6 @@ def main():
                     if b & 0x80:
                         st["status"] = b
                         st["msg"] = [b]
-                        if size.get(b & 0xF0) == 1:
-                            print(f"{time.strftime('%H:%M:%S')} [{st['label']}] {decode(st['msg'])}   [{' '.join(f'{x:02X}' for x in st['msg'])}]", flush=True)
-                            st["msg"] = []
                         continue
                     if st["status"] is None:
                         continue
