@@ -81,8 +81,8 @@
       2
     ],
     "boost_led": 3,
-    "preset_pc": true,
-    "pc_effects": false,
+    "preset_pc": false,
+    "pc_effects": true,
     "mod_pc": [
       4,
       5,
