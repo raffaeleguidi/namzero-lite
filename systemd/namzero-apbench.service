@@ -1,0 +1,13 @@
+[Unit]
+Description=namzero AP bench: misura CPU/AP/xrun a ogni boot (temporaneo)
+After=network.target namzero-lite.service namzero-web.service
+Wants=namzero-lite.service namzero-web.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/pi/namzero-lite/scripts/measure_ap.py --seconds 1800 --out /home/pi/ap-bench.txt
+TimeoutStartSec=1900
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
