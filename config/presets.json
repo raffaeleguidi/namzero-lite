@@ -1,39 +1,55 @@
 {
-  "audio": {
-    "device": "hw:XTONE",
-    "buffer": 64,
-    "periods": 3,
-    "input": 0,
-    "output": 0
+  "autoengage": {
+    "engage_ms": 100,
+    "release_ms": 1000,
+    "release_threshold": 0.05,
+    "threshold": 0.1
   },
-  "gate": {
-    "threshold_db": -70,
-    "attack_ms": 2,
-    "release_ms": 3000
+  "boost": {
+    "db": 6.0,
+    "on": false
   },
   "eq": {
+    "gains": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
     "on": true,
-    "gains": [0.0, 0.0, 0.0, 0.0, 0.0],
     "volume_db": 6.0
   },
-  "tuner": {
-    "reference_hz": 440.0,
-    "transpose": 0
+  "gate": {
+    "attack_ms": 2.0,
+    "release_ms": 1640.0,
+    "threshold_db": -70.0
   },
-  "looper": {
-    "autostart": false,
-    "autostart_threshold_db": -42.0,
-    "max_seconds": 60
-  },
-  "start_slot": -1,
   "slots": [
-    "presets/vox_wah.json",
-    "presets/plexi.json",
+    "presets/vox_clean.json",
+    "presets/fenderish.json",
     "presets/toneking_lean.json",
     "presets/toneking_crunch.json",
     "presets/toneking_big.json",
     "presets/vox_ac30_edge.json",
     "presets/vox_ac30_klon.json",
     "presets/vox_ac30_tremolo.json"
-  ]
+  ],
+  "looper": {
+    "autostart": false,
+    "autostart_threshold_db": -42.0,
+    "max_seconds": 60
+  },
+  "start_slot": -1,
+  "tuner": {
+    "reference_hz": 415.3,
+    "transpose": 0
+  },
+  "audio": {
+    "device": "hw:XTONE",
+    "buffer": 64,
+    "periods": 3,
+    "input": 0,
+    "output": 0
+  }
 }

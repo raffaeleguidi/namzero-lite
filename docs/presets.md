@@ -24,11 +24,10 @@ esempio piu' completo e' `config/presets/vox_delay.json`.
     "comp":   { "on": false, "threshold_db": -18, "ratio": 3,
                 "attack_ms": 10, "release_ms": 150, "makeup_db": 3 },
     "drive":  { "on": false, "type": "fuzz", "amount": 0.15, "tone": 0.5,
-                "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0,
-                "octave": 0.0, "octave_on": false },
-    "filter": { "on": false, "type": "wah", "range": 12, "rate_hz": 1.0,
-                "depth": 0.5, "q": 3.0, "mix": 1.0,
-                "low_hz": 350, "high_hz": 2200, "position": 0.5 },
+                "level_db": 0, "blend": 0.40, "mid_db": 4.0, "low_db": 5.0 },
+    "filter": { "on": false, "rate_hz": 1.0, "depth": 0.5, "q": 3.0,
+                "mix": 1.0, "low_hz": 350, "high_hz": 2200,
+                "position": 0.5 },
     "mod":    { "on": true,  "type": "tremolo", "rate_hz": 4.5, "depth": 0.5,
                 "fx_mix": 0.5, "feedback": 0.35, "position": "pre_amp" },
     "amp":    { "on": true,  "file": "models/vox_ac30_a2.nam",
@@ -92,78 +91,42 @@ e **non** vengono persistiti.
 | `blend` | 0.40 | solo klon: quota di saturo nel mix |
 | `mid_db` | 4.0 | solo klon: gobba a 800 Hz |
 | `low_db` | 5.0 | solo fuzz: low-shelf a 110 Hz |
-| `octave` | 0.0 | solo fuzz: 0..1, quota di ottava stile Octavia |
-| `octave_on` | false | solo fuzz: interruttore dell'ottava, separato dal mix |
 
-`octave` raddrizza il fuzz a onda intera, toglie la continua con un passa-alto a
-200 Hz e miscela il risultato al fuzz: non è un pitch shifter, è l'armonica a
-2f tipica dell'Octavia. A `0` il fuzz suona come prima; a `1` si sente solo
-l'ottava. Il parametro è significativo solo con `type: "fuzz"`: con `klon` e
-`tubescreamer` viene ignorato ma resta salvato. I preset senza `octave` valgono
-`0` (migrazione automatica).
+L'ottava del fuzz (`octave`/`octave_on`) è stata rimossa: un preset che la
+contiene non si rompe, i due campi vengono ignorati con un avviso su stderr e
+spariscono al primo salvataggio.
 
-`octave_on` è l'interruttore: l'ottava si applica **solo** con
-`octave_on: true` e `type: "fuzz"`. Con `octave_on: false` il ramo è bypassato
-anche se `octave` è 1: il valore del mix resta salvato e torna effettivo appena
-si riaccende, senza essere azzerato. I preset vecchi senza la chiave partono
-spenti (`false`), conservando il mix che avevano. In catena lo spegnimento fa
-un fade di ~8 ms, quindi non produce click. Da web UI il mix è la manopola
-Octave e l'interruttore è il toggle Octave ON/OFF accanto; via socket si
-comandano con `param` `key:"octave"` e `key:"octave_on"` (bool, con clamp;
-`set` accetta anche `octave_on`).
+### filter (wah)
 
-### filter (wah / whammy)
+Blocco fisso **prima del drive**: è una seconda istanza di `ModSlot`, sempre
+presente in catena, con il solo tipo **wah** (filtro a stato variabile comandato
+dal pedale).
 
-Blocco fisso **prima del drive**: e' una seconda istanza di `ModSlot`, sempre
-presente in catena, con due tipi:
-
-- `wah` (default): filtro a stato variabile comandato dal pedale;
-- `whammy`: pitch shifter granulare comandato dal pedale. Posizione 0 = unisono,
-  posizione 1 = `range` semitoni (positivo = piu' acuto, negativo = piu' grave,
-  ammesso -24..+24).
+Il tipo non è più configurabile. Un preset vecchio con `type: "whammy"` o con
+`range` non fa fallire il caricamento: il filter resta wah e i due campi vengono
+ignorati con un avviso su stderr. Al primo salvataggio vengono rimossi dal file.
 
 Non ha un interruttore: `on` viene forzato a `false` in lettura e riscritto
 `false` in salvataggio. Si accende solo con l'auto-engage dell'espressione (vedi
-`docs/midi.md`), che vale per entrambi i tipi: quando il pedale supera la soglia
-il filter entra in catena e il tipo scelto decide cosa fa.
+`docs/midi.md`).
 
 | Chiave | Default | Note |
 |--------|---------|------|
-| `on` | false | ignorato: il filter nei preset e' sempre spento |
-| `type` | `wah` | `wah` o `whammy`; i preset vecchi senza questa chiave restano wah |
-| `range` | 12 | solo whammy: semitoni a pedale a fondo, -24..+24 |
-| `rate_hz` | 1.0 | non usato dal wah ne' dal whammy, esposto per completezza |
-| `depth` | 0.5 | non usato dal wah ne' dal whammy |
-| `q` | 3.0 | solo wah: risonanza (il Q effettivo scende verso la punta) |
-| `mix` | 1.0 | quanto bagnato; vale sia per il wah sia per il whammy (1 = 100% wet) |
-| `low_hz` / `high_hz` | 350 / 2200 | solo wah: estremi dello sweep |
-| `position` | 0.5 | posizione del pedale 0..1 (per il whammy: 0 = unisono, 1 = range) |
+| `on` | false | ignorato: il filter nei preset è sempre spento |
+| `rate_hz` | 1.0 | non usato dal wah, esposto per completezza |
+| `depth` | 0.5 | non usato dal wah |
+| `q` | 3.0 | risonanza (il Q effettivo scende verso la punta) |
+| `mix` | 1.0 | quanto bagnato (1 = 100% wet) |
+| `low_hz` / `high_hz` | 350 / 2200 | estremi dello sweep |
+| `position` | 0.5 | posizione del pedale 0..1 |
 
-Se il blocco manca valgono i default; `filter` e' comunque in catena e spento.
-`type` viene validato: un valore sconosciuto torna a `wah` con un avviso su
-stderr. Anche `range` viene limitato a -24..+24 in lettura, nei comandi live e
-nel salvataggio.
+Se il blocco manca valgono i default; `filter` è comunque in catena e spento.
 
-Il pitch shifter del whammy usa un buffer circolare di ~120 ms, due testine di
-lettura con crossfade di ~30 ms e interpolazione lineare; il rapporto e' letto da
-un atomico e smussato, quindi muovere il pedale non produce click. La latenza
-dichiarata e' la finestra di crossfade (~30 ms a 48 kHz): si somma alla latenza
-della catena solo quando il filter e' acceso e il tipo e' whammy.
-
-Come ogni pitch shifter a due testine, il crossfade non e' un vocoder: su una
-sinusoide di 440 Hz a +12 semitoni il picco spettrale e' a ~873 Hz invece di 880
-(~-0.8%), mentre a 0 semitoni l'unisono e' esatto. E' il compromesso tipico di
-questo algoritmo (un leggero "warble" da granular); per l'intonazione perfetta
-servirebbe un pitch shifter in frequenza, molto piu' costoso. Il test unitario
-`pitch_shifter_test` misura frequenza, unisono, mix dry e cambio tipo.
-
-Nota sull'auto-engage: la sua polarita' e' separata da `filter.position` e vive
-in `midi.json` (`wah_autoengage.invert`) oppure nel blocco `autoengage` di
+Nota sull'auto-engage: la sua polarità è separata da `filter.position` e vive in
+`midi.json` (`wah_autoengage.invert`) oppure nel blocco `autoengage` di
 `presets.json`. Con `invert: true` (il valore attuale della config viva) il
-filter si accende verso il **tacco**, come il wah; per il whammy conviene
-`invert: false`, altrimenti il filter si spegne (dopo `release_ms`) proprio
-mentre il pedale sale di tonalita'. Non e' una regola del motore: e' una scelta
-della mappa, e il tipo `wah`/`whammy` non la cambia.
+filter si accende verso il **tacco**, come il wah. Non è una regola del motore:
+è una scelta della mappa.
 
 ### mod
 
@@ -395,8 +358,9 @@ l'alias `autostart_threshold_db`).
   blocco `"midi"` dentro un preset viene ignorato con un avviso.
 - **Il salvataggio con `s`** (o il bottone *Salva preset* della web UI) riscrive
   tutto lo stato live: on/off e parametri degli slot, `mod.position`, `filter`
-  (tipo, range, mix e sempre `on: false`). Nome e chiavi sconosciute restano
-  intatti.
+  (parametri wah e sempre `on: false`). Nome e chiavi sconosciute restano
+  intatti; i campi delle feature rimosse (`drive.octave`, `filter.type`,
+  `filter.range`) vengono cancellati.
 - **Il preset non si ricarica da solo**: vale quanto detto sopra, si legge
   all'avvio.
 
@@ -406,7 +370,7 @@ Il modo per non fidarsi (ci e' gia' sfuggito una volta: gate e comp leggevano i
 valori dal JSON ma non li applicavano allo slot, che restava sui default):
 
 ```bash
-./build/namzero-lite -p config/presets/vox_wah.json --print-config
+./build/namzero-lite -p config/presets/vox_clean.json --print-config
 ```
 
 Stampa `cfg.<slot>.<parametro>=<valore>` leggendo **dagli slot**, non dal Config

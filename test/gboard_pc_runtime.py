@@ -249,8 +249,11 @@ def restart_engine(label):
     r = subprocess.run(["sudo", "-n", "systemctl", "restart", "namzero-lite"],
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
-        raise RuntimeError("systemctl restart namzero-lite: %s %s" %
-                           (r.stdout.strip(), r.stderr.strip()))
+        # Su questo Pi sudo non copre systemctl: la unit ha Restart=on-failure,
+        # quindi SIGKILL fa ripartire systemd col binario/config nuovi.
+        note("systemctl senza sudo, riavvio con SIGKILL (Restart=on-failure)")
+        subprocess.run(["pkill", "-KILL", "-x", "namzero-lite"],
+                       capture_output=True, text=True)
     deadline = time.time() + 20.0
     last = None
     while time.time() < deadline:

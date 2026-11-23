@@ -16,13 +16,10 @@ Verifica:
   a) 16 connessioni concorrenti che leggono lo stato (64 richieste);
   b) 20 cambi preset consecutivi (comando slot + state);
   c) poll di /api/state dal web durante i cambi;
-  c2) FILTER: tipo wah/whammy, range (clamp), mix, defaults, auto-engage reale
-      con il CC 7 iniettato sulla socket BLE del motore, pedale a fondo ->
-      pitch up, save e reload del preset;
+  c2) FILTER: solo wah, mix/posizione, defaults, auto-engage reale con il CC 7
+      iniettato sulla socket BLE del motore, save e reload del preset;
   d) comandi di gruppo: param, save, save_options, looper, file, defaults;
-     drive.octave del fuzz: mix, clamp 0..1, interruttore octave_on separato
-     (param e set, clamp bool, mix conservato da spento), save/reload,
-     migrazione dei preset vecchi (octave_on assente -> false), defaults;
+     drive del fuzz: amount/tone, defaults, save/reload;
      looper.autostart: OFF -> rec immediato, ON -> attesa "armed" senza
      registrare, cancel/stop dall'attesa, soglia con clamp, save_options e
      reload che rilegge il blocco;
@@ -440,41 +437,23 @@ def main():
         # dell'utente e vanno ripristinati alla fine.
         change_slot(pj, initial_slot)
 
-        # ── (c2) FILTER: wah/whammy, range, mix, auto-engage reale ──────────
-        # Il whammy e' comandato dall'espressione, quindi oltre ai comandi ctl
-        # si inietta il CC 7 sulla socket BLE del motore (il bridge viene
-        # fermato per pochi secondi e systemd lo rilancia).
+        # ── (c2) FILTER: solo wah, mix, auto-engage reale ──────────────────
+        # Il filter e' comandato dall'espressione: oltre ai comandi ctl si
+        # inietta il CC 7 sulla socket BLE del motore (il bridge viene fermato
+        # per pochi secondi e systemd lo rilancia).
         st = read_state()
         has_filter = "filter" in st.get("slots", {})
         check("filter presente nello stato", has_filter)
         if has_filter:
-            send_cmd({"cmd": "param", "slot": "filter", "key": "type", "value": "whammy"})
-            st = wait_state(lambda s: s["slots"]["filter"].get("type") == "whammy",
-                            timeout=4, label="filter type whammy")
-            check("filter.type = whammy (param)", st["slots"]["filter"]["type"] == "whammy")
+            check("filter senza campi del whammy",
+                  "type" not in st["slots"]["filter"] and
+                  "range" not in st["slots"]["filter"] and
+                  "ratio" not in st["slots"]["filter"])
 
-            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 7})
             send_cmd({"cmd": "param", "slot": "filter", "key": "mix", "value": 0.8})
-            st = wait_state(lambda s: abs(s["slots"]["filter"]["range"] - 7) < 1e-6 and
-                            abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6,
-                            timeout=4, label="filter range/mix")
-            check("filter.range e mix (param)",
-                  st["slots"]["filter"]["range"] == 7 and
-                  abs(st["slots"]["filter"]["mix"] - 0.8) < 1e-6)
-
-            # Clamp del range: 99 deve diventare +24.
-            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 99})
-            st = wait_state(lambda s: abs(s["slots"]["filter"]["range"] - 24) < 1e-6,
-                            timeout=4, label="filter range clamp")
-            check("filter.range clamp a +24", st["slots"]["filter"]["range"] == 24)
-
-            # Tipo non valido: resta il precedente.
-            send_cmd({"cmd": "param", "slot": "filter", "key": "type", "value": "nope"})
-            time.sleep(0.2)
-            st = read_state()
-            check("filter.type non valido ignorato", st["slots"]["filter"]["type"] == "whammy")
-
-            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 12})
+            st = wait_state(lambda s: abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6,
+                            timeout=4, label="filter mix")
+            check("filter.mix (param)", abs(st["slots"]["filter"]["mix"] - 0.8) < 1e-6)
 
             # Auto-engage con CC 7 iniettato: si prova prima il tacco, poi la
             # punta (wah_invert nella config viva puo' spostare la zona attiva).
@@ -498,14 +477,11 @@ def main():
                       "CC %s" % engage_val)
 
                 if engaged:
-                    # Pedale a fondo con range 12: il rapporto deve salire a ~2.
                     send_cmd({"cmd": "param", "slot": "filter", "key": "position", "value": 1})
-                    st = wait_state(lambda s: s["slots"]["filter"]["position"] > 0.99 and
-                                    s["slots"]["filter"]["ratio"] > 1.9,
-                                    timeout=3, label="whammy pos 1 ratio")
-                    check("whammy posizione 1 -> pitch up (ratio ~2)",
-                          st["slots"]["filter"]["ratio"] > 1.9,
-                          "ratio %.3f" % st["slots"]["filter"]["ratio"])
+                    st = wait_state(lambda s: s["slots"]["filter"]["position"] > 0.99,
+                                    timeout=3, label="filter pos 1")
+                    check("filter.position 1 (pedale a fondo)",
+                          st["slots"]["filter"]["position"] > 0.99)
                     check("filter resta acceso dall'auto-engage",
                           st["slots"]["filter"]["on"] is True)
 
@@ -526,38 +502,26 @@ def main():
                 if not wait_ble_bridge(12):
                     print("  nota: bridge BLE non ancora ripartito", flush=True)
 
-            # Save + reload: type/range/mix devono restare nel preset, e il
-            # filter deve tornare spento (on e' sempre forzato a false).
-            send_cmd({"cmd": "param", "slot": "filter", "key": "type", "value": "whammy"})
-            send_cmd({"cmd": "param", "slot": "filter", "key": "range", "value": 7})
+            # Save + reload: il mix deve restare nel preset, e il filter deve
+            # tornare spento (on e' sempre forzato a false).
             send_cmd({"cmd": "param", "slot": "filter", "key": "mix", "value": 0.8})
-            wait_state(lambda s: s["slots"]["filter"].get("type") == "whammy" and
-                       abs(s["slots"]["filter"]["range"] - 7) < 1e-6,
+            wait_state(lambda s: abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6,
                        timeout=4, label="filter pre-save")
             send_cmd({"cmd": "save"})
             time.sleep(0.25)
             st = wait_reexec({"cmd": "reload"},
-                             lambda s: s["slots"]["filter"].get("type") == "whammy" and
-                             abs(s["slots"]["filter"]["range"] - 7) < 1e-6 and
-                             abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6 and
+                             lambda s: abs(s["slots"]["filter"]["mix"] - 0.8) < 1e-6 and
                              s["slots"]["filter"]["on"] is False,
-                             "filter whammy dopo il reload", timeout=20)
-            check("filter type/range/mix salvati e ricaricati",
-                  st["slots"]["filter"]["type"] == "whammy" and
-                  st["slots"]["filter"]["range"] == 7 and
+                             "filter wah dopo il reload", timeout=20)
+            check("filter mix salvato e ricaricato",
                   abs(st["slots"]["filter"]["mix"] - 0.8) < 1e-6)
             check("filter spento dopo il reload", st["slots"]["filter"]["on"] is False)
 
-            # defaults: wah, range 12, mix 1.
+            # defaults: mix 1.
             send_cmd({"cmd": "defaults", "slot": "filter"})
-            st = wait_state(lambda s: s["slots"]["filter"].get("type") == "wah" and
-                            abs(s["slots"]["filter"]["range"] - 12) < 1e-6 and
-                            abs(s["slots"]["filter"]["mix"] - 1) < 1e-6,
+            st = wait_state(lambda s: abs(s["slots"]["filter"]["mix"] - 1) < 1e-6,
                             timeout=4, label="defaults filter")
-            check("defaults filter (wah, range 12, mix 1)",
-                  st["slots"]["filter"]["type"] == "wah" and
-                  st["slots"]["filter"]["range"] == 12 and
-                  st["slots"]["filter"]["mix"] == 1)
+            check("defaults filter (mix 1)", abs(st["slots"]["filter"]["mix"] - 1) < 1e-6)
 
         # ── (d) comandi di gruppo ───────────────────────────────────────────
         send_cmd({"cmd": "param", "slot": "gate", "key": "threshold", "value": -55.5})
@@ -570,125 +534,53 @@ def main():
                         timeout=4, label="defaults gate")
         check("defaults gate", st["slots"]["gate"]["threshold"] == -55.0)
 
-        # ── drive: ottava del fuzz (Octavia) ────────────────────────────────
+        # ── drive del fuzz: amount/tone, defaults, save/reload ──────────────
         send_cmd({"cmd": "set", "slot": "drive", "type": "fuzz"})
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave", "value": 0.60})
+        send_cmd({"cmd": "param", "slot": "drive", "key": "amount", "value": 0.60})
+        send_cmd({"cmd": "param", "slot": "drive", "key": "tone", "value": 0.30})
         st = wait_state(lambda s: s["slots"]["drive"].get("type") == "fuzz" and
-                        abs(s["slots"]["drive"].get("octave", -1) - 0.60) < 1e-6,
-                        timeout=4, label="param drive octave")
-        check("param drive.octave", abs(st["slots"]["drive"]["octave"] - 0.60) < 1e-6,
-              str(st["slots"]["drive"].get("octave")))
-
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave", "value": 5})
-        st = wait_state(lambda s: abs(s["slots"]["drive"].get("octave", -1) - 1.0) < 1e-6,
-                        timeout=4, label="clamp alto octave")
-        check("drive.octave clamp alto -> 1", st["slots"]["drive"]["octave"] == 1)
-
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave", "value": -3})
-        st = wait_state(lambda s: abs(s["slots"]["drive"].get("octave", -1)) < 1e-6,
-                        timeout=4, label="clamp basso octave")
-        check("drive.octave clamp basso -> 0", st["slots"]["drive"]["octave"] == 0)
-
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave", "value": 0.55})
-        st = wait_state(lambda s: abs(s["slots"]["drive"].get("octave", -1) - 0.55) < 1e-6,
-                        timeout=4, label="octave 0.55")
-        check("drive.octave 0.55", abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6)
-
-        # Interruttore separato dal mix: da spento bypassa l'ottava ma il mix
-        # resta salvato. Il clamp booleano accetta anche 1/0 e la forma via set.
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave_on", "value": 1})
-        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is True,
-                        timeout=4, label="param drive octave_on 1")
-        check("param drive.octave_on 1 -> true",
-              st["slots"]["drive"]["octave_on"] is True)
-
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave_on", "value": 0})
-        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is False,
-                        timeout=4, label="param drive octave_on 0")
-        check("drive.octave_on false conserva il mix",
-              st["slots"]["drive"]["octave_on"] is False and
-              abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6)
-
-        send_cmd({"cmd": "param", "slot": "drive", "key": "octave_on", "value": True})
-        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is True,
-                        timeout=4, label="param drive octave_on true")
-        check("param drive.octave_on true", st["slots"]["drive"]["octave_on"] is True)
-
-        send_cmd({"cmd": "set", "slot": "drive", "octave_on": False})
-        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is False,
-                        timeout=4, label="set drive octave_on false")
-        check("set drive.octave_on false", st["slots"]["drive"]["octave_on"] is False)
-
-        send_cmd({"cmd": "set", "slot": "drive", "octave_on": True})
-        st = wait_state(lambda s: s["slots"]["drive"].get("octave_on") is True,
-                        timeout=4, label="set drive octave_on true")
-        check("set drive.octave_on true", st["slots"]["drive"]["octave_on"] is True)
-
-        # Klon e tubescreamer ignorano l'ottava (il suono si verifica in
-        # drive_octave_test), ma il valore deve restare nello stato e nel preset.
-        for dtype in ("klon", "tubescreamer"):
-            send_cmd({"cmd": "set", "slot": "drive", "type": dtype})
-            st = wait_state(lambda s, d=dtype: s["slots"]["drive"].get("type") == d,
-                            timeout=4, label="drive tipo %s" % dtype)
-            check("drive.octave resta salvato su %s" % dtype,
-                  abs(st["slots"]["drive"].get("octave", -1) - 0.55) < 1e-6)
-        send_cmd({"cmd": "set", "slot": "drive", "type": "fuzz"})
-        wait_state(lambda s: s["slots"]["drive"].get("type") == "fuzz",
-                   timeout=4, label="drive tipo fuzz")
+                        abs(s["slots"]["drive"].get("amount", -1) - 0.60) < 1e-6 and
+                        abs(s["slots"]["drive"].get("tone", -1) - 0.30) < 1e-6,
+                        timeout=4, label="param drive amount/tone")
+        check("param drive.amount/tone",
+              abs(st["slots"]["drive"]["amount"] - 0.60) < 1e-6 and
+              abs(st["slots"]["drive"]["tone"] - 0.30) < 1e-6)
+        check("drive senza campi dell'ottava",
+              "octave" not in st["slots"]["drive"] and
+              "octave_on" not in st["slots"]["drive"])
 
         if backup_preset:
             send_cmd({"cmd": "save"})
             time.sleep(0.25)
             dp = json.load(open(os.path.join(repo, initial_preset)))["slots"]["drive"]
-            check("save scrive drive.octave e octave_on",
+            check("save scrive drive senza ottava",
                   dp.get("type") == "fuzz" and
-                  abs(float(dp.get("octave", -1)) - 0.55) < 1e-6 and
-                  dp.get("octave_on") is True,
+                  abs(float(dp.get("amount", -1)) - 0.60) < 1e-6 and
+                  "octave" not in dp and "octave_on" not in dp,
                   json.dumps(dp))
 
             st = wait_reexec({"cmd": "reload"},
                              lambda s: s["slots"]["drive"].get("type") == "fuzz" and
-                             abs(s["slots"]["drive"].get("octave", -1) - 0.55) < 1e-6 and
-                             s["slots"]["drive"].get("octave_on") is True,
-                             "reload drive octave", timeout=20)
-            check("reload conserva drive.octave e octave_on",
-                  abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6 and
-                  st["slots"]["drive"]["octave_on"] is True)
-
-            # Migrazione: un preset vecchio senza "octave_on" parte spento,
-            # conservando il mix che c'era.
-            pj = json.load(open(os.path.join(repo, initial_preset)))
-            pj["slots"]["drive"].pop("octave_on", None)
-            with open(os.path.join(repo, initial_preset), "w") as f:
-                json.dump(pj, f, indent=2)
-            st = wait_reexec({"cmd": "reload"},
-                             lambda s: s["slots"]["drive"].get("octave_on") is False,
-                             "migrazione drive octave_on", timeout=20)
-            check("preset senza octave_on -> false (mix conservato)",
-                  st["slots"]["drive"]["octave_on"] is False and
-                  abs(st["slots"]["drive"]["octave"] - 0.55) < 1e-6)
-
-            # Migrazione: un preset senza "octave" deve valere 0.
-            pj = json.load(open(os.path.join(repo, initial_preset)))
-            pj["slots"]["drive"].pop("octave", None)
-            with open(os.path.join(repo, initial_preset), "w") as f:
-                json.dump(pj, f, indent=2)
-            st = wait_reexec({"cmd": "reload"},
-                             lambda s: abs(s["slots"]["drive"].get("octave", -1)) < 1e-6,
-                             "migrazione drive octave", timeout=20)
-            check("preset senza octave -> 0", st["slots"]["drive"]["octave"] == 0)
+                             abs(s["slots"]["drive"].get("amount", -1) - 0.60) < 1e-6,
+                             "reload drive", timeout=20)
+            check("reload conserva drive.amount senza campi ottava",
+                  abs(st["slots"]["drive"]["amount"] - 0.60) < 1e-6 and
+                  "octave" not in st["slots"]["drive"] and
+                  "octave_on" not in st["slots"]["drive"])
         else:
-            check("save/reload/migrazione drive.octave", True, "nessun preset da salvare")
+            check("save/reload drive", True, "nessun preset da salvare")
 
         send_cmd({"cmd": "defaults", "slot": "drive"})
         st = wait_state(lambda s: s["slots"]["drive"].get("type") == "fuzz" and
-                        abs(s["slots"]["drive"].get("octave", -1)) < 1e-6 and
-                        s["slots"]["drive"].get("octave_on") is False,
+                        abs(s["slots"]["drive"].get("amount", -1) - 0.15) < 1e-6 and
+                        abs(s["slots"]["drive"].get("tone", -1) - 0.5) < 1e-6,
                         timeout=4, label="defaults drive")
-        check("defaults drive (type fuzz, octave 0, octave_on false)",
+        check("defaults drive (type fuzz, amount 0.15, tone 0.5, senza ottava)",
               st["slots"]["drive"]["type"] == "fuzz" and
-              st["slots"]["drive"]["octave"] == 0 and
-              st["slots"]["drive"]["octave_on"] is False)
+              abs(st["slots"]["drive"]["amount"] - 0.15) < 1e-6 and
+              abs(st["slots"]["drive"]["tone"] - 0.5) < 1e-6 and
+              "octave" not in st["slots"]["drive"] and
+              "octave_on" not in st["slots"]["drive"])
 
         # ── looper: autostart, attesa, soglia, persistenza ──────────────────
         st = read_state()

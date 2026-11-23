@@ -40,18 +40,14 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 .pedal .knob input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
 .pedal .knob input::-moz-range-track { height:4px; background:#9a9a9a; border-radius:2px; }
 .pedal .knob input::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border:1px solid rgba(0,0,0,.3); }
-/* Ottava del fuzz: manopola del mix e interruttore indipendente sulla stessa
-   riga. Spegnendo l'interruttore il mix resta visibile e salvato: si spegne
-   solo l'effetto, non si azzera il valore. */
-.octave-row { display:flex; align-items:flex-end; gap:6px; margin-top:6px; }
-.octave-row .knob { flex:1 1 auto; margin-top:0; }
-.octave-toggle { flex:0 0 auto; margin-bottom:1px; padding:3px 7px; border-radius:9px;
+/* Toggle compatto condiviso dai comandi on/off del rack (autostart looper). */
+.toggle-btn { flex:0 0 auto; margin-bottom:1px; padding:3px 7px; border-radius:9px;
   border:1px solid rgba(0,0,0,.25); background:rgba(255,255,255,.45); color:#16181d;
   cursor:pointer; font:inherit; font-size:10px; font-weight:600; letter-spacing:.3px;
   white-space:nowrap; }
-.octave-toggle.on { background:#2563eb; border-color:#2563eb; color:#fff;
+.toggle-btn.on { background:#2563eb; border-color:#2563eb; color:#fff;
   box-shadow:0 0 8px rgba(37,99,235,.45); }
-.octave-toggle:focus-visible { outline:2px solid #2563eb; outline-offset:1px; }
+.toggle-btn:focus-visible { outline:2px solid #2563eb; outline-offset:1px; }
 .pedal .foot { display:flex; justify-content:flex-start; margin-top:8px; }
 #rack { margin:0 16px 16px; background:linear-gradient(#2b303b,#22262f); border:1px solid #3a4150; border-radius:10px; padding:10px 16px 14px; box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
 .rack-title { display:flex; align-items:center; font-size:11px; letter-spacing:2px; color:#8b93a7; text-transform:uppercase; margin-bottom:8px; }
@@ -97,9 +93,9 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 #loop-row { display:flex; align-items:center; gap:6px; margin-top:6px; }
 #loop-state { color:#8b93a7; font-size:11px; min-width:130px; font-variant-numeric:tabular-nums; }
 #loop-row .act { padding:2px 8px; font-size:12px; }
-/* Autostart compatto (stesso toggle del fuzz) + soglia in dBFS. */
+/* Autostart compatto + soglia in dBFS. */
 #loop-opts { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
-#loop-opts .octave-toggle { min-height:32px; padding:4px 10px; }
+#loop-opts .toggle-btn { min-height:32px; padding:4px 10px; }
 .loop-thr { display:flex; align-items:center; gap:6px; font-size:11px; color:#8b93a7; }
 .loop-thr input { width:64px; background:#12151b; color:#e6e9ef; border:1px solid #3a4150;
   border-radius:4px; padding:3px 6px; font-size:12px; }
@@ -185,9 +181,9 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
   #loop-state { min-width:0; flex:1 1 100%; }
   #loop-row .act { min-width:44px; min-height:44px; }
   #loop-opts { gap:12px; }
-  #loop-opts .octave-toggle { min-height:40px; padding:0 12px; font-size:12px; }
+  #loop-opts .toggle-btn { min-height:40px; padding:0 12px; font-size:12px; }
   .loop-thr input { min-height:40px; font-size:14px; }
-  .octave-toggle { min-height:40px; padding:0 10px; font-size:12px; }
+  .toggle-btn { min-height:40px; padding:0 10px; font-size:12px; }
   .eq-bands { gap:6px; }
   .eq-band { width:44px; }
   .eq-band .eq-slider { width:44px; height:108px; }
@@ -252,8 +248,8 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 <script>
 const SLOTS = [
  {id:"comp", name:"Comp", color:"#a3c9a8", knobs:[["threshold","Threshold",-60,0,1,"dB"],["ratio","Ratio",1,10,0.1,""],["attack","Attack",0,50,1,"ms"],["release","Release",20,1000,10,"ms"],["makeup","Makeup",0,12,0.5,"dB"]]},
- {id:"filter", name:"Filter", color:"#e6c39a", types:["wah","whammy"], knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""],["range","Range",-24,24,1,"st"]]},
- {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"],["octave","Octave level",0,1,0.01,""]]},
+ {id:"filter", name:"Filter", color:"#e6c39a", knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["q","Q",0.5,8,0.1,""],["mix","Mix",0,1,0.01,""],["low_hz","Low",100,1000,10,"Hz"],["high_hz","High",500,5000,50,"Hz"],["position","Pos",0,1,0.01,""]]},
+ {id:"drive", name:"Drive", color:"#e8b39b", types:["fuzz","klon","tubescreamer"], knobs:[["amount","Amount",0,1,0.01,""],["tone","Tone",0,1,0.01,""],["blend","Blend",0,1,0.01,""],["level","Level",-24,24,0.5,"dB"],["mid","Mid",-12,12,0.5,"dB"],["low","Low",-12,12,0.5,"dB"]]},
  {id:"mod", name:"Mod", color:"#c5b3e6", types:["tremolo","univibe","flanger","phaser"], modPosition:true, knobs:[["rate","Rate",0.05,10,0.05,"Hz"],["depth","Depth",0,1,0.01,""],["feedback","Fdbk",0,0.95,0.01,""],["fx_mix","FX mix",0,1,0.01,""]]},
  {id:"amp", name:"Amp", color:"#f2d5a8", knobs:[["trim","Trim",-24,24,0.5,"dB"]]},
  {id:"ir", name:"IR", color:"#b8d8d0", knobs:[]},
@@ -261,24 +257,6 @@ const SLOTS = [
  {id:"reverb", name:"Reverb", color:"#d8b8d8", knobs:[["mix","Mix",0,1,0.01,""],["size","Size",0,1,0.01,""],["damp","Damp",0,1,0.01,""]]},
 ];
 const el = (t, a={}, ...c) => { const n = document.createElement(t); Object.assign(n, a); c.forEach(x => n.append(x)); return n; };
-// Il blocco FILTER ha due facce: wah (rate/depth/q/low/high) e whammy
-// (range). Mix e Pos servono a entrambi (Pos e' il pedale, sempre visibile).
-const FILTER_KNOB_GROUP = {rate:"wah", depth:"wah", q:"wah", low_hz:"wah",
-  high_hz:"wah", mix:"both", position:"both", range:"whammy"};
-function applyFilterKnobs(card, type) {
-  const t = type === "whammy" ? "whammy" : "wah";
-  (card._knobs || []).forEach(w => {
-    const g = w._group || "both";
-    w.style.display = (g === "both" || g === t) ? "" : "none";
-  });
-}
-// L'ottava e' solo del fuzz: sulle altre facce del drive la manopola sparisce
-// (il valore resta nel preset, ma non si puo' muovere dove non fa nulla).
-function applyDriveKnobs(card, type) {
-  (card._knobs || []).forEach(w => {
-    if (w._fuzzOnly) w.style.display = type === "fuzz" ? "" : "none";
-  });
-}
 const board = document.getElementById("board");
 const knobs = [];
 SLOTS.forEach(s => {
@@ -306,7 +284,6 @@ SLOTS.forEach(s => {
     select = el("select");
     (s.types || s.modes).forEach(v => select.append(el("option", {value:v, textContent:v})));
     select.onchange = () => {
-      if (s.id === "drive" && s.types) applyDriveKnobs(card, select.value);
       send({cmd:"set", slot:s.id, ...(s.types ? {type:select.value} : {mode:select.value})});
     };
     card.append(select);
@@ -322,33 +299,14 @@ SLOTS.forEach(s => {
   }
   s.knobs.forEach(([key,label,min,max,step,unit]) => {
     const wrap = el("div", {className:"knob"});
-    if (s.id === "filter") wrap._group = FILTER_KNOB_GROUP[key] || "both";
-    // L'ottava ha due comandi indipendenti sulla stessa riga: il mix (slider)
-    // e l'interruttore. La riga intera e' "solo fuzz": sulle altre facce
-    // sparisce, ma il mix resta nel preset.
-    let node = wrap;
-    if (s.id === "drive" && key === "octave") {
-      const row = el("div", {className:"octave-row"});
-      row._fuzzOnly = true;
-      row.title = "ottava del fuzz (Octavia): solo con tipo fuzz";
-      const toggle = el("button", {className:"octave-toggle", type:"button",
-                                   textContent:"Octave OFF",
-                                   title:"accende/spegne l'ottava; il mix resta salvato"});
-      toggle.setAttribute("aria-pressed", "false");
-      toggle.onclick = () => send({cmd:"param", slot:"drive", key:"octave_on",
-                                   value:!last?.slots?.drive?.octave_on});
-      row.append(wrap, toggle);
-      card._octaveToggle = toggle;
-      node = row;
-    }
     const lab = el("span", {textContent:label});
     const out = el("output");
     const inp = el("input", {type:"range", min, max, step});
     let t = null;
     inp.oninput = () => { out.textContent = (+inp.value).toFixed(step < 0.1 ? 2 : 1) + unit;
       clearTimeout(t); t = setTimeout(() => send({cmd:"param", slot:s.id, key, value:+inp.value}), 60); };
-    wrap.append(lab, out, inp); card.append(node);
-    (card._knobs || (card._knobs = [])).push(node);
+    wrap.append(lab, out, inp); card.append(wrap);
+    (card._knobs || (card._knobs = [])).push(wrap);
     knobs.push({slot:s.id, key, inp, out, step, unit});
   });
   const foot = el("div", {className:"foot"}); foot.append(reset); card.append(foot);
@@ -359,8 +317,6 @@ SLOTS.forEach(s => {
   }
   card._power = power; card._select = select; card._pos = position;
   card._filterState = filterState; card._id = s.id;
-  if (s.id === "filter") applyFilterKnobs(card, "wah");
-  if (s.id === "drive") applyDriveKnobs(card, "fuzz");
   board.append(card);
 });
 // boost
@@ -485,7 +441,7 @@ lrow.append(loopStateEl, lrec, lstop, lclr);
 // il looper in attesa ("waiting") e la registrazione parte alla prima nota.
 // Soglia in dBFS modificabile: passano dal socket, persistono con Salva opzioni.
 const loopOpts = el("div", {id:"loop-opts"});
-const loopAutostartBtn = el("button", {className:"octave-toggle", type:"button",
+const loopAutostartBtn = el("button", {className:"toggle-btn", type:"button",
   id:"loop-autostart", textContent:"Autostart OFF",
   title:"se ON, ● da fermo resta in attesa e registra alla prima nota"});
 loopAutostartBtn.setAttribute("aria-pressed", "false");
@@ -628,19 +584,6 @@ function render(st, fromPoll = false) {
       card._filterState.textContent = s.on ? "auto" : "off";
       card._filterState.classList.toggle("on", !!s.on);
       card._filterState.title = s.on ? "acceso dall'espressione" : "spento: si accende col pedale";
-    }
-    if (card._id === "filter") applyFilterKnobs(card, s.type);
-    if (card._id === "drive") applyDriveKnobs(card, s.type);
-    if (card._octaveToggle) {
-      // Il toggle riflette l'interruttore, non il mix: a ottava spenta lo
-      // slider resta al valore conservato e si vede che non ha effetto.
-      const on = !!s.octave_on;
-      card._octaveToggle.classList.toggle("on", on);
-      card._octaveToggle.textContent = on ? "Octave ON" : "Octave OFF";
-      card._octaveToggle.setAttribute("aria-pressed", on ? "true" : "false");
-      card._octaveToggle.title = on
-        ? "ottava accesa: lo slider decide quanto pesa"
-        : "ottava spenta: lo slider resta salvato ma non ha effetto";
     }
     if (card._select && s.type) card._select.value = s.type;
     if (card._select && s.mode) card._select.value = s.mode;

@@ -16,25 +16,16 @@ Come servizio: `./scripts/install.sh` installa e avvia `namzero-web` (porta 8080
 - **Pedaliera**: gate, comp, filter, drive, mod, amp, IR, delay, riverbero, boost;
   ogni slot ha le manopole dei parametri principali e, dove ha senso, lo stomp.
 - **Drive**: selettore del tipo (`fuzz`/`klon`/`tubescreamer`) e manopole
-  amount, tone, blend, level, mid, low. Con tipo `fuzz` compaiono la manopola
-  **Octave** (0..1) e, accanto, il piccolo interruttore **Octave ON/OFF**:
-  l'ottava è quella stile Octavia (raddrizzamento a onda intera + passa-alto,
-  non un pitch shifter). Il mix passa da `param` con `key:"octave"` (clamp 0..1),
-  l'interruttore da `param` con `key:"octave_on"` (bool; accetta anche 1/0, con
-  clamp). I due comandi sono indipendenti: spegnendo l'interruttore lo slider
-  **resta visibile e conserva il suo valore**, ma l'ottava non viene applicata;
-  riaccendendolo si ritrova il mix com'era. Il valore resta nel preset anche
-  sugli altri tipi, dove viene ignorato. Cambiando tipo il render mostra/nasconde
-  subito manopola e interruttore.
-- **Filter**: card dedicata prima del drive, con un selettore **Tipo**
-  (`wah`/`whammy`). Con `wah` mostra rate, depth, q, mix, low_hz e high_hz; con
-  `whammy` mostra range (semitoni, -24..+24) e mix. La manopola **Pos** resta
-  sempre visibile: è la posizione del pedale di espressione (0 = unisono,
-  1 = range pieno per il whammy). Non ha un pulsante on/off: mostra `off` oppure
-  `auto` (acceso dall'auto-engage dell'espressione, uguale per entrambi i tipi).
-  Il cambio tipo invia `set` con `slot:"filter"` e `type`; range e mix passano da
-  `param` (`key:"range"` / `key:"mix"`). Default dello slot: `wah`, range 12,
-  mix 1.
+  amount, tone, blend, level, mid, low. Non c'è più l'ottava del fuzz: slider e
+  toggle Octave sono stati rimossi insieme ai parametri `octave`/`octave_on`.
+- **Filter**: card dedicata prima del drive, solo **wah** (il tipo non è più un
+  selettore): q, mix, low_hz, high_hz e la manopola **Pos** (posizione del pedale
+  di espressione). Non ha un pulsante on/off: mostra `off` oppure `auto` (acceso
+  dall'auto-engage dell'espressione). I parametri passano da `param`
+  (`key:"q"`, `"mix"`, `"low_hz"`, `"high_hz"`, `"position"`). Default dello
+  slot: mix 1, q 3, 350..2200 Hz. I campi `type`/`range` dei preset vecchi non
+  sono più letti: un eventuale `type: "whammy"` viene convertito a wah con un
+  avviso.
 - **Mod**: solo i quattro tipi (`tremolo`, `univibe`, `flanger`, `phaser`) e la
   **posizione** nella catena (`pre-amplificatore` / `dopo IR`). Cambiare
   posizione invia `set` con `slot:"mod"` e `position`: il motore salva il preset
@@ -112,9 +103,6 @@ Sempre sotto i 720 px:
 - i campi numerici e le select passano a `font-size:16px`, così iOS non fa zoom
   al focus;
 - i pulsanti on/off e i comandi del looper hanno un touch target di ~40-44 px;
-  il piccolo toggle **Octave ON/OFF** del drive sale a ~40 px di altezza;
-- la riga Octave (slider + toggle) resta sulla stessa riga e non va a capo: lo
-  slider continua a mostrare il mix conservato anche a ottava spenta;
 - il rack impila le unità a larghezza piena e gli slider EQ restano toccabili
   (bande più larghe, thumb da 20 px);
 - i pedali restano in una fila scrollabile **dentro `main`**: la pagina non
@@ -554,7 +542,7 @@ WantedBy=multi-user.target
 |---|---|---|
 | GET | `/api/state` | snapshot dello stato (fallback del polling) |
 | GET | `/api/events` | SSE: `data:` con lo snapshot a ogni cambiamento, heartbeat 15 s |
-| GET | `/api/presets` | elenco preset: `[{"slot":0,"name":"vox_wah"}, ...]` da `config/presets.json` |
+| GET | `/api/presets` | elenco preset: `[{"slot":0,"name":"vox_clean"}, ...]` da `config/presets.json` |
 | GET | `/api/audio` | config audio + ingressi/uscite + stato del motore (`open`, `fallback`, errore) |
 | GET | `/api/audio/devices` | device da `aplay -l` con card/device/nome/id e nomi `hw`/`plughw` |
 | POST | `/api/audio` | valida e salva il blocco `audio`, poi reload del motore (200/400) |

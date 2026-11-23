@@ -407,7 +407,6 @@ variazioni di range, la curva eventualmente no. Da affrontare quando il wah esis
 - **Regola dello slot mod**: il wah è sempre spento all'avvio; lo accende solo l'auto-engage. Accendendosi salva lo stato dello slot (acceso/spento, tremolo/wah) e lo ripristina identico allo spegnimento.
 - Mappatura espressione → frequenza del filtro wah (scala logaritmica, 350 Hz – 2,2 kHz).
 - Tutto lo stato dell'auto-engage vive nel thread controllo; il thread audio riceve solo il valore di frequenza e il flag di bypass.
-- `--midi-log` stampa **ogni** messaggio ricevuto (cc, note, program change, pitch bend) con canale e valori: serve a misurare un controller sconosciuto senza indovinare. Mostrare solo i CC rendeva invisibile il caso "gli switch mandano note".
 
 ---
 

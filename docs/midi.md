@@ -188,9 +188,9 @@ rawmidi (hw:XTONE)
 - Gli ingressi sono **due**: il rawmidi dell'XTONE e la socket del bridge BLE
   (`midi.ble.socket`, vedi [ble.md](ble.md)). Il parser e' lo stesso, quindi il
   comportamento non cambia da dove arriva il messaggio.
-- Il parser accetta anche **note, program change, pitch bend**: non servono per suonare,
-  ma `--midi-log` li mostra. Prima il parser scartava tutto ciò che non era CC e un
-  controller che mandava note sembrava muto.
+- Il parser accetta anche **note, program change e pitch bend**: servono alla
+  G-Board (Program Change) e ai controller che non mandano solo CC; i messaggi
+  non mappati vengono ignorati.
 - Il clock realtime (≥ `0xF8`) e i messaggi di sistema vengono ignorati; il running
   status è supportato.
 - Il thread MIDI fa `poll` ogni 2 ms e non alloca nel ciclo.
@@ -199,8 +199,9 @@ rawmidi (hw:XTONE)
 - I CC della G-Board (50-57) sono riconosciuti **prima** della tabella e hanno un
   loro `SwitchDebounce` sempre in modo `edge`: fronte 127 = pressione, rilascio 0
   ignorato. I Program Change passano dallo stesso codice ma restano one-shot
-  (nessun debounce): con `preset_pc` i PC 0-7 cambiano preset, altrimenti (se
-  `pc_effects`) eseguono le vecchie azioni effetto.
+  (nessun debounce): con `preset_pc` i PC 0-7 cambiano preset, con
+  `pc_effects` eseguono le vecchie azioni effetto. La config viva ha entrambi
+  a `false`, quindi i PC sono ignorati.
 - I toggle scrivono lo stato dell'app e `chain.set_enabled`; il thread audio legge solo
   atomici. Tastiera e MIDI condividono un mutex perché scrivono lo stesso stato.
 
@@ -236,34 +237,13 @@ la punta diventa la zona spenta e il wah si accende appena la si lascia. È dive
 4. Finché il pedale non manda la **prima posizione** il gate resta spento: all'avvio non
    si sa dove sta il pedale.
 
-## 5. Diagnostica
+## 5. Log
 
-```bash
-./build/namzero-lite -p config/presets/vox_wah.json --midi-log
-```
-
-Stampa ogni messaggio ricevuto con tipo, canale e valori:
-
-```
-midi  2433.9 ms  cc          ch1   10 127
-midi  2440.1 ms  cc          ch1    7  64  pos 0.50  gate 0.50
-```
-
-Per l'espressione aggiunge `pos` (dopo normalizzazione e inversione) e `gate`
-(l'attivazione su cui lavora l'auto-engage), più eventuali note `(corsa invertita)` e
-`(punta = spento)`. È lo strumento con cui si misura un controller sconosciuto: valori
-grezzi, range reale e punto di scatto.
-
-Ogni toggle stampa anche lo stato, così si distingue "non arriva niente" da "arriva ma
-il blocco non cambia":
-
-```
-  mod: on (CC10)
-  drive: off (CC20, fuzz)
-  delay: on (CC11)
-  filter: wah acceso dal pedale
-  filter: wah spento dal pedale
-```
+Il motore non stampa piu' i singoli messaggi MIDI: restano solo warning/errori
+reali e una riga per azione eseguita (toggle di uno slot, auto-engage, cambio
+preset), visibile con `journalctl -u namzero-lite`. Per misurare un controller
+sconosciuto si legge lo stato dalla web UI (`/api/state` e il blocco `gboard`)
+oppure si usa un monitor ALSA esterno al motore.
 
 ## 6. Switch: `any` contro `edge`
 
@@ -304,10 +284,8 @@ cmake --build build -j1 && cd build && ctest
 
 | Sintomo | Causa probabile |
 |---------|-----------------|
-| Nessun messaggio nel log | device sbagliato (`amidi -l`), `enabled: false`, cavo/OTG |
-| Il log mostra `noteon`/`programchange` | gli switch non mandano CC: per la G-Board i PC 0-7 cambiano preset (non sono effetti), per altri controller il binding per CC non può scattare |
-| I CC 50-57 della G-Board non fanno nulla | manca `gboard.mod_cc`/`drive_cc`/`boost_cc` in `midi.json`, il device non è `hw:V103`, o il pedale manda PC (che ora cambiano preset) |
-| I PC 0-7 della G-Board non cambiano preset | `gboard.preset_pc` è `false`, oppure il pedale non è in Program mode / manda CC |
+| I CC 50-57 della G-Board non fanno nulla | manca `gboard.mod_cc`/`drive_cc`/`boost_cc` in `midi.json`, il device non è `hw:V103`, o il pedale non è in Control/CC mode |
+| I PC 0-7 della G-Board non fanno nulla | è voluto: `gboard.preset_pc` e `gboard.pc_effects` sono `false`, quindi i Program Change sono ignorati |
 | Il rilascio del pedale fa un'altra azione | la G-Board deve mandare 127/0; con un controller a stato (un solo messaggio per pressione) servono i CC della mappa XTONE, non quelli G-Board |
 | Il blocco si accende e si spegne subito | switch momentanei con `switches: any` → mettere `edge` |
 | Metà delle pressioni ignorate | switch a stato con `switches: edge` → mettere `any` |

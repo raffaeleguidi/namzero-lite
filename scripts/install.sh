@@ -29,11 +29,29 @@ if [ ! -x "$BIN" ]; then
 fi
 
 say "capability per l'uso manuale"
-sudo setcap cap_sys_nice,cap_ipc_lock+ep "$BIN"
+if sudo -n setcap cap_sys_nice,cap_ipc_lock+ep "$BIN" 2>/dev/null; then
+  echo "   setcap ok"
+else
+  echo "   ATTENZIONE: setcap non applicato (sudo non disponibile per setcap)."
+  echo "   Il servizio usa comunque AmbientCapabilities; per l'uso manuale:"
+  echo "     sudo setcap cap_sys_nice,cap_ipc_lock+ep $BIN"
+fi
 
 say "governor performance (persistente)"
-sudo sh -c 'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$f"; done'
-sudo tee "/etc/systemd/system/${GOV_SERVICE}.service" >/dev/null <<'UNIT'
+if sudo -n sh -c 'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$f"; done' 2>/dev/null; then
+  echo "   governor impostato"
+else
+  echo "   ATTENZIONE: governor non modificato (serve sudo)."
+fi
+
+# I comandi systemd possono essere negati anche quando setcap e' permesso.
+# In quel caso si saltano unit e restart: le unit esistenti restano valide e
+# il motore viene lasciato attivo (il deploy lo riavvia o si avvia a mano).
+SYSTEMD_OK=0
+if sudo -n systemctl daemon-reload 2>/dev/null; then SYSTEMD_OK=1; fi
+
+if [ "$SYSTEMD_OK" = 1 ]; then
+  sudo -n tee "/etc/systemd/system/${GOV_SERVICE}.service" >/dev/null <<'UNIT'
 [Unit]
 Description=CPU governor performance
 After=multi-user.target
@@ -46,9 +64,10 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
-sudo systemctl daemon-reload
-sudo systemctl enable --now "$GOV_SERVICE" >/dev/null 2>&1 || true
-sudo systemctl restart "$GOV_SERVICE" >/dev/null 2>&1 || true
+  sudo -n systemctl daemon-reload
+  sudo -n systemctl enable --now "$GOV_SERVICE" >/dev/null 2>&1 || true
+  sudo -n systemctl restart "$GOV_SERVICE" >/dev/null 2>&1 || true
+fi
 
 say "venv e dipendenze del bridge"
 if [ ! -x "$VENV/bin/python" ]; then
@@ -57,19 +76,29 @@ fi
 "$VENV/bin/pip" install -q -r ble-bridge-py/requirements.txt
 
 say "unit del bridge, del motore e della web UI"
-sudo cp "systemd/${BRIDGE}.service" /etc/systemd/system/
-sudo cp "systemd/${SERVICE}.service" /etc/systemd/system/
-sudo cp "systemd/namzero-web.service" /etc/systemd/system/
-sudo cp "systemd/namzero-wifi.service" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable "$BRIDGE" "$SERVICE" namzero-web namzero-wifi >/dev/null 2>&1 || true
-sudo systemctl restart "$BRIDGE"
-sudo systemctl restart "$SERVICE"
-sudo systemctl restart namzero-web
-say "drop-in DNS per il nome namzero-lite nell'AP"
-sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
-printf 'address=/namzero-lite/10.42.0.1\n' | sudo tee /etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf >/dev/null
-sudo systemctl restart namzero-wifi
+if [ "$SYSTEMD_OK" = 1 ]; then
+  sudo -n cp "systemd/${BRIDGE}.service" /etc/systemd/system/
+  sudo -n cp "systemd/${SERVICE}.service" /etc/systemd/system/
+  sudo -n cp "systemd/namzero-web.service" /etc/systemd/system/
+  sudo -n cp "systemd/namzero-wifi.service" /etc/systemd/system/
+  sudo -n systemctl daemon-reload
+  sudo -n systemctl enable "$BRIDGE" "$SERVICE" namzero-web namzero-wifi >/dev/null 2>&1 || true
+  sudo -n systemctl restart "$BRIDGE" || true
+  sudo -n systemctl restart "$SERVICE" || true
+  sudo -n systemctl restart namzero-web || true
+  say "drop-in DNS per il nome namzero-lite nell'AP"
+  sudo -n mkdir -p /etc/NetworkManager/dnsmasq-shared.d 2>/dev/null || true
+  printf 'address=/namzero-lite/10.42.0.1\n' | sudo -n tee /etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf >/dev/null 2>&1 || true
+  sudo -n systemctl restart namzero-wifi || true
+else
+  echo "   ATTENZIONE: sudo systemctl non disponibile: unit non copiate/riavviate."
+  echo "   Le unit gia' installate restano valide e il motore resta attivo."
+  echo "   Per applicarle a mano:"
+  echo "     sudo cp systemd/*.service /etc/systemd/system/"
+  echo "     sudo systemctl daemon-reload"
+  echo "     sudo systemctl enable --now namzero-ble-bridge namzero-lite namzero-web namzero-wifi"
+  echo "     sudo systemctl restart namzero-lite"
+fi
 
 say "verifica"
 for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
@@ -95,4 +124,10 @@ echo
 echo "--- bridge ---"
 journalctl -u "$BRIDGE" -n 6 --no-pager 2>/dev/null | tail -4
 echo
-echo "Servizio attivo. Per usare il motore a mano: sudo systemctl stop $SERVICE"
+if [ "$SYSTEMD_OK" = 1 ]; then
+  echo "Servizio attivo. Per usare il motore a mano: sudo systemctl stop $SERVICE"
+else
+  echo "Install completato senza sudo systemctl: verifica che il motore sia attivo"
+  echo "(pgrep -x namzero-lite); per gestirlo con systemd:"
+  echo "  sudo systemctl restart $SERVICE"
+fi

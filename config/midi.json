@@ -82,19 +82,7 @@
     ],
     "boost_led": 3,
     "preset_pc": false,
-    "pc_effects": true,
-    "mod_pc": [
-      54,
-      55,
-      56,
-      57
-    ],
-    "drive_pc": [
-      50,
-      51,
-      52
-    ],
-    "boost_pc": 53,
+    "pc_effects": false,
     "flash_ms": 150
   },
   "looper": {

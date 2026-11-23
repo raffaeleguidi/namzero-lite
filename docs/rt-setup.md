@@ -182,27 +182,3 @@ Se gli xrun restano, in ordine di efficacia:
 4. meno roba accesa: riverbero/delay fuori, IR con meno tap;
 5. processi pesanti accanto al motore: il bridge BLE (Bun) costa ~9% di CPU e
    ~60 MB, che su 415 MB con zram si sentono.
-
-## Whammy: costo e latenza
-
-Il pitch shifter del whammy (blocco FILTER, tipo `whammy`) costa poco più del
-wah: su Pi Zero 2W, con blocco da 64 frame, la sola elaborazione DSP passa da
-~3,4 µs (wah) a ~13,8 µs per blocco, cioè **~1% del periodo da 1,33 ms**. La
-latenza aggiunta è la finestra di crossfade dichiarata (~30 ms) e viene sommata
-alla catena solo quando il filter è acceso e il tipo è `whammy`.
-
-Misura sul Pi con NAM A2 (`vox_ac30_a2`) + IR (`deluxe_lean`, 2048 tap) + delay
-e riverbero, `--stats`, 5 s per intervallo:
-
-| Configurazione | max blocco tipico | picco | xrun |
-|---|---|---|---|
-| filter spento (stessa catena) | 0,71–0,96 ms (53–72%) | 0,96 ms | 0 |
-| filter whammy acceso | 0,72–1,04 ms (54–78%) | 1,18 ms al primo intervallo (88%) | 0 |
-
-Il picco di 1,18 ms cade sull'intervallo in cui il filter si accende e il buffer
-granulare si riempie; a regime il massimo resta intorno a 0,9–1,0 ms, con
-qualche spike di scheduling oltre il 70% del periodo ma **nessuno xrun** dopo il
-priming iniziale (2–3 xrun di avvio, come per qualsiasi preset). Se servisse più
-margine, le leve sono le stesse della sezione precedente (buffer 128 frame, meno
-tap IR, riverbero/delay fuori): ridurre la finestra del whammy sotto i 30 ms
-toglierebbe poco (il DSP è ~1%) e peggiorerebbe la qualità del crossfade.

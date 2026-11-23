@@ -182,7 +182,7 @@ def t3k_get(path, raw=False):
 
 
 def presets_list():
-    """Elenco dei preset configurati: [{"slot":0,"name":"vox_wah"}, ...].
+    """Elenco dei preset configurati: [{"slot":0,"name":"vox_clean"}, ...].
 
     Legge la config viva (config/presets.json) e ricava il nome dal path
     "presets/<nome>.json". Gli slot vuoti/null vengono saltati.

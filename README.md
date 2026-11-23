@@ -9,7 +9,7 @@ Il piano di progetto completo è in [PLAN.md](PLAN.md). Dettagli su
 [bridge BLE MIDI](docs/ble.md), [G-Board](docs/g-board.md) e [tuning del sistema](docs/rt-setup.md).
 
 **Stato**: catena completa e suonabile sul Pi, preset a slot, XTONE + G-Board
-(PC 0-7 = preset, CC 50-57 = effetti, LED) + Chocolate via BLE. Il MIDI è su
+(CC 50-57 = effetti, LED; i Program Change sono ignorati) + Chocolate via BLE. Il MIDI è su
 mappa fissa in `midi.json` (il learn è in roadmap); la GUI di gestione dei
 preset è il prossimo passo.
 
@@ -30,14 +30,11 @@ preset è il prossimo passo.
 - Catena a slot fissi con bypass in crossfade di 5 ms (anti-click)
 - Gate e comp applicati davvero dai parametri; **gate globale** in `presets.json`
   (soglia bassa e release lungo, per non tagliare le code)
-- Drive: `fuzz`, `klon` (blend col pulito), `tubescreamer`. Il fuzz ha
-  l'**Octave** stile Octavia (raddrizzamento a onda intera + passa-alto, non un
-  pitch shifter) con **interruttore on/off separato dal mix 0..1**: da spento il
-  mix resta salvato e lo slider non ha effetto; ignorato da klon e tubescreamer
-- Filter: **wah** o **whammy** (pitch shifter granulare) fisso **prima del
-  drive**, acceso solo dall'auto-engage del pedale. Il whammy trasporta da 0 a
-  `range` semitoni (-24..+24, default +12) seguendo l'espressione, con mix
-  dry/wet; cambio tipo/parametri senza click e latenza dichiarata ~30 ms.
+- Drive: `fuzz`, `klon` (blend col pulito), `tubescreamer`, con amount,
+  tone, blend, level, mid, low.
+- Filter: **wah** fisso **prima del drive**, acceso solo dall'auto-engage del
+  pedale. Il tipo non e' piu' configurabile: i preset vecchi con il whammy
+  vengono letti come wah con un avviso.
 - Mod: tremolo, univibe, flanger, phaser, in posizione `pre_amp` o `post_ir`
 - Delay a tre modi (stereo, ping-pong, ping-pong stereo) e riverbero
 - Boost di volume a fine catena in dB assoluti (default +6 dB), da CC 44 o tasto 8 del G-Board
@@ -64,17 +61,17 @@ preset è il prossimo passo.
 - `config/presets.json`: 8 slot (0-7) verso i file, opzioni globali (gate,
   boost, auto-engage, EQ, volume, tuner, looper), `start_slot`
 - Combo preset nella web UI (lista da `GET /api/presets`); tasti `0`-`9`,
-  navigazione blu dell'XTONE e, in **Program mode**, PC 0-7 della G-Board per
-  cambiare slot; banner `[N] - file.json (modello.nam)` a ogni caricamento
+  navigazione blu dell'XTONE per cambiare slot; banner
+  `[N] - file.json (modello.nam)` a ogni caricamento
 - Salvataggio con `s` (on/off e trim dell'ampli), altri parametri intatti
 - Verifica dei preset con `--print-config` e `scripts/verify_presets.py`
 
 **MIDI**
 - XTONE: tre gruppi (A verde, B blu, C rosso) con CC diversi; espressione
   ascoltata su **CC 7/4/1** (tutti i gruppi); navigazione preset su CC 22/24/25
-- **iCON G-Board**: 8 pulsanti e 8 LED. In **Control/CC mode** i pulsanti 1-4
-  sono mod, 5-7 drive, 8 boost; in **Program mode** i PC 0-7 selezionano gli
-  slot 0-7 (re-exec, `.last_slot` e flash LED). LED aggiornati in tempo reale,
+- **iCON G-Board**: 8 pulsanti e 8 LED in **Control/CC mode**: i pulsanti 1-4
+  sono mod, 5-7 drive, 8 boost (CC 50-57). I Program Change sono ignorati
+  (`preset_pc: false`, `pc_effects: false`). LED aggiornati in tempo reale,
   note invariate ([mappa completa](docs/g-board.md))
 - Selezioni radio spegnibili per mod, drive e delay (via CC; i PC-effetto
   legacy restano solo con `gboard.pc_effects: true` e `preset_pc: false`)
@@ -163,10 +160,7 @@ aplay -l; arecord -l
 ./build/namzero-lite
 
 # un preset specifico
-./build/namzero-lite -p config/presets/vox_wah.json
-
-# vedere i messaggi MIDI mentre si prova
-./build/namzero-lite --midi-log
+./build/namzero-lite -p config/presets/vox_clean.json
 
 # senza privilegi realtime (solo per test a buffer grandi)
 ./build/namzero-lite --no-rt --buffer 256
@@ -192,7 +186,6 @@ elaborazione del blocco.
 | `--prio` | `80` | priorità FIFO del thread audio |
 | `--no-rt` | off | non impostare priorità realtime |
 | `-p, --preset` | — | carica un preset (altrimenti slot mode) |
-| `--midi-log` | off | stampa ogni messaggio MIDI ricevuto |
 | `--print-config` | off | stampa i valori effettivi e esce (verifica) |
 
 ## Tuning del sistema
