@@ -443,6 +443,22 @@ def verify_web(ip: str) -> bool:
     return ok
 
 
+DNS_DROPIN = "/etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf"
+DNS_AP_IP = "10.42.0.1"
+
+
+def ensure_dns_dropin(dry_run: bool = False) -> None:
+    """Fa risolvere 'namzero-lite' ai client dell'AP (dnsmasq shared di NM)."""
+    if dry_run:
+        return
+    try:
+        os.makedirs(os.path.dirname(DNS_DROPIN), exist_ok=True)
+        with open(DNS_DROPIN, "w") as f:
+            f.write("address=/namzero-lite/%s\n" % DNS_AP_IP)
+    except OSError as exc:
+        log("drop-in DNS non scritto: %s" % exc)
+
+
 def start_ap(cfg: Dict[str, Any], dry_run: bool = False) -> bool:
     ap = cfg["ap"]
     if not as_bool(ap.get("enabled"), False):
