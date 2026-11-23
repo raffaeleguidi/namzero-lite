@@ -1,3 +1,4 @@
+#include <alsa/asoundlib.h>
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -999,7 +1000,14 @@ void store_max(std::atomic<uint64_t>& target, uint64_t value) {
 static namzero::MidiConfig* g_midi = nullptr;
 static bool g_boost_on = false;
 
+namespace {
+// Silenzia gli errori ALSA (es. card MIDI assente a ogni retry): non devono
+// riempire il journal/SD quando un device e' scollegato.
+void quiet_alsa(const char*, int, const char*, int, const char*, ...) {}
+}  // namespace
+
 int main(int argc, char** argv) {
+    snd_lib_error_set_handler(quiet_alsa);
     Config cfg;
     MidiCli midi_cli;
     std::string preset_path;
