@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Sniffer MIDI standalone: legge un device ALSA rawmidi e decodifica su stdout.
+"""Sniffer MIDI standalone: legge TUTTI i device ALSA rawmidi e decodifica.
 
 Uso:
-  scripts/midi_sniff.py                 # lista i device e chiede/prende il primo
+  scripts/midi_sniff.py                 # apre tutti i device
   scripts/midi_sniff.py --list
   scripts/midi_sniff.py hw:2,0          # oppure midiC2D0 / /dev/snd/midiC2D0
 Ctrl-C per fermare. Non serve il motore: i device devono essere liberi.
@@ -78,47 +78,54 @@ def main():
         for path, hw, name in devs:
             print(f"{hw:10s} {path}  {name}")
         return 0
+    if args.device:
+        path = resolve(args.device)
+        devs = [d for d in devs if d[0] == path]
+        if not devs:
+            print(f"device non valido: {args.device}", file=sys.stderr)
+            return 1
     if not devs:
         print("nessun device MIDI ALSA trovato", file=sys.stderr)
         return 1
-    if args.device:
-        path = resolve(args.device)
-        if not path or not os.path.exists(path):
-            print(f"device non valido: {args.device}", file=sys.stderr)
-            return 1
-    else:
-        print("device disponibili:", file=sys.stderr)
-        for path, hw, name in devs:
-            print(f"  {hw:10s} {name}", file=sys.stderr)
-        path = devs[0][0]
-    print(f"[sniff] {path}  (Ctrl-C per fermare)", file=sys.stderr)
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    fds = {}
+    for path, hw, name in devs:
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            fds[fd] = {"label": f"{hw} {name}", "status": None, "msg": []}
+            print(f"[sniff] {hw} {name}", file=sys.stderr)
+        except OSError as e:
+            print(f"[sniff] {hw} {name}: non apribile ({e.strerror}) - occupato?", file=sys.stderr)
+    if not fds:
+        return 1
     size = {0x80: 2, 0x90: 2, 0xA0: 2, 0xB0: 2, 0xC0: 1, 0xD0: 1, 0xE0: 2}
-    status, msg = None, []
     try:
         while True:
-            r, _, _ = select.select([fd], [], [], 0.5)
-            if not r:
-                continue
-            chunk = os.read(fd, 256)
-            for b in chunk:
-                if b & 0x80:
-                    status = b
-                    msg = [b]
-                    if size.get(b & 0xF0) == 1:
-                        print(f"{time.strftime('%H:%M:%S')} {decode(msg)}   [{msg[0]:02X} {msg[1]:02X}]", flush=True)
-                        msg = []
+            ready, _, _ = select.select(list(fds), [], [], 0.5)
+            for fd in ready:
+                st = fds[fd]
+                try:
+                    chunk = os.read(fd, 256)
+                except OSError:
                     continue
-                if status is None:
-                    continue
-                msg.append(b)
-                if len(msg) == size.get(status & 0xF0, 0) + 1:
-                    print(f"{time.strftime('%H:%M:%S')} {decode(msg)}   [{' '.join(f'{x:02X}' for x in msg)}]", flush=True)
-                    msg = [status] if status < 0xF0 else []
+                for b in chunk:
+                    if b & 0x80:
+                        st["status"] = b
+                        st["msg"] = [b]
+                        if size.get(b & 0xF0) == 1:
+                            print(f"{time.strftime('%H:%M:%S')} [{st['label']}] {decode(st['msg'])}   [{' '.join(f'{x:02X}' for x in st['msg'])}]", flush=True)
+                            st["msg"] = []
+                        continue
+                    if st["status"] is None:
+                        continue
+                    st["msg"].append(b)
+                    if len(st["msg"]) == size.get(st["status"] & 0xF0, 0) + 1:
+                        print(f"{time.strftime('%H:%M:%S')} [{st['label']}] {decode(st['msg'])}   [{' '.join(f'{x:02X}' for x in st['msg'])}]", flush=True)
+                        st["msg"] = [st["status"]] if st["status"] < 0xF0 else []
     except KeyboardInterrupt:
         pass
     finally:
-        os.close(fd)
+        for fd in fds:
+            os.close(fd)
     return 0
 
 
