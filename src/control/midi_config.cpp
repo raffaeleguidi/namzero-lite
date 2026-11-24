@@ -58,21 +58,11 @@ int action_index(const std::string& name) {
 
 }  // namespace
 
-GboardPcRoute route_gboard_pc(const MidiConfig& cfg, int pc) {
+GboardPcRoute route_gboard_pc_effects(const MidiConfig& cfg, int pc) {
     GboardPcRoute route;
     if (pc < 0 || !in_cc_range(pc)) return route;
-
-    // Program mode: PC 0-7 = slot 0-7. Ha la priorita' anche se pc_effects e'
-    // true, cosi' un PC non puo' fare due cose insieme.
-    if (cfg.gboard_preset_pc && pc <= 7) {
-        route.action = GboardPcAction::kPreset;
-        route.index = pc;
-        return route;
-    }
-
-    // Control/Program mode storico: i PC-effetto restano solo se abilitati.
-    // L'ordine (mod, boost, drive) e' quello del vecchio codice.
     if (!cfg.gboard_pc_effects) return route;
+    // L'ordine (mod, boost, drive) e' quello del vecchio codice.
     for (std::size_t i = 0; i < cfg.gboard_mod_pc.size(); ++i) {
         if (cfg.gboard_mod_pc[i] == pc) {
             route.action = GboardPcAction::kMod;
@@ -93,6 +83,21 @@ GboardPcRoute route_gboard_pc(const MidiConfig& cfg, int pc) {
         }
     }
     return route;
+}
+
+GboardPcRoute route_gboard_pc(const MidiConfig& cfg, int pc) {
+    GboardPcRoute route;
+    if (pc < 0 || !in_cc_range(pc)) return route;
+
+    // Program mode: PC 0-7 = slot 0-7. Ha la priorita' anche se pc_effects e'
+    // true, cosi' un PC non puo' fare due cose insieme.
+    if (cfg.gboard_preset_pc && pc <= 7) {
+        route.action = GboardPcAction::kPreset;
+        route.index = pc;
+        return route;
+    }
+
+    return route_gboard_pc_effects(cfg, pc);
 }
 
 bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& err) {
@@ -243,6 +248,29 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         }
         if (!get_bool_strict(gb, "pc_effects", cfg.gboard_pc_effects, "gboard", err)) {
             return false;
+        }
+        // Canali dei PC (1-16): effetti e preset separati.
+        {
+            auto read_channel = [&](const char* key, int& out) -> bool {
+                if (!gb.contains(key)) return true;
+                if (!gb[key].is_number_integer()) {
+                    err = std::string("midi.json: gboard.") + key + " deve essere un intero";
+                    return false;
+                }
+                const int v = gb[key].get<int>();
+                if (v < 1 || v > 16) {
+                    err = std::string("midi.json: gboard.") + key + " fuori range (1-16)";
+                    return false;
+                }
+                out = v;
+                return true;
+            };
+            if (!read_channel("pc_effects_channel", cfg.gboard_pc_effects_channel)) {
+                return false;
+            }
+            if (!read_channel("pc_preset_channel", cfg.gboard_pc_preset_channel)) {
+                return false;
+            }
         }
         // Legge un array di `count` interi. -1 disattiva la singola voce.
         auto read_ints = [&](const char* key, int* out, std::size_t count) -> bool {

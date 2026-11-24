@@ -82,7 +82,21 @@
     ],
     "boost_led": 7,
     "preset_pc": false,
-    "pc_effects": false,
+    "pc_effects": true,
+    "pc_effects_channel": 9,
+    "pc_preset_channel": 1,
+    "mod_pc": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "drive_pc": [
+      4,
+      5,
+      6
+    ],
+    "boost_pc": 7,
     "flash_ms": 150
   },
   "looper": {

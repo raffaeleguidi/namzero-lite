@@ -106,18 +106,23 @@ struct MidiConfig {
     int gboard_boost_led = 7;
     // Program Change 0-7 -> slot 0-7, con lo stesso percorso della tastiera
     // (switch_slot/current_slot, .last_slot, flash LED, re-exec). E' il nuovo
-    // uso della G-Board in Program mode. Default: attivo.
-    bool gboard_preset_pc = true;
-    // I vecchi PC-effetto (campi *_pc) restano disponibili solo con questo
-    // flag, per compatibilita'. Default: spento. Se preset_pc e' true i PC 0-7
-    // hanno comunque la priorita' e cambiano preset.
+    // uso della G-Board in Program mode. Default: spento (canale 1 libero).
+    bool gboard_preset_pc = false;
+    // I PC-effetto restano disponibili solo con questo flag, per compatibilita'.
+    // Default: spento. Canale dedicato (default 9) per non occupare il canale 1.
     bool gboard_pc_effects = false;
+    // Canali MIDI (1-16) dei PC: effetti e preset separati, cosi' una pedaliera
+    // puo' mandare gli effetti sul canale 9 e i preset sul canale 1.
+    int gboard_pc_effects_channel = 9;
+    int gboard_pc_preset_channel = 1;
     // Ingressi Program Change storici (deprecati come effetti). Se il campo LED
     // corrispondente non e' nel file, si usano questi valori anche come note
     // LED, come faceva la configurazione precedente. -1 = disattivato.
-    std::array<int, 4> gboard_mod_pc = {-1, -1, -1, -1};
-    std::array<int, 3> gboard_drive_pc = {-1, -1, -1};
-    int gboard_boost_pc = -1;
+    // Default: PC 0-3 = mod (tremolo/univibe/flanger/phaser), 4-6 = drive
+    // (fuzz/klon/tubescreamer), 7 = boost: stesso ordine fisico dei pulsanti.
+    std::array<int, 4> gboard_mod_pc = {0, 1, 2, 3};
+    std::array<int, 3> gboard_drive_pc = {4, 5, 6};
+    int gboard_boost_pc = 7;
     // Un CC del G-Board che coincide con un altro binding e' un errore: due
     // azioni scattano insieme. Chi lo vuole davvero mette questo a true.
     bool gboard_allow_cc_conflicts = false;
@@ -150,6 +155,10 @@ struct GboardPcRoute {
 };
 
 GboardPcRoute route_gboard_pc(const MidiConfig& cfg, int pc);
+
+// Solo la parte effetti legacy (mod_pc/drive_pc/boost_pc), ignorando i preset.
+// Si usa per il canale dedicato agli effetti, cosi' i due canali sono separati.
+GboardPcRoute route_gboard_pc_effects(const MidiConfig& cfg, int pc);
 
 // false = il file esiste ma non e' valido; err dice cosa. Un file assente non
 // e' un errore: si chiama il loader solo se il file c'e'.

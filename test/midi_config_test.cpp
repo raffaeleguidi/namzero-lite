@@ -46,14 +46,16 @@ int main() {
         CHECK(c.gboard_mod_cc[0] == -1);
         CHECK(c.gboard_drive_cc[0] == -1);
         CHECK(c.gboard_boost_cc == -1);
-        CHECK(c.gboard_mod_led[0] == 4);
-        CHECK(c.gboard_mod_led[3] == 7);
-        CHECK(c.gboard_drive_led[0] == 0);
-        CHECK(c.gboard_drive_led[2] == 2);
-        CHECK(c.gboard_boost_led == 3);
-        // Nuovo default: i PC 0-7 sono preset, le azioni PC-effetto sono spente.
-        CHECK(c.gboard_preset_pc);
+        CHECK(c.gboard_mod_led[0] == 0);
+        CHECK(c.gboard_mod_led[3] == 3);
+        CHECK(c.gboard_drive_led[0] == 4);
+        CHECK(c.gboard_drive_led[2] == 6);
+        CHECK(c.gboard_boost_led == 7);
+        // Default: PC-effetto spenti, preset spenti (canale 1 libero).
+        CHECK(!c.gboard_preset_pc);
         CHECK(!c.gboard_pc_effects);
+        CHECK(c.gboard_pc_effects_channel == 9);
+        CHECK(c.gboard_pc_preset_channel == 1);
     }
 
     // File completo: tutti gli slot mappati, parametri del pedale compresi.
@@ -205,9 +207,10 @@ int main() {
         CHECK(c.gboard_pc_effects);
     }
 
-    // Routing dei PC: preset_pc (default) -> slot 0-7.
+    // Routing dei PC: preset_pc=true -> slot 0-7.
     {
         namzero::MidiConfig c;
+        c.gboard_preset_pc = true;
         for (int pc = 0; pc <= 7; ++pc) {
             const auto r = namzero::route_gboard_pc(c, pc);
             CHECK(r.action == namzero::GboardPcAction::kPreset);

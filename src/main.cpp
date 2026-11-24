@@ -2113,6 +2113,8 @@ int main(int argc, char** argv) {
             gb["boost_cc"] = midi_cfg.gboard_boost_cc;
             gb["preset_pc"] = midi_cfg.gboard_preset_pc;
             gb["pc_effects"] = midi_cfg.gboard_pc_effects;
+            gb["pc_effects_channel"] = midi_cfg.gboard_pc_effects_channel;
+            gb["pc_preset_channel"] = midi_cfg.gboard_pc_preset_channel;
             gb["mod_led"] = midi_cfg.gboard_mod_led;
             gb["drive_led"] = midi_cfg.gboard_drive_led;
             gb["boost_led"] = midi_cfg.gboard_boost_led;
@@ -3331,23 +3333,26 @@ int main(int argc, char** argv) {
                 }
 
                 if ((e.status & 0xF0) == 0xC0) {
-                    // G-Board in Program mode: i PC 0-7 selezionano gli slot
-                    // 0-7 con lo stesso percorso della tastiera. Il routing e'
-                    // in route_gboard_pc: preset_pc ha la priorita' su
-                    // pc_effects, quindi un PC non fa mai due cose. Restano
-                    // one-shot (nessun debounce: un PC = una pressione).
-                    const auto route = namzero::route_gboard_pc(midi_cfg, e.cc);
-                    if (route.action == namzero::GboardPcAction::kPreset) {
-                        switch_slot.store(route.index);
-                        current_slot.store(route.index);
-                        std::printf("  preset: slot %d (PC)\n", route.index);
+                    // Canali separati: i PC sul canale preset cambiano slot,
+                    // quelli sul canale effetti comandano mod/drive/boost.
+                    // Un PC arriva one-shot (nessun debounce: una pressione =
+                    // un PC).
+                    const int ch = (e.status & 0x0F) + 1;  // canale MIDI 1-16
+                    if (ch == midi_cfg.gboard_pc_preset_channel &&
+                        midi_cfg.gboard_preset_pc && e.cc <= 7) {
+                        switch_slot.store(e.cc);
+                        current_slot.store(e.cc);
+                        std::printf("  preset: slot %d (PC ch%d)\n", e.cc, ch);
                         std::fflush(stdout);
-                    } else if (route.action == namzero::GboardPcAction::kMod) {
-                        gboard_mod(route.index, "PC", e.cc);
-                    } else if (route.action == namzero::GboardPcAction::kDrive) {
-                        gboard_drive(route.index, "PC", e.cc);
-                    } else if (route.action == namzero::GboardPcAction::kBoost) {
-                        gboard_boost("PC", e.cc);
+                    } else if (ch == midi_cfg.gboard_pc_effects_channel) {
+                        const auto route = namzero::route_gboard_pc_effects(midi_cfg, e.cc);
+                        if (route.action == namzero::GboardPcAction::kMod) {
+                            gboard_mod(route.index, "PC", e.cc);
+                        } else if (route.action == namzero::GboardPcAction::kDrive) {
+                            gboard_drive(route.index, "PC", e.cc);
+                        } else if (route.action == namzero::GboardPcAction::kBoost) {
+                            gboard_boost("PC", e.cc);
+                        }
                     }
                     continue;
                 }

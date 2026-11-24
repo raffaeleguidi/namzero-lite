@@ -277,6 +277,13 @@ def write_config(path, preset_pc, pc_effects):
     cfg.setdefault("gboard", {})
     cfg["gboard"]["preset_pc"] = bool(preset_pc)
     cfg["gboard"]["pc_effects"] = bool(pc_effects)
+    # I test iniettano i PC sul canale 1: qui entrambi i canali sono 1.
+    cfg["gboard"]["pc_effects_channel"] = 1
+    cfg["gboard"]["pc_preset_channel"] = 1
+    # Mappa storica usata dai test (indipendente dai default del prodotto).
+    cfg["gboard"]["mod_pc"] = [4, 5, 6, 7]
+    cfg["gboard"]["drive_pc"] = [0, 1, 2]
+    cfg["gboard"]["boost_pc"] = 3
     tmp = path + ".test.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)

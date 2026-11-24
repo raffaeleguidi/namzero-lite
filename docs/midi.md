@@ -119,20 +119,20 @@ Due conseguenze:
   G-Board.
 
 I tre gruppi sono la base su cui decidere la mappa: A per gli stomp, B/C per la
-navigazione. La G-Board segue la stessa idea: **PC 0-7 = preset**, **CC 50-57 =
-effetti**.
+navigazione. La G-Board segue la stessa idea: **PC 0-7 = effetti sul canale 9**,
+**PC 0-7 = preset sul canale 1** (futuro), **CC 50-57 = effetti** come alternativa.
 
-### G-Board: PC 0-7 = preset, CC 50-57 = effetti
+### G-Board: PC 0-7 = effetti (canale 9), CC 50-57 = effetti
 
 La G-Board ha una mappa separata, sempre in `config/midi.json`, e due modi:
 
-- **Program mode** (Program Change): i PC **0-7** selezionano gli **slot 0-7**
-  con `gboard.preset_pc: true` (default). È lo stesso percorso della tastiera
-  `0`-`7`: `switch_slot`/`current_slot`, scrittura di `config/.last_slot`, flash
-  del LED dello slot e re-exec (~0,5 s). I PC restano **one-shot**: ogni
-  Program Change è una pressione, senza debounce.
+- **Program mode** (Program Change): i PC **0-7** comandano gli effetti, sul
+  canale `gboard.pc_effects_channel` (default **9**): PC 0-3 = mod, 4-6 = drive,
+  7 = boost (`gboard.pc_effects: true`). Il canale **1** (`pc_preset_channel`)
+  resta libero per i cambi preset (`preset_pc`, oggi spento): i due usi
+  convivono perche' i canali sono separati. I PC sono **one-shot**.
 - **Control/CC mode** (Control Change): i CC **50-57** comandano gli effetti,
-  con la mappa qui sotto. I CC non cambiano: restano l'ingresso degli stomp.
+  con la mappa qui sotto. In CC mode il firmware non espone i LED.
 
 | Tasto | CC (effetti) | Azione | LED |
 |---|---|---|---|

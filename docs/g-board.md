@@ -4,30 +4,38 @@ Pedaliera USB MIDI con **8 pulsanti e 8 LED**, vista dal Pi come card
 `hw:V103` (rawmidi `hw:2,0,0`). E' **opzionale**: se non e' collegata il motore
 parte e suona lo stesso (con due avvisi) e i LED non danno errore.
 
-La config viva usa la G-Board in **Control/CC mode**: i pulsanti mandano CC
-**50-57** e comandano gli **effetti** (mod, drive, boost). I **Program Change
-sono ignorati** (`gboard.preset_pc: false`, `gboard.pc_effects: false`).
+La config viva usa la G-Board in **Program mode**: i pulsanti mandano Program
+Change **0-7 sul canale 9** e comandano gli **effetti**
+(`gboard.pc_effects: true`, `gboard.pc_effects_channel: 9`): PC 0-3 = mod
+(tremolo/univibe/flanger/phaser), PC 4-6 = drive (fuzz/klon/tubescreamer),
+PC 7 = boost. Il **canale 1** e' riservato ai futuri cambi preset
+(`preset_pc`, oggi spento).
 
-Il motore conserva anche il percorso Program mode (PC 0-7 -> slot 0-7), ma e'
-spento nella config viva; per usarlo servirebbe `preset_pc: true`.
-In **Control/CC mode** i LED usano note **0-based**: la nota N accende il LED
-del pulsante fisico N+1 (pulsante 1 = nota 0, pulsante 8 = nota 7). Quindi mod
-0-3, drive 4-6, boost 7. I numeri dei CC/PC in ingresso e le note dei LED sono
-indipendenti e si configurano separatamente in `midi.json`.
+I **LED** sono Note On **0-based** sul canale 1: la nota N accende il LED del
+pulsante fisico N+1 (pulsante 1 = nota 0, pulsante 8 = nota 7), quindi mod 0-3,
+drive 4-6, boost 7. In **Control/CC mode** il firmware della G-Board non espone
+il controllo LED: per i LED serve la Program mode.
 
-## Program mode (disattivato nella config viva)
+## Program mode: PC 0-7 = effetti (canale 9)
 
-Con `gboard.preset_pc: true` ogni Program Change **0-7** seleziona lo slot con
-lo stesso numero; il percorso e' **lo stesso della tastiera** (`0`-`7`):
-`switch_slot` + `current_slot`, messaggio `preset: slot n (PC)`, scrittura di
-`config/.last_slot`, flash del LED dello slot per `flash_ms`, poi re-exec del
-processo con il nuovo preset (~0,5 s). I PC sono **one-shot**: un Program
-Change e' una pressione, senza debounce.
+| Pulsante | PC | Funzione | LED (nota) | Config in `midi.json` |
+|---|---|---|---|---|
+| 1 | 0 | tremolo | 0 | `gboard.mod_pc[0]` |
+| 2 | 1 | univibe | 1 | `gboard.mod_pc[1]` |
+| 3 | 2 | flanger | 2 | `gboard.mod_pc[2]` |
+| 4 | 3 | phaser | 3 | `gboard.mod_pc[3]` |
+| 5 | 4 | fuzz | 4 | `gboard.drive_pc[0]` |
+| 6 | 5 | klon | 5 | `gboard.drive_pc[1]` |
+| 7 | 6 | tubescreamer | 6 | `gboard.drive_pc[2]` |
+| 8 | 7 | boost on/off | 7 | `gboard.boost_pc` |
 
-Nella config viva `preset_pc: false` e `pc_effects: false`: i PC non cambiano
-preset e non comandano effetti. Il PC **8 e oltre** non e' mai un preset; con
-`pc_effects: true` puo' ancora comandare un effetto legacy se e' mappato in
-`mod_pc`/`drive_pc`/`boost_pc`.
+## Cambio preset da PC (canale 1, futuro)
+
+Con `gboard.preset_pc: true` i Program Change **0-7 sul canale**
+`gboard.pc_preset_channel` (default 1) selezionano gli slot 0-7 con lo stesso
+percorso della tastiera (`switch_slot` + `current_slot`, `.last_slot`, re-exec
+~0,5 s). Gli effetti restano sul canale `pc_effects_channel` (default 9), quindi
+i due usi convivono. I PC sono **one-shot**: nessun debounce.
 
 ## Control/CC mode: CC 50-57 = effetti
 
