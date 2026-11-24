@@ -3335,9 +3335,22 @@ int main(int argc, char** argv) {
                 if ((e.status & 0xF0) == 0xC0) {
                     // Canali separati: i PC sul canale preset cambiano slot,
                     // quelli sul canale effetti comandano mod/drive/boost.
-                    // Un PC arriva one-shot (nessun debounce: una pressione =
-                    // un PC).
                     const int ch = (e.status & 0x0F) + 1;  // canale MIDI 1-16
+                    // Debounce: la G-Board in Program mode manda lo stesso PC
+                    // due volte (pressione + rilascio). Senza filtro ogni tasto
+                    // farebbe on+off. Stessa finestra delle CC (150 ms).
+                    static int last_pc_ch = -1;
+                    static int last_pc_num = -1;
+                    static std::chrono::steady_clock::time_point last_pc_at;
+                    const auto pc_now = std::chrono::steady_clock::now();
+                    const bool pc_repeat =
+                        ch == last_pc_ch && e.cc == last_pc_num &&
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            pc_now - last_pc_at).count() < 150;
+                    last_pc_ch = ch;
+                    last_pc_num = e.cc;
+                    last_pc_at = pc_now;
+                    if (pc_repeat) continue;
                     if (ch == midi_cfg.gboard_pc_preset_channel &&
                         midi_cfg.gboard_preset_pc && e.cc <= 7) {
                         switch_slot.store(e.cc);
