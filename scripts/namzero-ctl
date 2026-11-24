@@ -1,0 +1,26 @@
+#!/bin/sh
+# Controllo dei servizi namzero SENZA la password di root (via
+# /etc/sudoers.d/namzero con NOPASSWD). Serve per aggiornare il solo binario
+# su card distribuite a terzi: stop -> copia -> start, senza root.
+#
+# Uso: namzero-ctl start|stop|restart|is-active <lite|web|ble-bridge|wifi>
+#   namzero-ctl restart lite
+#   namzero-ctl is-active web
+set -eu
+action="${1:-}"
+service="${2:-}"
+case "$action" in
+  start|stop|restart|is-active) ;;
+  *)
+    echo "uso: $0 start|stop|restart|is-active <lite|web|ble-bridge|wifi>" >&2
+    exit 2
+    ;;
+esac
+case "$service" in
+  lite|web|ble-bridge|wifi) ;;
+  *)
+    echo "servizio non valido: lite|web|ble-bridge|wifi" >&2
+    exit 2
+    ;;
+esac
+exec systemctl "$action" "namzero-$service"

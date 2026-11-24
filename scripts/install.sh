@@ -100,6 +100,18 @@ else
   echo "     sudo systemctl restart namzero-lite"
 fi
 
+say "namzero-ctl: controllo servizi senza password di root"
+if [ "$SYSTEMD_OK" = 1 ]; then
+  sudo -n install -m 0755 scripts/namzero-ctl /usr/local/sbin/namzero-ctl
+  printf 'pi ALL=(root) NOPASSWD: /usr/local/sbin/namzero-ctl\n' \
+    | sudo -n tee /etc/sudoers.d/namzero >/dev/null
+  sudo -n chmod 0440 /etc/sudoers.d/namzero
+  sudo -n visudo -cf /etc/sudoers.d/namzero >/dev/null
+  echo "   ok: sudo namzero-ctl restart lite (senza password)"
+else
+  echo "   salta: sudo non disponibile"
+fi
+
 say "verifica"
 for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
   printf "   %s -> %s\n" "$f" "$(cat "$f")"
