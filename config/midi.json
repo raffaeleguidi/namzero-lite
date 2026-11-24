@@ -70,17 +70,17 @@
     ],
     "boost_cc": 53,
     "mod_led": [
-      -1,
-      -1,
-      -1,
-      -1
+      1,
+      2,
+      3,
+      4
     ],
     "drive_led": [
-      -1,
-      -1,
-      -1
+      5,
+      6,
+      7
     ],
-    "boost_led": -1,
+    "boost_led": 8,
     "preset_pc": false,
     "pc_effects": false,
     "flash_ms": 150

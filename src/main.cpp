@@ -1837,12 +1837,13 @@ int main(int argc, char** argv) {
             }
         }
     }
-    // LED del G-Board: Note On ch1, una nota per LED (0-7), 127 acceso.
+    // LED del G-Board: Note On ch1, una nota per LED (1-based: nota N = LED N),
+    // 127 acceso. Si manda solo al cambio di stato (vedi apply_leds).
     namzero::MidiOutput led_out;
     if (!midi_cfg.gboard_device.empty()) {
         std::string lerr;
         if (led_out.open(midi_cfg.gboard_device, lerr)) {
-            std::printf("led: %s (Note On ch1, note da midi.json: 4-7/0-2/3)\n",
+            std::printf("led: %s (Note On ch1, note 1-based da midi.json)\n",
                         midi_cfg.gboard_device.c_str());
         } else {
             std::fprintf(stderr, "led: %s (si prosegue senza)\n", lerr.c_str());
@@ -2049,30 +2050,49 @@ int main(int argc, char** argv) {
         bool on = false;
     };
     std::array<GboardLed, 8> gboard_led_state{};
+    std::mutex led_mtx;  // serializza apply_leds (chiamato da piu' thread)
     auto apply_leds = [&]() {
+        std::lock_guard<std::mutex> lk(led_mtx);
         static const int mod_led_type[4] = {0, 1, 2, 3};  // tremolo/univibe/flanger/phaser
         const int mt = namzero::mod_type_index(cfg.mod_type);
-        for (int i = 0; i < 4; ++i) {
-            const bool on = cfg.mod_on && mt == mod_led_type[i];
-            const int note = midi_cfg.gboard_mod_led[static_cast<std::size_t>(i)];
-            gboard_led_state[static_cast<std::size_t>(i)] = {note, on};
-            if (note >= 0 && led_out.is_open()) {
-                led_out.send_note(0, static_cast<uint8_t>(note), on ? 127 : 0);
+        // Prudente: si manda un Note On/Off SOLO quando lo stato di quel LED
+        // cambia davvero. Prima si rimandavano tutte le 8 note a ogni cambio
+        // di stato, e il G-Board (firmware 1.06) andava in tilt con la raffica.
+        std::vector<std::pair<uint8_t, uint8_t>> pending;  // note, velocity
+        auto note_on = [&](std::size_t idx, int note, bool on) {
+            GboardLed& st = gboard_led_state[idx];
+            if (note != st.note) {
+                // nota cambiata a runtime: spegni la precedente se era accesa
+                if (st.on && st.note >= 0 && st.note <= 7) {
+                    pending.emplace_back(static_cast<uint8_t>(st.note), 0);
+                }
+                st.note = note;
             }
+            if (on != st.on) {
+                st.on = on;
+                if (note >= 0 && note <= 7) {
+                    pending.emplace_back(static_cast<uint8_t>(note), on ? 127 : 0);
+                }
+            }
+        };
+        for (int i = 0; i < 4; ++i) {
+            note_on(static_cast<std::size_t>(i),
+                    midi_cfg.gboard_mod_led[static_cast<std::size_t>(i)],
+                    cfg.mod_on && mt == mod_led_type[i]);
         }
         const int dt = namzero::drive_type_index(cfg.drive_type);
         for (int i = 0; i < 3; ++i) {
-            const bool on = cfg.drive_on && dt == i;
-            const int note = midi_cfg.gboard_drive_led[static_cast<std::size_t>(i)];
-            gboard_led_state[static_cast<std::size_t>(4 + i)] = {note, on};
-            if (note >= 0 && led_out.is_open()) {
-                led_out.send_note(0, static_cast<uint8_t>(note), on ? 127 : 0);
-            }
+            note_on(static_cast<std::size_t>(4 + i),
+                    midi_cfg.gboard_drive_led[static_cast<std::size_t>(i)],
+                    cfg.drive_on && dt == i);
         }
-        const int boost_note = midi_cfg.gboard_boost_led;
-        gboard_led_state[7] = {boost_note, g_boost_on};
-        if (boost_note >= 0 && led_out.is_open()) {
-            led_out.send_note(0, static_cast<uint8_t>(boost_note), g_boost_on ? 127 : 0);
+        note_on(7, midi_cfg.gboard_boost_led, g_boost_on);
+        if (led_out.is_open()) {
+            for (const auto& p : pending) {
+                led_out.send_note(0, p.first, p.second);
+                // Piccolo spazio tra un messaggio e l'altro: mai raffiche.
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
         }
     };
     apply_leds();

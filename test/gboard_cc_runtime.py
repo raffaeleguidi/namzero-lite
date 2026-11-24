@@ -14,8 +14,8 @@ l'espressione, e verifica:
     accettati -- one-shot, senza debounce -- solo con `gboard.pc_effects: true`
     e `gboard.preset_pc: false`; negli altri casi il test li salta (per i PC
     usare test/gboard_pc_runtime.py);
-  - i LED riportati in /api/state usano le note di midi.json (4-7 / 0-2 / 3),
-    indipendenti dai numeri dei CC.
+  - i LED riportati in /api/state usano le note di midi.json (1-8, 1-based:
+    nota N = LED fisico N), indipendenti dai numeri dei CC.
 
 Uso (sul Pi, motore gia' avviato):
     python3 test/gboard_cc_runtime.py [--repo ~/namzero-lite]
@@ -41,9 +41,9 @@ DRIVE_TYPES = ["fuzz", "klon", "tubescreamer"]
 MOD_CC = [54, 55, 56, 57]
 DRIVE_CC = [50, 51, 52]
 BOOST_CC = 53
-MOD_LED = [4, 5, 6, 7]
-DRIVE_LED = [0, 1, 2]
-BOOST_LED = 3
+MOD_LED = [1, 2, 3, 4]
+DRIVE_LED = [5, 6, 7]
+BOOST_LED = 8
 MOD_PC = [4, 5, 6, 7]
 DRIVE_PC = [0, 1, 2]
 BOOST_PC = 3
@@ -275,10 +275,10 @@ def main():
           repr(gb.get("drive_cc")))
     check("config: boost_cc 53", gb.get("boost_cc") == BOOST_CC,
           repr(gb.get("boost_cc")))
-    check("config: mod_led 4-7", gb.get("mod_led") == MOD_LED, repr(gb.get("mod_led")))
-    check("config: drive_led 0-2", gb.get("drive_led") == DRIVE_LED,
+    check("config: mod_led 1-4", gb.get("mod_led") == MOD_LED, repr(gb.get("mod_led")))
+    check("config: drive_led 5-7", gb.get("drive_led") == DRIVE_LED,
           repr(gb.get("drive_led")))
-    check("config: boost_led 3", gb.get("boost_led") == BOOST_LED,
+    check("config: boost_led 8", gb.get("boost_led") == BOOST_LED,
           repr(gb.get("boost_led")))
     check("config: preset_pc/pc_effects esposti",
           "preset_pc" in gb and "pc_effects" in gb, repr(gb))

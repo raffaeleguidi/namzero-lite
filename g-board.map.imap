@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<map mode="CC" name="CC">
+  <controls>
+    <control id="1" kind="button" chan="1" value="54"/>
+    <control id="2" kind="button" chan="1" value="55"/>
+    <control id="3" kind="button" chan="1" value="56"/>
+    <control id="4" kind="button" chan="1" value="57"/>
+    <control id="5" kind="button" chan="1" value="50"/>
+    <control id="6" kind="button" chan="1" value="51"/>
+    <control id="7" kind="button" chan="1" value="52"/>
+    <control id="8" kind="button" chan="1" value="53"/>
+  </controls>
+</map>
