@@ -41,14 +41,22 @@ async def main() -> int:
             socket.send(message)
 
     try:
+        delay = 2.0
         while True:
             try:
                 await run_session(device, log, on_packet)
+                delay = 2.0
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # il bridge non deve morire per un errore BLE
-                log(f"errore: {exc}")
-            await asyncio.sleep(2.0)
+                # "In Progress" = BlueZ ha gia' un tentativo appeso: insistere
+                # ogni 2s riempirebbe il journal (e la SD) senza utilita'.
+                if "In Progress" in str(exc) or "InProgress" in str(exc):
+                    delay = min(delay * 2.0, 30.0)
+                else:
+                    delay = 2.0
+                log(f"errore: {exc} (ritento tra {delay:.0f}s)")
+            await asyncio.sleep(delay)
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
