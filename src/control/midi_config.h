@@ -99,11 +99,11 @@ struct MidiConfig {
     std::array<int, 3> gboard_drive_cc = {-1, -1, -1};      // fuzz/klon/tubescreamer
     int gboard_boost_cc = -1;               // CC del tasto boost (on/off)
     // NOTE dei LED, indipendenti dai numeri dei CC/PC: la G-Board accende la
-    // nota che riceve. In Control/CC mode la mappa e' 1-based (nota N = LED
-    // fisico N = pulsante N). -1 = LED non pilotato.
-    std::array<int, 4> gboard_mod_led = {1, 2, 3, 4};
-    std::array<int, 3> gboard_drive_led = {5, 6, 7};
-    int gboard_boost_led = 8;
+    // nota che riceve. La mappa e' 0-based: nota = indice del pulsante fisico
+    // (pulsante 1 = nota 0, pulsante 8 = nota 7). -1 = LED non pilotato.
+    std::array<int, 4> gboard_mod_led = {0, 1, 2, 3};
+    std::array<int, 3> gboard_drive_led = {4, 5, 6};
+    int gboard_boost_led = 7;
     // Program Change 0-7 -> slot 0-7, con lo stesso percorso della tastiera
     // (switch_slot/current_slot, .last_slot, flash LED, re-exec). E' il nuovo
     // uso della G-Board in Program mode. Default: attivo.

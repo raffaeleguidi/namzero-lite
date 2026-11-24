@@ -32,7 +32,7 @@ Nessun item pianificato: tutte le feature previste sono implementate. Restano le
   test AP fuori casa con `scripts/measure_ap.py` (vedi docs/web.md).
 - **G-Board** (editor iCON): Control/CC mode = CC 50–57 (mod/drive/boost), i
   Program Change sono ignorati (`preset_pc: false`, `pc_effects: false`); Note On
-  dei LED 1-based (note 1-8).
+  dei LED 0-based (note 0-7).
 - **Accordatore**: 415.3/0 oppure 440/−1; cantini B3/E4; ronzio; nota verde.
 - **EQ/Volume +6 dB**: livelli (soft_clip); EQ off lascia comunque il volume.
 - **Interfaccia audio**: `plughw:XTONE` + Applica; distacco/recupero XTONE; stato

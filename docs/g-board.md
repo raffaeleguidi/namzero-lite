@@ -10,10 +10,10 @@ sono ignorati** (`gboard.preset_pc: false`, `gboard.pc_effects: false`).
 
 Il motore conserva anche il percorso Program mode (PC 0-7 -> slot 0-7), ma e'
 spento nella config viva; per usarlo servirebbe `preset_pc: true`.
-In **Control/CC mode** i LED usano note **1-based**: la nota N accende il LED
-fisico N (pulsante N). Quindi mod 1-4, drive 5-7, boost 8. I numeri dei CC/PC
-in ingresso e le note dei LED sono indipendenti e si configurano separatamente
-in `midi.json`.
+In **Control/CC mode** i LED usano note **0-based**: la nota N accende il LED
+del pulsante fisico N+1 (pulsante 1 = nota 0, pulsante 8 = nota 7). Quindi mod
+0-3, drive 4-6, boost 7. I numeri dei CC/PC in ingresso e le note dei LED sono
+indipendenti e si configurano separatamente in `midi.json`.
 
 ## Program mode (disattivato nella config viva)
 
@@ -33,14 +33,14 @@ preset e non comandano effetti. Il PC **8 e oltre** non e' mai un preset; con
 
 | Pulsante | CC | Funzione | LED (nota) | Config in `midi.json` |
 |---|---|---|---|---|
-| 1 | 54 | tremolo | 1 | `gboard.mod_cc[0]` |
-| 2 | 55 | univibe | 2 | `gboard.mod_cc[1]` |
-| 3 | 56 | flanger | 3 | `gboard.mod_cc[2]` |
-| 4 | 57 | phaser | 4 | `gboard.mod_cc[3]` |
-| 5 | 50 | fuzz | 5 | `gboard.drive_cc[0]` |
-| 6 | 51 | klon | 6 | `gboard.drive_cc[1]` |
-| 7 | 52 | tubescreamer | 7 | `gboard.drive_cc[2]` |
-| 8 | 53 | boost on/off | 8 | `gboard.boost_cc` |
+| 1 | 54 | tremolo | 0 | `gboard.mod_cc[0]` |
+| 2 | 55 | univibe | 1 | `gboard.mod_cc[1]` |
+| 3 | 56 | flanger | 2 | `gboard.mod_cc[2]` |
+| 4 | 57 | phaser | 3 | `gboard.mod_cc[3]` |
+| 5 | 50 | fuzz | 4 | `gboard.drive_cc[0]` |
+| 6 | 51 | klon | 5 | `gboard.drive_cc[1]` |
+| 7 | 52 | tubescreamer | 6 | `gboard.drive_cc[2]` |
+| 8 | 53 | boost on/off | 7 | `gboard.boost_cc` |
 
 Il **filter (wah)** non ha ne' un CC ne' un LED: si accende solo con
 l'auto-engage dell'espressione. I quattro tasti mod coprono

@@ -136,23 +136,23 @@ La G-Board ha una mappa separata, sempre in `config/midi.json`, e due modi:
 
 | Tasto | CC (effetti) | Azione | LED |
 |---|---|---|---|
-| 1 | 54 | mod tremolo | 1 |
-| 2 | 55 | mod univibe | 2 |
-| 3 | 56 | mod flanger | 3 |
-| 4 | 57 | mod phaser | 4 |
-| 5 | 50 | drive fuzz | 5 |
-| 6 | 51 | drive klon | 6 |
-| 7 | 52 | drive tubescreamer | 7 |
-| 8 | 53 | boost on/off | 8 |
+| 1 | 54 | mod tremolo | 0 |
+| 2 | 55 | mod univibe | 1 |
+| 3 | 56 | mod flanger | 2 |
+| 4 | 57 | mod phaser | 3 |
+| 5 | 50 | drive fuzz | 4 |
+| 6 | 51 | drive klon | 5 |
+| 7 | 52 | drive tubescreamer | 6 |
+| 8 | 53 | boost on/off | 7 |
 
 - I CC usano lo stesso comportamento dei radio button: lo stesso tasto spegne,
   un tasto diverso cambia tipo e accende.
 - Per i CC conta solo il **fronte di salita 127**, con debounce 150 ms; il
   rilascio 0 non produce alcuna azione. La G-Board usa sempre questa regola,
   indipendentemente da `switches` (che descrive gli switch a stato dell'XTONE).
-- I **LED** sono note **1-based** (nota N = LED fisico N = pulsante N) e
+- I **LED** sono note **0-based** (nota N = LED del pulsante fisico N+1) e
   indipendenti dai numeri in ingresso: `gboard.mod_led`/`drive_led`/`boost_led`
-  (default 1-4 / 5-7 / 8) sono le note Note On mandate al pedale. Al cambio
+  (default 0-3 / 4-6 / 7) sono le note Note On mandate al pedale. Al cambio
   preset lampeggia la nota dello slot. Cambiare un CC o un PC non cambia il LED.
 - I vecchi **PC-effetto** (`gboard.mod_pc`/`drive_pc`/`boost_pc`) sono
   **deprecati** e spenti di default (`gboard.pc_effects: false`). Con
@@ -272,7 +272,7 @@ Senza ALSA, quindi eseguibili anche fuori dal Pi:
 | `wah_autoengage_test` | soglie, isteresi, tempi, polarità invertita del gate |
 | `filter_test` | blocco FILTER come seconda istanza wah, posizione indipendente, tabella dei 4 tipi di mod |
 | `midi_config_test` | default, file completo, `-1`, doppioni, conflitto con l'espressione, `wah` rifiutato in `mod_select`, JSON rotto, CC/LED G-Board e collisioni, default/parse/validazione di `preset_pc`/`pc_effects`, routing dei PC (preset, legacy, ignorati) |
-| `gboard_cc_runtime.py` (sul Pi, non ctest) | inietta CC 50-57 sulla socket BLE: mod/drive/boost, LED con le note 1-8 (1-based), debounce, rilascio ignorato; i PC-effetto legacy solo se `pc_effects=true` e `preset_pc=false` |
+| `gboard_cc_runtime.py` (sul Pi, non ctest) | inietta CC 50-57 sulla socket BLE: mod/drive/boost, LED con le note 0-7 (0-based), debounce, rilascio ignorato; i PC-effetto legacy solo se `pc_effects=true` e `preset_pc=false` |
 | `gboard_pc_runtime.py` (sul Pi, non ctest) | inietta PC sulla socket BLE: PC 0-7 -> slot 0-7 (stato, `.last_slot`, preset), PC ignorati con entrambi i flag off, priorita' preset/avviso con entrambi true, PC-effetto legacy con `pc_effects=true`, one-shot |
 | `drive_klon_test` | modello Klon (non MIDI, ma sta nello stesso slot comandato dai CC) |
 
