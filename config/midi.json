@@ -53,10 +53,10 @@
   },
   "devices": [
     "hw:XTONE",
-    "hw:V103"
+    "hw:V106"
   ],
   "gboard": {
-    "device": "hw:V103",
+    "device": "hw:V106",
     "mod_cc": [
       54,
       55,
