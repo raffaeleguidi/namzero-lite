@@ -137,18 +137,23 @@ installa la unit del bridge BLE. Una build fatta a mano con `cmake` è identica 
 realtime non disponibile"*, con più probabilità di xrun a buffer piccoli. In quel
 caso basta `./scripts/install.sh`.
 
-Dopo un deploy fatto senza sudo, `systemctl` non può fermare/riavviare il
-servizio (NOPASSWD copre solo `setcap`). Per i test si avvia il motore a mano,
-dalla directory del repo:
+`install.sh` installa anche `/usr/local/sbin/namzero-ctl` con
+`/etc/sudoers.d/namzero`: da quel momento i servizi si gestiscono **senza
+password di root**. È il flusso pensato per aggiornare il **solo binario** su
+card distribuite a terzi:
 
 ```bash
-cd ~/namzero-lite
-setsid nohup ./build/namzero-lite >/tmp/namzero-lite.log 2>&1 </dev/null &
+sudo namzero-ctl stop lite
+cp nuovo-binario ~/namzero-lite/build/namzero-lite
+sudo namzero-ctl start lite
+# anche: sudo namzero-ctl restart web | is-active ble-bridge
 ```
 
-La web UI si riavvia con `pkill -f "[w]eb/server.py"` (systemd la rilancia subito
-col codice nuovo). Quando si torna alla gestione systemd:
-`sudo systemctl restart namzero-lite`.
+Lo script accetta solo `start|stop|restart|is-active` su
+`lite|web|ble-bridge|wifi` (niente `sudo` generico) ed è root-owned. Se
+`namzero-ctl` non c'è (install vecchia), il fallback manuale è
+`setsid nohup ./build/namzero-lite >/tmp/namzero-lite.log 2>&1 </dev/null &`
+(la web si riavvia con `pkill -f "[w]eb/server.py"`, systemd la rilancia).
 
 ## Uso
 
