@@ -1,0 +1,213 @@
+#!/bin/sh
+# postinst del pacchetto namzero-lite.
+#
+# Ricostruisce in modo idempotente quello che scripts/install.sh fa su un
+# checkout git, ma con il layout del pacchetto:
+#   /opt/namzero-lite   programma e venv
+#   /etc/namzero        configurazione viva (conffiles), scrivibile dal gruppo
+#   /var/lib/namzero    dati utente (IR, backup della config factory)
+#
+# Tutto quello che riguarda systemd e la rete e' "best effort": un'installazione
+# in chroot/container senza systemd non deve fallire. Il pacchetto resta
+# installato e le unit partono al primo boot.
+set -e
+
+NAME=namzero-lite
+APP=/opt/namzero-lite
+CFG=/etc/namzero
+STATE=/var/lib/namzero
+VENV="$APP/venv"
+SVC_USER=namzero
+CTL=/usr/local/sbin/namzero-ctl
+SUDOERS=/etc/sudoers.d/namzero
+DNS_DIR=/etc/NetworkManager/dnsmasq-shared.d
+DNS_FILE="$DNS_DIR/namzero-lite.conf"
+
+log() { echo "$NAME: $*"; }
+
+# /etc/default/namzero e' un conffile: l'utente puo' cambiare NAMZERO_CTL_USER.
+if [ -r /etc/default/namzero ]; then
+    # shellcheck disable=SC1091
+    . /etc/default/namzero
+fi
+: "${NAMZERO_CTL_USER:=pi}"
+
+systemd_running() {
+    command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
+}
+
+case "$1" in
+configure)
+    # ── utente di servizio ────────────────────────────────────────────────
+    # La home esiste gia' (0755, root) per evitare il warning di adduser;
+    # subito dopo viene assegnata all'utente di servizio.
+    install -d -m 0755 "$STATE"
+    if ! id "$SVC_USER" >/dev/null 2>&1; then
+        if command -v adduser >/dev/null 2>&1; then
+            adduser --system --group --home "$STATE" --no-create-home \
+                --shell /usr/sbin/nologin "$SVC_USER" >/dev/null
+            log "creato utente di servizio $SVC_USER"
+        else
+            log "ATTENZIONE: adduser assente, utente $SVC_USER non creato"
+        fi
+    fi
+    for grp in audio bluetooth; do
+        if getent group "$grp" >/dev/null 2>&1; then
+            adduser "$SVC_USER" "$grp" >/dev/null 2>&1 || true
+        fi
+    done
+
+    # ── directory dati e permessi ─────────────────────────────────────────
+    install -d -m 0755 -o "$SVC_USER" -g "$SVC_USER" \
+        "$STATE" "$STATE/irs" "$STATE/models" "$STATE/backups"
+    # La config del pacchetto e' root:namzero, il gruppo ha scrittura: sia il
+    # motore sia la web UI girano come namzero e devono salvare opzioni e wifi.
+    # I segreti restano leggibili solo da root/namzero.
+    if [ -d "$CFG" ]; then
+        chown -R root:"$SVC_USER" "$CFG"
+        find "$CFG" -type d -exec chmod 0770 {} +
+        find "$CFG" -type f -exec chmod 0660 {} +
+    fi
+    # Il primo install lascia una copia della config factory in /var/lib:
+    # serve per ripristinare un file rotto senza reinstallare il pacchetto.
+    if [ ! -f "$STATE/factory-defaults/presets.json" ] && [ -d "$CFG" ]; then
+        rm -rf "$STATE/factory-defaults"
+        install -d -m 0755 -o root -g "$SVC_USER" "$STATE/factory-defaults"
+        cp -a "$CFG/." "$STATE/factory-defaults/"
+        chown -R root:"$SVC_USER" "$STATE/factory-defaults"
+        find "$STATE/factory-defaults" -type d -exec chmod 0770 {} +
+        find "$STATE/factory-defaults" -type f -exec chmod 0660 {} +
+        log "copia della configurazione factory in $STATE/factory-defaults"
+    fi
+
+    # Il symlink config -> /etc/namzero e' nel pacchetto; lo si ripara se un
+    # vecchio esperimento lo ha sostituito con una directory.
+    if [ ! -L "$APP/config" ] || [ "$(readlink "$APP/config")" != "$CFG" ]; then
+        if [ -e "$APP/config" ] && [ ! -L "$APP/config" ]; then
+            log "ATTENZIONE: $APP/config non e' un symlink, lo sostituisco"
+            rm -rf "$APP/config"
+        fi
+        ln -sfn "$CFG" "$APP/config"
+    fi
+    # Le IR non sono ridistribuibili nel pacchetto: la directory e' un symlink
+    # a /var/lib/namzero/irs, cosi' upload e preset funzionano dal primo avvio.
+    if [ ! -L "$APP/irs" ] || [ "$(readlink "$APP/irs")" != "$STATE/irs" ]; then
+        if [ -e "$APP/irs" ] && [ ! -L "$APP/irs" ]; then
+            log "ATTENZIONE: $APP/irs non e' un symlink, lo sostituisco"
+            rm -rf "$APP/irs"
+        fi
+        ln -sfn "$STATE/irs" "$APP/irs"
+    fi
+    # I modelli caricati dalla UI finiscono in /opt/namzero-lite/models: il
+    # gruppo di servizio deve poter scrivere solo li', non in tutto /opt.
+    chown root:"$SVC_USER" "$APP/models" 2>/dev/null || true
+    chmod 0775 "$APP/models" 2>/dev/null || true
+
+    # ── venv del bridge BLE ───────────────────────────────────────────────
+    if [ ! -x "$VENV/bin/python" ]; then
+        log "creo il venv $VENV"
+        if ! python3 -m venv "$VENV"; then
+            log "ATTENZIONE: creazione venv fallita (python3-venv installato?)"
+        fi
+    fi
+    if [ -x "$VENV/bin/python" ]; then
+        if "$VENV/bin/python" -c 'import dbus_fast' >/dev/null 2>&1; then
+            log "dipendenze bridge gia' presenti nel venv"
+        else
+            pip_ok=0
+            # Prima le wheel vendute nel pacchetto (installazione offline),
+            # poi PyPI.
+            if [ -d "$APP/wheels" ] && ls "$APP"/wheels/*.whl >/dev/null 2>&1; then
+                if "$VENV/bin/pip" install --no-index --find-links "$APP/wheels" \
+                        -r "$APP/ble-bridge-py/requirements.txt"; then
+                    pip_ok=1
+                fi
+            fi
+            if [ "$pip_ok" = 0 ]; then
+                if "$VENV/bin/pip" install -q \
+                        -r "$APP/ble-bridge-py/requirements.txt"; then
+                    pip_ok=1
+                fi
+            fi
+            if [ "$pip_ok" = 0 ]; then
+                log "ATTENZIONE: dipendenze bridge non installate (rete assente e wheel mancanti)"
+            fi
+        fi
+        chown -R root:"$SVC_USER" "$VENV" 2>/dev/null || true
+        chmod -R g+rX "$VENV" 2>/dev/null || true
+    fi
+
+    # ── capability per l'uso manuale ──────────────────────────────────────
+    if [ -x "$APP/namzero-lite" ] && command -v setcap >/dev/null 2>&1; then
+        if setcap cap_sys_nice,cap_ipc_lock+ep "$APP/namzero-lite" 2>/dev/null; then
+            log "capability applicate al binario"
+        else
+            log "ATTENZIONE: setcap non applicato (il servizio usa AmbientCapabilities)"
+        fi
+    fi
+
+    # ── namzero-ctl senza password ────────────────────────────────────────
+    if [ -x "$CTL" ] && id "$NAMZERO_CTL_USER" >/dev/null 2>&1; then
+        case "$NAMZERO_CTL_USER" in
+        *[!A-Za-z0-9_-]*)
+            log "ATTENZIONE: NAMZERO_CTL_USER non valido, sudoers non aggiornato"
+            ;;
+        *)
+            tmp="$(mktemp)"
+            printf '%s ALL=(root) NOPASSWD: %s\n' "$NAMZERO_CTL_USER" "$CTL" >"$tmp"
+            if command -v visudo >/dev/null 2>&1 && visudo -cf "$tmp" >/dev/null 2>&1; then
+                install -m 0440 -o root -g root "$tmp" "$SUDOERS"
+                log "sudoers: $NAMZERO_CTL_USER puo' usare namzero-ctl senza password"
+            else
+                log "ATTENZIONE: visudo non disponibile, sudoers invariato"
+            fi
+            rm -f "$tmp"
+            ;;
+        esac
+    else
+        log "ATTENZIONE: utente $NAMZERO_CTL_USER assente, sudoers non creato"
+    fi
+
+    # ── drop-in DNS per il nome dell'AP ──────────────────────────────────
+    install -d -m 0755 "$DNS_DIR"
+    printf 'address=/%s/10.42.0.1\n' "$NAME" >"$DNS_FILE"
+    chmod 0644 "$DNS_FILE"
+    chown root:root "$DNS_FILE" 2>/dev/null || true
+
+    # ── systemd ───────────────────────────────────────────────────────────
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    if systemd_running; then
+        # enable --now crea i symlink e avvia subito. L'exit code non blocca il
+        # postinst se una unit (es. WiFi senza hardware) non parte: i restart
+        # sotto sono comunque indipendenti.
+        systemctl enable --now cpu-performance.service namzero-lite.service \
+            namzero-web.service namzero-ble-bridge.service \
+            namzero-wifi.service >/dev/null 2>&1 || true
+        systemctl restart cpu-performance.service >/dev/null 2>&1 || true
+        systemctl restart namzero-lite.service >/dev/null 2>&1 || true
+        systemctl restart namzero-web.service >/dev/null 2>&1 || true
+        systemctl restart namzero-ble-bridge.service >/dev/null 2>&1 || true
+        if [ -x /usr/bin/nmcli ]; then
+            systemctl restart namzero-wifi.service >/dev/null 2>&1 || true
+        else
+            systemctl stop namzero-wifi.service >/dev/null 2>&1 || true
+        fi
+        log "servizi abilitati e avviati"
+    else
+        log "systemd non attivo: unit abilitate al primo boot"
+    fi
+
+    log "installazione completata"
+    log "web UI: http://<ip-del-pi>:8080  (utente di servizio: $SVC_USER)"
+    log "config: $CFG   dati: $STATE"
+    ;;
+abort-upgrade | abort-remove | abort-deconfigure)
+    # dpkg sta annullando un'operazione: non toccare nulla.
+    ;;
+*)
+    ;;
+esac
+
+exit 0

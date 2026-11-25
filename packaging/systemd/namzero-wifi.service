@@ -1,0 +1,22 @@
+[Unit]
+Description=namzero-lite reti WiFi note + AP di fallback
+Documentation=file:/opt/namzero-lite/docs/rt-setup.md
+After=NetworkManager.service namzero-web.service
+Wants=NetworkManager.service namzero-web.service
+# Senza NetworkManager/nmcli il servizio non ha senso: si salta invece di
+# entrare in un ciclo di restart (utile nei container di test).
+ConditionPathExists=/usr/bin/nmcli
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/namzero-lite
+ExecStart=/opt/namzero-lite/scripts/wifi-connect.sh
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

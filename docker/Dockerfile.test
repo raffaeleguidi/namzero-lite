@@ -1,0 +1,31 @@
+# Immagine di test per il pacchetto namzero-lite (arm64 + systemd).
+#
+# Il container va avviato con:
+#   --privileged --cgroupns=host \
+#   -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock
+#
+# Vedi scripts/test-container.sh, che fa tutto questo e lancia i check.
+FROM --platform=linux/arm64 debian:bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    container=docker \
+    LANG=C.UTF-8
+
+# Solo l'essenziale per far girare systemd e i test: le dipendenze del .deb
+# (python3-venv, libasound2, bluez, network-manager, ...) le installa apt,
+# cosi' il test verifica davvero la dichiarazione Depends del pacchetto.
+RUN apt-get update -qq \
+ && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv dbus dbus-user-session \
+      sudo curl ca-certificates procps iproute2 \
+ && rm -rf /var/lib/apt/lists/*
+
+# L'utente "pi" e' quello a cui il pacchetto concede namzero-ctl via sudoers
+# (NAMZERO_CTL_USER in /etc/default/namzero). Non gli si da' sudo generico:
+# il test deve fallire se la regola del pacchetto non viene creata.
+RUN useradd --create-home --shell /bin/bash pi \
+ && mkdir -p /etc/sudoers.d \
+ && chmod 0755 /etc/sudoers.d
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

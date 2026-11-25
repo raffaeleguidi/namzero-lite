@@ -1,0 +1,14 @@
+#!/bin/sh
+# preinst: ferma i servizi prima di sostituire il binario, cosi' non si
+# aggiorna un eseguibile in uso. Il WiFi resta attivo: fermarlo durante un
+# upgrade significherebbe perdere la sessione SSH sul Pi.
+set -e
+
+if [ "$1" = upgrade ] && [ -d /run/systemd/system ] &&
+    command -v systemctl >/dev/null 2>&1; then
+    systemctl stop namzero-lite.service >/dev/null 2>&1 || true
+    systemctl stop namzero-web.service >/dev/null 2>&1 || true
+    systemctl stop namzero-ble-bridge.service >/dev/null 2>&1 || true
+fi
+
+exit 0

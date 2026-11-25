@@ -1,0 +1,14 @@
+[Unit]
+Description=CPU governor performance (namzero-lite)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# Su un host senza cpufreq (container) il glob non espande e il comando deve
+# comunque terminare con successo: il governor e' un'ottimizzazione, non un
+# requisito di installazione.
+ExecStart=/bin/sh -c 'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -w "$f" ] && echo performance > "$f" || true; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+Package: namzero-lite
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Raffaele P. Guidi <raffaele.p.guidi@gmail.com>
+Installed-Size: @INSTALLED_SIZE@
+Section: sound
+Priority: optional
+Homepage: https://github.com/raffaeleguidi/namzero-lite
+Depends: libasound2 (>= 1.2.0), python3 (>= 3.9), python3-venv, libcap2-bin, bluez, network-manager, sudo, adduser, alsa-utils
+Recommends: dnsmasq-base
+Description: realtime guitar audio engine for Raspberry Pi (NAM lite)
+ namzero-lite is a realtime guitar effect engine for Raspberry Pi Zero 2W
+ with an XSONIC XTONE (or any ALSA PCM) as audio interface. It implements
+ a fixed effect chain with NAM amp models, cabinet IRs, MIDI footswitch
+ control and a local web UI.
+ .
+ This package installs the engine, the Python web UI and BLE MIDI bridge,
+ factory presets and systemd units. User configuration lives in
+ /etc/namzero (conffiles) and /var/lib/namzero.

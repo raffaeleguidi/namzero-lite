@@ -1,0 +1,22 @@
+#!/bin/sh
+# prerm: stop dei servizi prima della rimozione. Su upgrade il preinst ha gia'
+# fermato motore/web/bridge; il WiFi si ferma solo alla rimozione vera.
+set -e
+
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    case "$1" in
+    remove | deconfigure)
+        systemctl stop namzero-wifi.service >/dev/null 2>&1 || true
+        systemctl stop namzero-ble-bridge.service >/dev/null 2>&1 || true
+        systemctl stop namzero-web.service >/dev/null 2>&1 || true
+        systemctl stop namzero-lite.service >/dev/null 2>&1 || true
+        ;;
+    upgrade)
+        systemctl stop namzero-lite.service >/dev/null 2>&1 || true
+        systemctl stop namzero-web.service >/dev/null 2>&1 || true
+        systemctl stop namzero-ble-bridge.service >/dev/null 2>&1 || true
+        ;;
+    esac
+fi
+
+exit 0

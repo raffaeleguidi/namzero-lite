@@ -1,7 +1,11 @@
 # Piano installer automatico (Raspbian 64-bit Lite)
 
-**Stato: STANDBY** (in attesa di una SD nuova per i test). Decisione: **pacchetto
-`.deb`** unico, con upgrade che preserva la configurazione.
+**Stato: fase 1 (MVP) implementata e testata in container arm64.** Il pacchetto
+`.deb` unico è in `packaging/`, si costruisce con `scripts/build-deb.sh` e si
+verifica con `scripts/test-container.sh`; dettagli e limiti in
+[docs/installer.md](docs/installer.md). Restano da fare fase 2 (upgrade su
+hardware reale), pubblicazione e repo APT. Decisione: **pacchetto `.deb`**
+unico, con upgrade che preserva la configurazione.
 
 Obiettivo: installazione automatica su una Raspbian 64-bit Lite pulita con un
 solo comando:

@@ -1,0 +1,26 @@
+[Unit]
+Description=namzero-lite guitar engine
+Documentation=file:/opt/namzero-lite/README.md
+After=sound.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=namzero
+Group=namzero
+SupplementaryGroups=audio bluetooth
+UMask=0007
+WorkingDirectory=/opt/namzero-lite
+ExecStart=/opt/namzero-lite/namzero-lite
+# Le capability le concede systemd: non serve setcap per il servizio, e
+# sopravvivono alle ricompilazioni. Il postinst applica comunque setcap per
+# l'uso manuale del binario.
+AmbientCapabilities=cap_sys_nice cap_ipc_lock
+CapabilityBoundingSet=cap_sys_nice cap_ipc_lock
+LimitRTPRIO=80
+LimitMEMLOCK=infinity
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

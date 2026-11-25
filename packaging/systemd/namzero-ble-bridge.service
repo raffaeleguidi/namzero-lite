@@ -1,0 +1,22 @@
+[Unit]
+Description=namzero-lite BLE MIDI bridge
+Documentation=file:/opt/namzero-lite/docs/ble.md
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=namzero
+Group=namzero
+SupplementaryGroups=bluetooth
+UMask=0007
+WorkingDirectory=/opt/namzero-lite/ble-bridge-py
+Environment=NAMZERO_BLE_DEVICE=FootCtrl
+Environment=NAMZERO_BLE_SOCKET=/tmp/namzero-lite-ble.sock
+# Il venv serve per dbus-fast, che non e' nei pacchetti di sistema.
+ExecStart=/opt/namzero-lite/venv/bin/python /opt/namzero-lite/ble-bridge-py/main.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

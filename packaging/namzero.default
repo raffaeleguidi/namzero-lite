@@ -1,0 +1,5 @@
+# Configurazione di sistema del pacchetto namzero-lite.
+#
+# Utente autorizzato a usare /usr/local/sbin/namzero-ctl senza password.
+# Deve esistere (su Raspberry Pi OS e' normalmente "pi").
+NAMZERO_CTL_USER=pi

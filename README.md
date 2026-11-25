@@ -113,6 +113,33 @@ preset è il prossimo passo.
 
 Dettaglio e milestone in [PLAN.md](PLAN.md).
 
+## Installazione (.deb)
+
+Per le card da distribuire c'è un pacchetto Debian arm64 con tutto incluso
+(binario, web UI, bridge BLE, config e preset di default, unit systemd):
+
+```bash
+sudo apt install ./namzero-lite_0.1.0_arm64.deb
+sudo apt install ./namzero-lite_0.2.0_arm64.deb   # upgrade, config preservata
+sudo apt purge namzero-lite                       # pulizia completa
+```
+
+Layout: applicazione in `/opt/namzero-lite` (con `config` che punta a
+`/etc/namzero`), configurazione in `/etc/namzero` come **conffiles**, dati
+utente in `/var/lib/namzero`, unit in `/lib/systemd/system`, `namzero-ctl` in
+`/usr/local/sbin`. I segreti (WiFi/TONE3000) restano gli esempi del repo.
+
+Build e test in container:
+
+```bash
+./scripts/build-deb.sh        # -> dist/namzero-lite_<ver>_arm64.deb
+./scripts/test-container.sh   # Debian bookworm arm64 + systemd, check completi
+```
+
+Dettagli, tabella dei percorsi e limiti noti in
+[docs/installer.md](docs/installer.md). Il flusso `build.sh`/`install.sh` qui
+sotto resta valido per lo sviluppo sul checkout git.
+
 ## Build
 
 Sul Pi:

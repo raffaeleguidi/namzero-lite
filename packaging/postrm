@@ -1,0 +1,56 @@
+#!/bin/sh
+# postrm: pulizia. `remove` conserva config e dati utente; `purge` elimina
+# anche /var/lib/namzero, /etc/namzero e i file non tracciati (venv, upload).
+set -e
+
+APP=/opt/namzero-lite
+CFG=/etc/namzero
+STATE=/var/lib/namzero
+SUDOERS=/etc/sudoers.d/namzero
+DNS_DIR=/etc/NetworkManager/dnsmasq-shared.d
+DNS_FILE="$DNS_DIR/namzero-lite.conf"
+
+log() { echo "namzero-lite: $*"; }
+
+case "$1" in
+remove | purge | deconfigure)
+    # Solo alla rimozione: su upgrade i symlink di enable devono restare e il
+    # postinst della nuova versione li ricrea comunque.
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl disable cpu-performance.service >/dev/null 2>&1 || true
+        systemctl disable namzero-lite.service >/dev/null 2>&1 || true
+        systemctl disable namzero-web.service >/dev/null 2>&1 || true
+        systemctl disable namzero-ble-bridge.service >/dev/null 2>&1 || true
+        systemctl disable namzero-wifi.service >/dev/null 2>&1 || true
+    fi
+    # I symlink di enable non sono tracciati da dpkg: se la unit e' gia'
+    # sparita `systemctl disable` non li toglie sempre.
+    rm -f /etc/systemd/system/multi-user.target.wants/namzero-lite.service \
+        /etc/systemd/system/multi-user.target.wants/namzero-web.service \
+        /etc/systemd/system/multi-user.target.wants/namzero-ble-bridge.service \
+        /etc/systemd/system/multi-user.target.wants/namzero-wifi.service \
+        /etc/systemd/system/multi-user.target.wants/cpu-performance.service
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
+
+case "$1" in
+purge)
+    rm -f "$SUDOERS"
+    rm -f "$DNS_FILE"
+    rmdir "$DNS_DIR" 2>/dev/null || true
+    # File creati a runtime (preset personali, .last_slot, backup) e venv non
+    # tracciato da dpkg: con purge se ne va tutto.
+    rm -rf "$STATE"
+    rm -rf "$APP"
+    rm -rf "$CFG"
+    log "config, dati utente, sudoers e drop-in rimossi"
+    ;;
+remove | upgrade | deconfigure | failed-upgrade | abort-install | abort-upgrade | abort-remove | disappear)
+    # `remove`: la configurazione (conffiles) e /var/lib/namzero restano.
+    ;;
+esac
+
+exit 0

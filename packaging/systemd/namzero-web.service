@@ -1,0 +1,17 @@
+[Unit]
+Description=namzero-lite web UI
+Documentation=file:/opt/namzero-lite/README.md
+After=network.target namzero-lite.service
+
+[Service]
+Type=simple
+User=namzero
+Group=namzero
+UMask=0007
+WorkingDirectory=/opt/namzero-lite
+ExecStart=/usr/bin/python3 /opt/namzero-lite/web/server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
