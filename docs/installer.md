@@ -1,21 +1,25 @@
 # Installer Debian (fase 1 MVP)
 
-Pacchetto unico `namzero-lite_<versione>_arm64.deb` per Raspberry Pi OS Lite
-64-bit. Sostituisce, per le installazioni "da distribuire", il flusso
-`scripts/install.sh` + `scripts/deploy.sh` (che restano validi per lo sviluppo
-sul checkout git). Il piano generale è in [INSTALLER_PLAN.md](../INSTALLER_PLAN.md).
+Un pacchetto, due modalita': `namzero-lite_<versione>_arm64.deb` per Raspberry
+Pi OS Lite 64-bit e `namzero-lite_<versione>_amd64.deb` per un desktop Linux
+(Ubuntu 24.04). Il binario e' lo stesso codice: cambia solo il modo in cui
+viene avviato e dove vivono i dati. Sostituisce, per le installazioni "da
+distribuire", il flusso `scripts/install.sh` + `scripts/deploy.sh` (che
+restano validi per lo sviluppo sul checkout git). Il piano generale e' in
+[INSTALLER_PLAN.md](../INSTALLER_PLAN.md).
 
 ## Installazione
 
 ```bash
-sudo apt install ./namzero-lite_0.1.0_arm64.deb
+sudo apt install ./namzero-lite_0.1.0_arm64.deb   # Raspberry Pi
+sudo apt install ./namzero-lite_0.1.0_amd64.deb   # laptop Ubuntu
 ```
 
-L'installazione parte da sola: crea l'utente di servizio `namzero`, il venv del
-bridge, applica le capability, abilita e avvia le unit. La web UI risponde su
-`http://<ip-del-pi>:8080`. A differenza di `scripts/install.sh` (che usa
-`/home/pi/namzero-lite` e l'utente `pi`), il pacchetto usa l'utente di sistema
-`namzero`: `pi` resta solo l'utente autorizzato a `namzero-ctl`.
+In modalita' servizio l'installazione parte da sola: crea l'utente `namzero`,
+il venv del bridge, applica le capability, abilita e avvia le unit. La web UI
+risponde su `http://<ip-del-pi>:8080`. A differenza di `scripts/install.sh`
+(che usa `/home/pi/namzero-lite` e l'utente `pi`), il pacchetto usa l'utente di
+sistema `namzero`: `pi` resta solo l'utente autorizzato a `namzero-ctl`.
 
 ```bash
 systemctl status namzero-lite namzero-web namzero-ble-bridge namzero-wifi
@@ -36,6 +40,83 @@ sudo apt remove namzero-lite    # conserva /etc/namzero e /var/lib/namzero
 sudo apt purge namzero-lite     # rimuove anche config, dati e venv
 ```
 
+## Modalita': desktop o service
+
+La scelta sta in debconf (`namzero-lite/install-mode`) e governa maintainer
+script e unit. Il default dipende dall'architettura **calcolata nel config
+script**, non nel template: su arm64 e' `service` (il Pi resta un apparecchio e
+nessuno deve rispondere a domande via SSH), altrove `desktop`.
+
+| Modalita' | Avvio | Config | Dati |
+|---|---|---|---|
+| `desktop` | menu applicazioni, GUI GTK+WebKit | `~/.config/namzero` | `~/.local/share/namzero` |
+| `service` | systemd al boot | `/etc/namzero` (conffiles) | `/var/lib/namzero` |
+
+Le due modalita' sono alternative: non c'e' un "entrambi". Il launcher viene
+installato comunque, anche in modalita' servizio: su una macchina che gira come
+servizio si puo' aprire `namzero-lite-gui --no-engine` e la finestra si collega
+all'istanza gia' attiva, senza avviare un secondo motore.
+
+Una versione precedente del pacchetto offriva anche `both`. Chi l'aveva scelta
+viene migrato a `service` (i dati erano gia' in `/etc/namzero`), con un
+messaggio nel log del postinst.
+
+Cambio successivo:
+
+```bash
+sudo dpkg-reconfigure namzero-lite
+```
+
+Installazione non presidiata (CI, immagini, script):
+
+```bash
+sudo NAMZERO_INSTALL_MODE=service apt install ./namzero-lite_0.1.0_arm64.deb
+```
+
+`NAMZERO_INSTALL_MODE` ha la precedenza su debconf e viene letta dal `config`
+script. Va impostata **dentro** una shell di root: `sudo VAR=x comando` non
+propaga `VAR`, perche' sudo fa `env_reset`. Per questo `scripts/install-deb.sh`
+usa `sudo sh -c "NAMZERO_INSTALL_MODE=... apt-get install ..."`.
+
+### Perche' non basta `install-mode` nel template
+
+Il doppio click su un `.deb` in Files lo passa a gnome-software/App Center con
+`DEBIAN_FRONTEND=noninteractive`: la domanda non viene posta e vale il default.
+Il `config` script calcola quindi un default sensato prima di chiedere, cosi'
+un'installazione non presidiata sul Pi resta `service` e sul laptop diventa
+`desktop`. Da terminale (`apt install ./file.deb`) la domanda viene posta.
+
+## Modalita' desktop
+
+Il launcher `/usr/bin/namzero-lite-gui` (Python 3 + GTK3 + WebKit2GTK,
+nessuna dipendenza pip) prepara al primo avvio un layout per-utente e avvia
+motore e web server come processi figli:
+
+```
+~/.config/namzero/           config, copiata una volta da /etc/namzero
+~/.local/share/namzero/      root dati = cwd del motore
+    config -> ~/.config/namzero
+    models/  irs/            (i .nam di fabbrica sono copiati al primo avvio)
+~/.local/state/namzero/      namzero-lite-gui.log
+```
+
+Il motore apre `config/...`, `models/...` e `irs/...` con percorsi **relativi
+alla propria working directory**, quindi la cwd e' la root dati; alla web UI si
+passa `NAMZERO_ROOT=<root dati>` (in `web/server.py`, `APP` resta la directory
+del pacchetto per gli asset statici). Nessun file di sistema viene scritto:
+non servono il gruppo `namzero`, sudo o capability.
+
+Dettagli utili:
+
+- se la porta 8080 e' gia' in ascolto (servizio attivo), la GUI si collega a
+  quella e non avvia un secondo web server;
+- se il lock `/tmp/namzero-lite.lock` e' gia' preso, la GUI avvisa e non avvia
+  un secondo motore;
+- alla chiusura i figli ricevono SIGTERM e, dopo 3 s, SIGKILL: nessun orfano e
+  il lock torna libero;
+- `--no-engine` collega solo la UI (motore gia' attivo come servizio),
+  `--debug` scrive su stderr.
+
 ## Layout installato
 
 | Percorso | Contenuto |
@@ -48,14 +129,23 @@ sudo apt purge namzero-lite     # rimuove anche config, dati e venv
 | `/var/lib/namzero/` | dati utente: `irs/`, `models/`, `backups/`, `factory-defaults/` (creata dal postinst) |
 | `/lib/systemd/system/` | `namzero-lite`, `namzero-web`, `namzero-ble-bridge`, `namzero-wifi`, `cpu-performance` |
 | `/usr/local/sbin/namzero-ctl` | wrapper `start/stop/restart/is-active` per `lite|web|ble-bridge|wifi` |
+| `/usr/bin/namzero-lite-gui` | launcher desktop (GTK3 + WebKit2GTK) |
+| `/usr/share/applications/namzero-lite.desktop` | voce di menu applicazioni |
+| `/usr/share/icons/hicolor/scalable/apps/namzero-lite.svg` | icona |
 | `/etc/sudoers.d/namzero` | regola NOPASSWD per `namzero-ctl` (creata dal postinst) |
 | `/etc/NetworkManager/dnsmasq-shared.d/namzero-lite.conf` | drop-in DNS per il nome dell'AP (creato dal postinst) |
 
 `/etc/namzero` è di proprietà `root:namzero` con directory `0770` e file
-`0660`: il motore e la web UI girano come utente di servizio `namzero` e devono
-poter salvare opzioni, preset e WiFi, ma la config non è leggibile dagli altri
-utenti. Lo stesso utente è nei gruppi `audio` e `bluetooth`. La directory
-`/opt/namzero-lite/models` è scrivibile dal gruppo per gli upload dalla UI.
+`0660` **in modalità servizio**: il motore e la web UI girano come utente di
+servizio `namzero` e devono poter salvare opzioni, preset e WiFi, ma la config
+non è leggibile dagli altri utenti. Lo stesso utente è nei gruppi `audio` e
+`bluetooth`. La directory `/opt/namzero-lite/models` è scrivibile dal gruppo
+per gli upload dalla UI.
+
+In modalità **desktop** `/etc/namzero` è invece `root:root` `0755/0644`:
+esprime solo la configurazione di fabbrica, che il launcher copia nella home
+dell'utente al primo avvio. Nessun utente di servizio viene creato, nessuna
+regola sudoers, nessun drop-in DNS.
 
 ### Modelli e IR
 
@@ -70,27 +160,43 @@ gli esempi del repo (`Casa-Esempio`, client id `...ESEMPIO...`).
 
 ## Build
 
-Prerequisiti: Docker e binario arm64 in `build-arm64/namzero-lite` (se manca,
-lo script chiama `scripts/cross-build.sh`), che a sua volta richiede i sorgenti
-NAM in `.nam/` o `NAM_DIR`.
+Tutto in container: non serve `dpkg` né ALSA sull'host, e l'architettura del
+pacchetto sceglie l'immagine (Ubuntu 24.04 per amd64, Debian bookworm per
+arm64). Il binario viene ricompilato con `cmake` e la suite `ctest` gira prima
+di impacchettare: un test rosso ferma la build.
 
 ```bash
-./scripts/build-deb.sh              # versione da VERSION
-./scripts/build-deb.sh 0.2.0        # versione esplicita
-VERSION=0.2.0+rc1 ./scripts/build-deb.sh
+./scripts/build-deb.sh                    # amd64 (default, host x86_64)
+ARCH=arm64 ./scripts/build-deb.sh         # arm64 per il Pi
+./scripts/build-deb.sh 0.2.0              # versione esplicita
+FORCE_BUILD=1 ./scripts/build-deb.sh      # ricompila anche se il binario c'e'
+SKIP_BUILD=1 ./scripts/build-deb.sh       # ripacchetta senza ricompilare
+NAM_DIR=~/nam ./scripts/build-deb.sh      # abilita lo slot amp (core NAM)
 ```
+
+Su arm64, se `build-arm64/namzero-lite` manca, lo script chiama
+`scripts/cross-build.sh` come prima. Su Mac x86_64 il container arm64 gira via
+qemu (lento); amd64 è nativo.
 
 Lo script:
 
-1. crea la staging in `build-deb/root` (layout della tabella sopra);
-2. genera `DEBIAN/control`, `conffiles` e i maintainer script;
-3. chiama `dpkg-deb --root-owner-group --build` dentro
-   `debian:bookworm` **arm64** (`--platform linux/arm64`);
-4. scrive `dist/namzero-lite_<ver>_arm64.deb` e ne stampa control, conffiles e
-   layout.
+1. compila (o riusa) `build-<arch>/namzero-lite` ed esegue `ctest`;
+2. crea la staging in `build-deb/root` (layout della tabella sopra);
+3. genera `DEBIAN/control`, `conffiles`, `templates` e i maintainer script;
+4. chiama `dpkg-deb --root-owner-group --build` nell'immagine della
+   distribuzione di destinazione;
+5. scrive `dist/namzero-lite_<ver>_<arch>.deb` e ne stampa control, conffiles,
+   templates e layout.
 
-Su Mac x86_64 il container arm64 gira via qemu (Docker Desktop); su Apple
-Silicon o su un host arm64 è nativo. La build non richiede `dpkg` sull'host.
+### Dipendenze dichiarate
+
+`Depends` contiene solo ciò che serve in entrambe le modalità. `libasound2`
+è dichiarato come `libasound2 (>= 1.2.0) | libasound2t64` perché Ubuntu 24.04
+ha rinominato il pacchetto (transizione t64) e senza l'alternativa il `.deb`
+non sarebbe installabile sul laptop. GTK/WebKit (desktop) e
+bluez/NetworkManager/dnsmasq (servizio) stanno nei `Recommends`: apt li
+installa di default, ma nessuna delle due modalità trascina le dipendenze
+dell'altra.
 
 ## Test in container arm64
 

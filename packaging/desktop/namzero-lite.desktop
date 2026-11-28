@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=namzero-lite
+GenericName=Guitar Rig
+Comment=Realtime NAM guitar rig with local web interface
+Comment[it]=Rig per chitarra NAM in tempo reale con interfaccia web locale
+Exec=/usr/bin/namzero-lite-gui
+TryExec=/usr/bin/namzero-lite-gui
+Icon=namzero-lite
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=guitar;amp;nam;audio;midi;
+StartupNotify=true
+StartupWMClass=namzero-lite

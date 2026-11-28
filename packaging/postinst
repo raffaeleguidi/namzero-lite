@@ -4,12 +4,19 @@
 # Ricostruisce in modo idempotente quello che scripts/install.sh fa su un
 # checkout git, ma con il layout del pacchetto:
 #   /opt/namzero-lite   programma e venv
-#   /etc/namzero        configurazione viva (conffiles), scrivibile dal gruppo
-#   /var/lib/namzero    dati utente (IR, backup della config factory)
+#   /etc/namzero        configurazione factory (conffiles)
+#   /var/lib/namzero    dati e stato (mode service), oppure solo lo stato
+#
+# Il comportamento dipende dalla modalita' scelta in debconf:
+#   service  -> utente namzero, config condivisa scrivibile dal gruppo,
+#               unit systemd abilitate (motore, web, BLE, wifi, governor)
+#   desktop  -> nessun servizio di sistema, /etc/namzero leggibile da tutti
+#               (il launcher ne copia una copia per-utente), GUI nel menu
+#
+# Le due modalita' sono alternative: non esiste un "entrambi".
 #
 # Tutto quello che riguarda systemd e la rete e' "best effort": un'installazione
-# in chroot/container senza systemd non deve fallire. Il pacchetto resta
-# installato e le unit partono al primo boot.
+# in chroot/container senza systemd non deve fallire.
 set -e
 
 NAME=namzero-lite
@@ -22,6 +29,7 @@ CTL=/usr/local/sbin/namzero-ctl
 SUDOERS=/etc/sudoers.d/namzero
 DNS_DIR=/etc/NetworkManager/dnsmasq-shared.d
 DNS_FILE="$DNS_DIR/namzero-lite.conf"
+MODE_FILE="$STATE/install-mode"
 
 log() { echo "$NAME: $*"; }
 
@@ -36,47 +44,132 @@ systemd_running() {
     command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 }
 
+# ── lettura delle risposte debconf ─────────────────────────────────────
+# Il modo standard: si sorga il confmodule, si leggono TUTTE le risposte e
+# poi si chiama db_stop, che chiude la connessione e ripristina stdout. Prima
+# di db_stop un echo non arriverebbe al terminale di dpkg; dopo, sì.
+#
+# Perche' non debconf-communicate: dentro un maintainer script risponde
+# "doesn't exist" anche quando la risposta c'e' (verificato in un pacchetto
+# di prova in container), e il valore precedente resterebbe in vigore.
+DB_MODE=""
+DB_START_NOW="true"
+DB_DESKTOP_USER=""
+if [ -r /usr/share/debconf/confmodule ]; then
+    # shellcheck disable=SC1091
+    . /usr/share/debconf/confmodule
+    db_version 2.0 || true
+    db_get "$NAME/install-mode" || true
+    DB_MODE="${RET:-}"
+    db_get "$NAME/start-now" || true
+    DB_START_NOW="${RET:-true}"
+    db_get "$NAME/desktop-user" || true
+    DB_DESKTOP_USER="${RET:-}"
+    db_stop || true
+fi
+
+# ── modalita' di installazione ────────────────────────────────────────────
+# Precedenza: ambiente (install.sh) -> debconf -> scelta precedente -> arch.
+read_mode() {
+    if [ -n "${NAMZERO_INSTALL_MODE:-}" ]; then
+        printf '%s' "$NAMZERO_INSTALL_MODE"
+        return
+    fi
+    if [ -n "${DB_MODE:-}" ]; then
+        printf '%s' "$DB_MODE"
+        return
+    fi
+    if [ -r "$MODE_FILE" ]; then
+        cat "$MODE_FILE"
+        return
+    fi
+    case "$(dpkg --print-architecture 2>/dev/null || echo unknown)" in
+    arm64 | armhf) printf 'service' ;;
+    *) printf 'desktop' ;;
+    esac
+}
+
+MODE="$(read_mode)"
+MODE="$(printf '%s' "$MODE" | tr -d '[:space:]')"
+case "$MODE" in
+desktop | service) ;;
+both)
+    # Valore scritto da una versione precedente del pacchetto, quando
+    # "entrambi" era una scelta: i dati stavano in /etc/namzero e le unit
+    # erano attive, quindi il comportamento equivalente e' "service".
+    log "modalita' 'both' non piu' supportata: passo a 'service'"
+    MODE=service
+    ;;
+*)
+    log "modalita' '$MODE' non riconosciuta, uso 'desktop'"
+    MODE=desktop
+    ;;
+esac
+
+# L'utente desktop da abilitare al gruppo namzero (facoltativo, solo se i dati
+# sono condivisi). Vuoto = nessuno.
+DESKTOP_USER="${NAMZERO_DESKTOP_USER:-$DB_DESKTOP_USER}"
+
+log "modalita': $MODE"
+
 case "$1" in
 configure)
-    # ── utente di servizio ────────────────────────────────────────────────
-    # La home esiste gia' (0755, root) per evitare il warning di adduser;
-    # subito dopo viene assegnata all'utente di servizio.
+    # ── directory di stato (serve in tutte le modalita') ──────────────────
     install -d -m 0755 "$STATE"
-    if ! id "$SVC_USER" >/dev/null 2>&1; then
-        if command -v adduser >/dev/null 2>&1; then
-            adduser --system --group --home "$STATE" --no-create-home \
-                --shell /usr/sbin/nologin "$SVC_USER" >/dev/null
-            log "creato utente di servizio $SVC_USER"
-        else
-            log "ATTENZIONE: adduser assente, utente $SVC_USER non creato"
-        fi
-    fi
-    for grp in audio bluetooth; do
-        if getent group "$grp" >/dev/null 2>&1; then
-            adduser "$SVC_USER" "$grp" >/dev/null 2>&1 || true
-        fi
-    done
+    printf '%s\n' "$MODE" >"$MODE_FILE"
 
-    # ── directory dati e permessi ─────────────────────────────────────────
-    install -d -m 0755 -o "$SVC_USER" -g "$SVC_USER" \
-        "$STATE" "$STATE/irs" "$STATE/models" "$STATE/backups"
-    # La config del pacchetto e' root:namzero, il gruppo ha scrittura: sia il
-    # motore sia la web UI girano come namzero e devono salvare opzioni e wifi.
-    # I segreti restano leggibili solo da root/namzero.
-    if [ -d "$CFG" ]; then
-        chown -R root:"$SVC_USER" "$CFG"
-        find "$CFG" -type d -exec chmod 0770 {} +
-        find "$CFG" -type f -exec chmod 0660 {} +
+    # ── utente di servizio: solo se un servizio esiste ────────────────────
+    if [ "$MODE" != "desktop" ]; then
+        if ! id "$SVC_USER" >/dev/null 2>&1; then
+            if command -v adduser >/dev/null 2>&1; then
+                adduser --system --group --home "$STATE" --no-create-home \
+                    --shell /usr/sbin/nologin "$SVC_USER" >/dev/null
+                log "creato utente di servizio $SVC_USER"
+            else
+                log "ATTENZIONE: adduser assente, utente $SVC_USER non creato"
+            fi
+        fi
+        for grp in audio bluetooth; do
+            if getent group "$grp" >/dev/null 2>&1; then
+                adduser "$SVC_USER" "$grp" >/dev/null 2>&1 || true
+            fi
+        done
     fi
-    # Il primo install lascia una copia della config factory in /var/lib:
-    # serve per ripristinare un file rotto senza reinstallare il pacchetto.
+
+    # ── directory dati ────────────────────────────────────────────────────
+    if [ "$MODE" != "desktop" ]; then
+        install -d -m 0755 -o "$SVC_USER" -g "$SVC_USER" \
+            "$STATE" "$STATE/irs" "$STATE/models" "$STATE/backups"
+    else
+        # In desktop i dati stanno nella home dell'utente: qui resta solo lo
+        # stato del pacchetto (modalita' scelta, backup factory).
+        install -d -m 0755 "$STATE/backups"
+    fi
+
+    # ── permessi della configurazione factory ─────────────────────────────
+    # service: root:namzero 0770, il gruppo scrive (motore e web girano come
+    # namzero). desktop: 0644/0755, il launcher la copia nella home di chi
+    # lancia la GUI e da li' in poi quella copia e' l'unica verita'.
+    if [ -d "$CFG" ]; then
+        if [ "$MODE" = "desktop" ]; then
+            chown -R root:root "$CFG" 2>/dev/null || true
+            find "$CFG" -type d -exec chmod 0755 {} +
+            find "$CFG" -type f -exec chmod 0644 {} +
+        else
+            chown -R root:"$SVC_USER" "$CFG"
+            find "$CFG" -type d -exec chmod 0770 {} +
+            find "$CFG" -type f -exec chmod 0660 {} +
+        fi
+    fi
+
+    # Copia factory per ripristinare un file rotto senza reinstallare.
     if [ ! -f "$STATE/factory-defaults/presets.json" ] && [ -d "$CFG" ]; then
         rm -rf "$STATE/factory-defaults"
-        install -d -m 0755 -o root -g "$SVC_USER" "$STATE/factory-defaults"
+        install -d -m 0755 "$STATE/factory-defaults"
         cp -a "$CFG/." "$STATE/factory-defaults/"
-        chown -R root:"$SVC_USER" "$STATE/factory-defaults"
-        find "$STATE/factory-defaults" -type d -exec chmod 0770 {} +
-        find "$STATE/factory-defaults" -type f -exec chmod 0660 {} +
+        chown -R root:root "$STATE/factory-defaults"
+        find "$STATE/factory-defaults" -type d -exec chmod 0755 {} +
+        find "$STATE/factory-defaults" -type f -exec chmod 0644 {} +
         log "copia della configurazione factory in $STATE/factory-defaults"
     fi
 
@@ -90,20 +183,21 @@ configure)
         ln -sfn "$CFG" "$APP/config"
     fi
     # Le IR non sono ridistribuibili nel pacchetto: la directory e' un symlink
-    # a /var/lib/namzero/irs, cosi' upload e preset funzionano dal primo avvio.
-    if [ ! -L "$APP/irs" ] || [ "$(readlink "$APP/irs")" != "$STATE/irs" ]; then
-        if [ -e "$APP/irs" ] && [ ! -L "$APP/irs" ]; then
-            log "ATTENZIONE: $APP/irs non e' un symlink, lo sostituisco"
-            rm -rf "$APP/irs"
+    # a /var/lib/namzero/irs in modalita' servizio. In desktop il launcher usa
+    # le proprie; il symlink resta valido solo se la directory esiste.
+    if [ "$MODE" != "desktop" ]; then
+        if [ ! -L "$APP/irs" ] || [ "$(readlink "$APP/irs")" != "$STATE/irs" ]; then
+            if [ -e "$APP/irs" ] && [ ! -L "$APP/irs" ]; then
+                log "ATTENZIONE: $APP/irs non e' un symlink, lo sostituisco"
+                rm -rf "$APP/irs"
+            fi
+            ln -sfn "$STATE/irs" "$APP/irs"
         fi
-        ln -sfn "$STATE/irs" "$APP/irs"
+        chown root:"$SVC_USER" "$APP/models" 2>/dev/null || true
+        chmod 0775 "$APP/models" 2>/dev/null || true
     fi
-    # I modelli caricati dalla UI finiscono in /opt/namzero-lite/models: il
-    # gruppo di servizio deve poter scrivere solo li', non in tutto /opt.
-    chown root:"$SVC_USER" "$APP/models" 2>/dev/null || true
-    chmod 0775 "$APP/models" 2>/dev/null || true
 
-    # ── venv del bridge BLE ───────────────────────────────────────────────
+    # ── venv del bridge BLE (serve in entrambe le modalita') ──────────────
     if [ ! -x "$VENV/bin/python" ]; then
         log "creo il venv $VENV"
         if ! python3 -m venv "$VENV"; then
@@ -133,21 +227,70 @@ configure)
                 log "ATTENZIONE: dipendenze bridge non installate (rete assente e wheel mancanti)"
             fi
         fi
-        chown -R root:"$SVC_USER" "$VENV" 2>/dev/null || true
-        chmod -R g+rX "$VENV" 2>/dev/null || true
+        # root proprietario, leggibile da tutti: in desktop lo usa il launcher
+        # dell'utente, in servizio lo usa la unit del bridge.
+        if [ "$MODE" = "desktop" ]; then
+            chown -R root:root "$VENV" 2>/dev/null || true
+            chmod -R a+rX "$VENV" 2>/dev/null || true
+        else
+            chown -R root:"$SVC_USER" "$VENV" 2>/dev/null || true
+            chmod -R g+rX "$VENV" 2>/dev/null || true
+        fi
     fi
 
     # ── capability per l'uso manuale ──────────────────────────────────────
+    # cap_sys_nice serve anche alla GUI desktop (SCHED_FIFO senza sudo);
+    # cap_ipc_lock per mlockall. Senza, il motore parte in modalita'
+    # degradata: il codice ha gia' il fallback.
+    #
+    # Trappola: un eseguibile con file capability che l'ambiente NON concede
+    # non parte affatto (exec -> EPERM, exit 126). Succede nei container senza
+    # --cap-add e su kernel con bounding set ridotto. Siccome le capability
+    # sono un'ottimizzazione e non un requisito, dopo setcap si verifica che
+    # il binario resti eseguibile da un utente normale; se non lo e', si
+    # tolgono invece di lasciare un motore che non parte.
     if [ -x "$APP/namzero-lite" ] && command -v setcap >/dev/null 2>&1; then
         if setcap cap_sys_nice,cap_ipc_lock+ep "$APP/namzero-lite" 2>/dev/null; then
-            log "capability applicate al binario"
+            caps_ok=1
+            if [ "$(id -u)" -eq 0 ] && command -v su >/dev/null 2>&1 \
+                && id nobody >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+                # 126/127 = l'exec non e' avvenuto (EPERM / non trovato).
+                # Qualunque altro codice significa che il binario e' partito:
+                # con --help l'usage esce con 0.
+                set +e
+                timeout 10 su -s /bin/sh nobody -c \
+                    "'$APP/namzero-lite' --help" >/dev/null 2>&1
+                _rc=$?
+                set -e
+                case "$_rc" in
+                126 | 127) caps_ok=0 ;;
+                *) : ;;
+                esac
+            fi
+            if [ "$caps_ok" = 1 ]; then
+                log "capability applicate al binario"
+            else
+                setcap -r "$APP/namzero-lite" 2>/dev/null || true
+                log "ATTENZIONE: capability non concedibili qui (exec negato), rimosse: il motore parte senza realtime privilegiato"
+            fi
         else
             log "ATTENZIONE: setcap non applicato (il servizio usa AmbientCapabilities)"
         fi
     fi
 
-    # ── namzero-ctl senza password ────────────────────────────────────────
-    if [ -x "$CTL" ] && id "$NAMZERO_CTL_USER" >/dev/null 2>&1; then
+    # ── utente desktop nel gruppo namzero (solo dati condivisi) ───────────
+    if [ "$MODE" != "desktop" ] && [ -n "$DESKTOP_USER" ]; then
+        if id "$DESKTOP_USER" >/dev/null 2>&1; then
+            if adduser "$DESKTOP_USER" "$SVC_USER" >/dev/null 2>&1; then
+                log "utente $DESKTOP_USER aggiunto al gruppo $SVC_USER"
+            fi
+        else
+            log "ATTENZIONE: utente $DESKTOP_USER inesistente, gruppo invariato"
+        fi
+    fi
+
+    # ── namzero-ctl senza password (solo servizio) ────────────────────────
+    if [ "$MODE" != "desktop" ] && [ -x "$CTL" ] && id "$NAMZERO_CTL_USER" >/dev/null 2>&1; then
         case "$NAMZERO_CTL_USER" in
         *[!A-Za-z0-9_-]*)
             log "ATTENZIONE: NAMZERO_CTL_USER non valido, sudoers non aggiornato"
@@ -164,44 +307,79 @@ configure)
             rm -f "$tmp"
             ;;
         esac
-    else
-        log "ATTENZIONE: utente $NAMZERO_CTL_USER assente, sudoers non creato"
+    elif [ "$MODE" = "desktop" ]; then
+        # Un'installazione precedente in modalita' servizio puo' aver lasciato
+        # la regola: la si toglie, il desktop non usa namzero-ctl.
+        rm -f "$SUDOERS"
     fi
 
-    # ── drop-in DNS per il nome dell'AP ──────────────────────────────────
-    install -d -m 0755 "$DNS_DIR"
-    printf 'address=/%s/10.42.0.1\n' "$NAME" >"$DNS_FILE"
-    chmod 0644 "$DNS_FILE"
-    chown root:root "$DNS_FILE" 2>/dev/null || true
+    # ── drop-in DNS per il nome dell'AP (solo servizio) ───────────────────
+    if [ "$MODE" != "desktop" ]; then
+        install -d -m 0755 "$DNS_DIR"
+        printf 'address=/%s/10.42.0.1\n' "$NAME" >"$DNS_FILE"
+        chmod 0644 "$DNS_FILE"
+        chown root:root "$DNS_FILE" 2>/dev/null || true
+    else
+        rm -f "$DNS_FILE"
+        rmdir "$DNS_DIR" 2>/dev/null || true
+    fi
 
     # ── systemd ───────────────────────────────────────────────────────────
     if command -v systemctl >/dev/null 2>&1; then
         systemctl daemon-reload >/dev/null 2>&1 || true
     fi
-    if systemd_running; then
-        # enable --now crea i symlink e avvia subito. L'exit code non blocca il
-        # postinst se una unit (es. WiFi senza hardware) non parte: i restart
-        # sotto sono comunque indipendenti.
-        systemctl enable --now cpu-performance.service namzero-lite.service \
-            namzero-web.service namzero-ble-bridge.service \
-            namzero-wifi.service >/dev/null 2>&1 || true
-        systemctl restart cpu-performance.service >/dev/null 2>&1 || true
-        systemctl restart namzero-lite.service >/dev/null 2>&1 || true
-        systemctl restart namzero-web.service >/dev/null 2>&1 || true
-        systemctl restart namzero-ble-bridge.service >/dev/null 2>&1 || true
-        if [ -x /usr/bin/nmcli ]; then
-            systemctl restart namzero-wifi.service >/dev/null 2>&1 || true
-        else
-            systemctl stop namzero-wifi.service >/dev/null 2>&1 || true
+
+    if [ "$MODE" = "desktop" ]; then
+        # Un cambio da service a desktop deve spegnere quello che era acceso.
+        if systemd_running; then
+            for u in namzero-lite namzero-web namzero-ble-bridge namzero-wifi \
+                     cpu-performance; do
+                systemctl disable --now "$u.service" >/dev/null 2>&1 || true
+            done
+            log "servizi di sistema disattivati (modalita' desktop)"
         fi
-        log "servizi abilitati e avviati"
+        log "avvio dal menu applicazioni: namzero-lite"
+    elif systemd_running; then
+        # enable --now crea i symlink e avvia subito. L'exit code non blocca il
+        # postinst se una unit (es. WiFi senza hardware) non parte.
+        want_start=1
+        # Forma esplicita: con `set -e` un `[ ... ] && var=0` falso lasciato
+        # come ultima istruzione della riga e' fragile.
+        if [ "${DB_START_NOW:-true}" = "false" ]; then
+            want_start=0
+        fi
+        if [ "$want_start" = 1 ]; then
+            systemctl enable --now cpu-performance.service namzero-lite.service \
+                namzero-web.service namzero-ble-bridge.service \
+                namzero-wifi.service >/dev/null 2>&1 || true
+            systemctl restart cpu-performance.service >/dev/null 2>&1 || true
+            systemctl restart namzero-lite.service >/dev/null 2>&1 || true
+            systemctl restart namzero-web.service >/dev/null 2>&1 || true
+            systemctl restart namzero-ble-bridge.service >/dev/null 2>&1 || true
+            if [ -x /usr/bin/nmcli ]; then
+                systemctl restart namzero-wifi.service >/dev/null 2>&1 || true
+            else
+                systemctl stop namzero-wifi.service >/dev/null 2>&1 || true
+            fi
+            log "servizi abilitati e avviati"
+        else
+            systemctl enable cpu-performance.service namzero-lite.service \
+                namzero-web.service namzero-ble-bridge.service \
+                namzero-wifi.service >/dev/null 2>&1 || true
+            log "servizi abilitati al boot (avvio rimandato)"
+        fi
     else
         log "systemd non attivo: unit abilitate al primo boot"
     fi
 
-    log "installazione completata"
-    log "web UI: http://<ip-del-pi>:8080  (utente di servizio: $SVC_USER)"
-    log "config: $CFG   dati: $STATE"
+    log "installazione completata (modalita': $MODE)"
+    if [ "$MODE" = "desktop" ]; then
+        log "GUI: cerca 'namzero-lite' nel menu applicazioni"
+        log "config per-utente: ~/.config/namzero   dati: ~/.local/share/namzero"
+    else
+        log "web UI: http://<ip>:8080  (utente di servizio: $SVC_USER)"
+        log "config: $CFG   dati: $STATE"
+    fi
     ;;
 abort-upgrade | abort-remove | abort-deconfigure)
     # dpkg sta annullando un'operazione: non toccare nulla.

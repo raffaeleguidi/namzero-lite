@@ -1,0 +1,39 @@
+Template: namzero-lite/install-mode
+Type: select
+Choices: desktop, service
+Choices-it: desktop, servizio
+Default: desktop
+Description: Modalita' di installazione di namzero-lite:
+ .
+  desktop  - si avvia dal menu applicazioni dell'utente che fa login.
+             Configurazione e preset vivono nella home dell'utente
+             (~/.config/namzero), niente servizi di sistema, niente
+             governor della CPU, niente gestione WiFi. Pensato per il
+             laptop Ubuntu con una scheda audio USB.
+  service  - si avvia al boot come servizio di sistema, senza login.
+             Configurazione condivisa in /etc/namzero e dati in
+             /var/lib/namzero. Raggiungibile dalla rete sulla porta 8080.
+             Pensato per il Raspberry Pi come apparecchio.
+ .
+ Le due modalita' sono alternative: un'installazione per volta. Sul Pi
+ (arm64) il default e' "service"; sugli altri host e' "desktop" (e il
+ launcher resta comunque installato, si apre a mano se serve).
+ Si puo' cambiare dopo con: sudo dpkg-reconfigure namzero-lite
+
+Template: namzero-lite/start-now
+Type: boolean
+Default: true
+Description: Avviare namzero-lite adesso?
+ .
+ Le unit systemd vengono abilitate al boot; con questa opzione vengono
+ anche avviate subito, senza riavviare la macchina.
+
+Template: namzero-lite/desktop-user
+Type: string
+Default:
+Description: Utente desktop da abilitare (facoltativo):
+ .
+ In modalita' servizio l'utente di servizio "namzero" possiede i dati.
+ Se qui indichi un utente locale (per esempio il tuo), viene aggiunto al
+ gruppo "namzero" cosi' puo' leggere e scrivere la configurazione
+ condivisa da terminale. Lascia vuoto per non toccare nessun utente.

@@ -115,25 +115,56 @@ Dettaglio e milestone in [PLAN.md](PLAN.md).
 
 ## Installazione (.deb)
 
-Per le card da distribuire c'è un pacchetto Debian arm64 con tutto incluso
-(binario, web UI, bridge BLE, config e preset di default, unit systemd):
+Un solo pacchetto per **Raspberry Pi (arm64)** e **desktop Linux (amd64)**:
+stesso binario e stesso codice, cambia solo la modalita' scelta
+all'installazione.
 
 ```bash
-sudo apt install ./namzero-lite_0.1.0_arm64.deb
+sudo apt install ./namzero-lite_0.1.0_amd64.deb   # laptop Ubuntu
+sudo apt install ./namzero-lite_0.1.0_arm64.deb   # Raspberry Pi
 sudo apt install ./namzero-lite_0.2.0_arm64.deb   # upgrade, config preservata
 sudo apt purge namzero-lite                       # pulizia completa
 ```
 
-Layout: applicazione in `/opt/namzero-lite` (con `config` che punta a
-`/etc/namzero`), configurazione in `/etc/namzero` come **conffiles**, dati
-utente in `/var/lib/namzero`, unit in `/lib/systemd/system`, `namzero-ctl` in
-`/usr/local/sbin`. I segreti (WiFi/TONE3000) restano gli esempi del repo.
-
-Build e test in container:
+La modalita' si sceglie con debconf e si cambia quando serve:
 
 ```bash
-./scripts/build-deb.sh        # -> dist/namzero-lite_<ver>_arm64.deb
-./scripts/test-container.sh   # Debian bookworm arm64 + systemd, check completi
+sudo dpkg-reconfigure namzero-lite
+```
+
+- **desktop** — si apre dal menu applicazioni (`namzero-lite`), finestra GTK +
+  WebKit; config e preset nella home dell'utente (`~/.config/namzero`,
+  `~/.local/share/namzero`), nessun servizio di sistema. Default su amd64.
+- **service** — apparecchio headless: utente `namzero`, config condivisa in
+  `/etc/namzero`, dati in `/var/lib/namzero`, unit systemd, web UI su
+  `http://<ip>:8080`. Default su arm64, quindi il Pi non fa domande.
+
+Le due modalita' sono alternative. Il launcher e' installato in entrambi i
+casi, quindi da una macchina in modalita' servizio puoi aprire la GUI a mano
+(`namzero-lite-gui --no-engine`): si collega all'istanza gia' attiva senza
+avviarne una seconda.
+
+Installazione non presidiata (CI, script, immagini):
+
+```bash
+sudo NAMZERO_INSTALL_MODE=service apt install ./namzero-lite_0.1.0_arm64.deb
+./scripts/install-deb.sh            # interattivo, sceglie il .deb piu' recente
+./scripts/install-deb.sh --mode desktop dist/namzero-lite_0.1.0_amd64.deb
+```
+
+Layout: applicazione in `/opt/namzero-lite` (con `config` che punta a
+`/etc/namzero`), configurazione factory in `/etc/namzero` come **conffiles**,
+dati in `/var/lib/namzero` (modalita' servizio), unit in
+`/lib/systemd/system`, launcher in `/usr/bin/namzero-lite-gui`, voce di menu in
+`/usr/share/applications`, `namzero-ctl` in `/usr/local/sbin`. I segreti
+(WiFi/TONE3000) restano gli esempi del repo.
+
+Build e test in container (nessuna dipendenza dall'host):
+
+```bash
+./scripts/build-deb.sh                    # -> dist/namzero-lite_<ver>_amd64.deb
+ARCH=arm64 ./scripts/build-deb.sh         # -> dist/namzero-lite_<ver>_arm64.deb
+./scripts/test-container.sh               # Debian bookworm arm64 + systemd
 ```
 
 Dettagli, tabella dei percorsi e limiti noti in
