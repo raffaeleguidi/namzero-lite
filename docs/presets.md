@@ -352,6 +352,43 @@ ricaricare il preset (`autostart_threshold_db` è accettato come alias).
 `armed` (solo overdub quantizzato) e `autostart`, `threshold_db` (con
 l'alias `autostart_threshold_db`).
 
+## Copiare un preset fra due macchine
+
+La web UI ha tre controlli accanto alla combo dei preset:
+
+- **Scarica** — salva il preset selezionato come file `<nome>.json`
+  (`GET /api/presets/download?name=<nome>`). Il file e' esattamente quello in
+  `config/presets/`, quindi e' leggibile e modificabile a mano.
+- **slot** — la tendina a fianco sceglie *dove* mettere il preset caricato
+  (`0..9`, oppure "solo file"). Il default e' il primo slot libero.
+- **Carica** — legge un `.json` dal disco e lo scrive in
+  `config/presets/<nome>.json` (`POST /api/presets/upload`, con l'header
+  `X-Filename`). Se il nome esiste gia' la UI chiede conferma e ripete la
+  richiesta con `?overwrite=1`; senza conferma il server risponde 409.
+
+Perche' serve la tendina degli slot: la combo dei preset elenca gli **slot**
+(`slots` in `config/presets.json`), non i file presenti in `config/presets/`.
+Un preset caricato senza slot resterebbe un file orfano, invisibile alla UI.
+Con lo slot, il server scrive `slots[N] = "presets/<nome>.json"` (scrittura
+atomica con `.bak`, come per il blocco `audio`) e chiede il **reload** al
+motore, che tiene la tabella degli slot in memoria e la rilegge solo al
+riavvio. Se il motore non risponde (modalita' solo UI) la risposta contiene
+`reloaded: false` e un `warning`: lo slot si applica al prossimo avvio.
+Sovrascrivere uno slot gia' occupato e' permesso e la risposta riporta in
+`replaced` il file che c'era prima — utile per non perdere un preset per
+sbaglio.
+
+Sono endpoint pensati per un trasferimento manuale (Mac -> Pi, via WiFi o
+chiavetta). **Cosa non trasportano**: il preset cita `models/<file>.nam` e
+`irs/<file>.wav`, ma i file audio non sono nel JSON e non vengono copiati. Se
+sull'altra macchina mancano, il preset si carica lo stesso e il motore avvisa
+che il modello non c'e'. Modelli e IR si caricano a parte da
+*Impostazioni > File*.
+
+Nomi ammessi: solo basename con estensione `.json`, senza `/`, `\` o `..`; il
+server rifiuta tutto il resto, cosi' un nome malevolo non puo' uscire dalla
+directory dei preset.
+
 ## Cosa non e' un preset
 
 - **La mappa MIDI** sta in `config/midi.json` e vale per tutti i preset. Un

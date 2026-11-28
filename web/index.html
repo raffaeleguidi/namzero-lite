@@ -159,7 +159,8 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
   h1 { font-size:13px; letter-spacing:0; white-space:nowrap; flex:0 0 auto; }
   #status { gap:4px; overflow:hidden; min-width:0; }
   #statustext { font-size:15px; flex:0 0 auto; }
-  #presetselect { flex:1 1 auto; font-size:16px; padding:3px 6px; max-width:45vw; }
+  #presetselect { flex:1 1 auto; font-size:16px; padding:3px 6px; max-width:34vw; }
+  #presetDownload, #presetUploadBtn { padding:3px 6px; font-size:12px; flex:0 0 auto; }
   #menu { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
           width:42px; height:42px; padding:0; font-size:18px; margin-left:0; }
   #actions { display:none; position:absolute; top:calc(100% - 2px); right:calc(4px + env(safe-area-inset-right));
@@ -202,7 +203,7 @@ main { display:flex; gap:12px; padding:16px; overflow-x:auto; min-width:0; max-w
 <body>
 <header>
   <h1>namzero-lite</h1>
-  <span id="status"><span id="statustext">…</span><select id="presetselect" title="preset" aria-label="preset"></select><button class="act" id="renameBtn" type="button" title="rinomina preset" aria-label="rinomina preset" style="padding:3px 8px;font-size:13px">✎</button><input id="renameInput" class="hidden" maxlength="32" style="font-size:18px;font-weight:600;color:#fff;background:var(--card);border:1px solid var(--acc);border-radius:6px;padding:3px 8px;width:160px;min-width:0">
+  <span id="status"><span id="statustext">…</span><select id="presetselect" title="preset" aria-label="preset"></select><button class="act" id="renameBtn" type="button" title="rinomina preset" aria-label="rinomina preset" style="padding:3px 8px;font-size:13px">✎</button><input id="renameInput" class="hidden" maxlength="32" style="font-size:18px;font-weight:600;color:#fff;background:var(--card);border:1px solid var(--acc);border-radius:6px;padding:3px 8px;width:160px;min-width:0"><a class="act" id="presetDownload" href="#" download title="Scarica questo preset come file per copiarlo su un'altra macchina" aria-label="scarica preset" style="padding:3px 8px;font-size:13px">Scarica</a><button class="act" id="presetUploadBtn" type="button" title="Carica un preset da file, per copiarlo da un'altra macchina" aria-label="carica preset" style="padding:3px 8px;font-size:13px">Carica</button><select id="presetSlotSelect" title="Slot in cui mettere il preset caricato: senza slot il file resta su disco ma non compare nella lista" aria-label="slot di destinazione" style="font-size:12px;padding:3px 4px"></select><input id="presetUpload" type="file" accept=".json,application/json" hidden>
   <div id="right">
     <button class="act" id="menu" type="button" aria-label="menu" aria-expanded="false" aria-controls="actions">☰</button>
     <div id="actions">
@@ -574,6 +575,7 @@ function render(st, fromPoll = false) {
       (pendingSlot === null || st.slot === pendingSlot)) {
     const v = String(st.slot);
     if ([...presetSelect.options].some(o => o.value === v)) presetSelect.value = v;
+    syncDownloadHref();
   }
   board.children && [...board.children].forEach(card => {
     const id = card._id;
@@ -775,15 +777,126 @@ function loadPresets(attempt = 0) {
     presetSelect.textContent = "";
     list.forEach(p => presetSelect.append(el("option", {value:String(p.slot), textContent:p.name})));
     if (last) presetSelect.value = String(last.slot);
+    syncDownloadHref();
   }).catch(() => {
     if (attempt < 5) setTimeout(() => loadPresets(attempt + 1), 800);
   });
 }
 presetSelect.onchange = () => {
   const n = +presetSelect.value;
+  syncDownloadHref();
   if (Number.isFinite(n)) send({cmd:"slot", n});
 };
 loadPresets();
+
+// Scarica/Carica di un singolo preset: copia un preset fra due macchine
+// (es. Mac -> Raspberry Pi) senza sync automatica. Il download usa un <a
+// download> perche' su WebKitGTK evita dialoghi strani. L'upload scrive il
+// file e, se e' scelto uno slot, lo assegna li' e chiede il reload: senza
+// slot il file resta su disco ma non compare nella combo, che elenca gli
+// slot del motore, non i file.
+const presetDownload = document.getElementById("presetDownload");
+const presetUploadBtn = document.getElementById("presetUploadBtn");
+const presetUpload = document.getElementById("presetUpload");
+const presetSlotSelect = document.getElementById("presetSlotSelect");
+const presetUploadTitle = presetUploadBtn.title;
+function selectedPresetName() {
+  const opt = presetSelect.options[presetSelect.selectedIndex];
+  return opt ? opt.textContent : "";
+}
+function syncDownloadHref() {
+  const name = selectedPresetName();
+  if (!name) {
+    presetDownload.removeAttribute("href");
+    presetDownload.removeAttribute("download");
+    presetDownload.setAttribute("aria-disabled", "true");
+    return;
+  }
+  presetDownload.removeAttribute("aria-disabled");
+  presetDownload.href = "/api/presets/download?name=" + encodeURIComponent(name);
+  presetDownload.setAttribute("download", name + ".json");
+}
+// La combo puo' cambiare anche via SSE (senza evento change): l'href si
+// ricalcola al click, cosi' scarica sempre il preset selezionato.
+presetDownload.addEventListener("click", (e) => {
+  syncDownloadHref();
+  if (!presetDownload.getAttribute("href")) e.preventDefault();
+});
+// Messaggio breve riusando il pattern gia' usato dal bottone Salva
+// (testo + .saved/.err per ~2 s); nessun banner nuovo.
+function presetFlash(text, ok) {
+  clearTimeout(presetFlash._t);
+  presetUploadBtn.classList.remove("saved", "err");
+  presetUploadBtn.textContent = text;
+  presetUploadBtn.classList.add(ok ? "saved" : "err");
+  presetFlash._t = setTimeout(() => {
+    presetUploadBtn.textContent = "Carica";
+    presetUploadBtn.classList.remove("saved", "err");
+  }, ok ? 1400 : 2200);
+}
+// Slot di destinazione del preset caricato: si popola da /api/presets/slots
+// (che elenca anche gli slot vuoti) e conserva la scelta fra un upload e
+// l'altro. Default: il primo slot libero; se non ce ne sono, "solo file".
+// "solo file" serve per trasferire un preset senza occupare uno slot, es.
+// quando lo si vuole solo archiviare sulla macchina.
+function loadSlotChoices() {
+  fetch("/api/presets/slots").then(r => r.json()).then(j => {
+    if (!j || !Array.isArray(j.slots)) return;
+    const prev = presetSlotSelect.value;
+    presetSlotSelect.textContent = "";
+    presetSlotSelect.append(el("option", {value:"", textContent:"solo file"}));
+    let firstFree = null;
+    j.slots.forEach(s => {
+      const label = s.name ? `slot ${s.slot}: ${s.name}` : `slot ${s.slot}: libero`;
+      presetSlotSelect.append(el("option", {value:String(s.slot), textContent:label}));
+      if (!s.name && firstFree === null) firstFree = String(s.slot);
+    });
+    // La scelta precedente vale solo se lo slot esiste ancora.
+    const values = Array.from(presetSlotSelect.options).map(o => o.value);
+    if (prev !== "" && values.includes(prev)) {
+      presetSlotSelect.value = prev;
+    } else {
+      presetSlotSelect.value = firstFree === null ? "" : firstFree;
+    }
+  }).catch(() => {});
+}
+loadSlotChoices();
+function uploadPreset(file, overwrite) {
+  const slot = presetSlotSelect.value;
+  let url = "/api/presets/upload";
+  const qs = [];
+  if (overwrite) qs.push("overwrite=1");
+  if (slot !== "") qs.push("slot=" + encodeURIComponent(slot));
+  if (qs.length) url += "?" + qs.join("&");
+  fetch(url, {method:"POST", headers:{"X-Filename": file.name}, body: file})
+    .then(r => r.json().catch(() => ({})).then(j => ({status:r.status, j})))
+    .then(({status, j}) => {
+      if (status === 409 && !overwrite) {
+        if (confirm(`Il preset "${file.name}" esiste gia'. Sovrascriverlo?`)) {
+          uploadPreset(file, true);
+        } else {
+          presetFlash("Annullato", false);
+        }
+        return;
+      }
+      if (j && j.ok) {
+        presetUploadBtn.title = j.warning || presetUploadTitle;
+        presetFlash("Caricato ✓", true);
+        loadPresets();
+        loadSlotChoices();
+      } else {
+        presetUploadBtn.title = (j && j.error) || "caricamento non riuscito";
+        presetFlash("Errore", false);
+      }
+    })
+    .catch(() => presetFlash("Errore", false));
+}
+presetUploadBtn.onclick = () => presetUpload.click();
+presetUpload.onchange = () => {
+  const file = presetUpload.files && presetUpload.files[0];
+  if (file) uploadPreset(file, false);
+  presetUpload.value = "";  // permette di ricaricare lo stesso file
+};
 
 // Rinomina del preset corrente: l'icona apre un input al posto della combo;
 // invio salva (engine rename), Esc/uscita annulla. Dopo il rename si ricarica

@@ -20,13 +20,23 @@ import time
 import urllib.parse
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WEB = os.path.join(ROOT, "web")
+# APP e' dove vivono programma e asset web (nel pacchetto /opt/namzero-lite);
+# ROOT e' la radice dei *dati* (config, models, irs). In modalita' servizio
+# coincidono; in modalita' desktop il launcher passa NAMZERO_ROOT puntando alla
+# cartella per-utente, cosi' preset e modelli non richiedono permessi di
+# sistema. Gli asset statici devono restare presi da APP: un utente non ha
+# perche' avere una copia di web/ nella propria home.
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.environ.get("NAMZERO_ROOT") or APP
+WEB = os.path.join(APP, "web")
 CTL = "/tmp/namzero-lite-ctl.sock"
 # Config viva delle opzioni globali (slot, gate, eq, tuner, audio). L'override
 # da ambiente serve solo ai test: in produzione resta config/presets.json.
 PRESETS_CFG = (os.environ.get("NAMZERO_PRESETS_CONFIG")
                or os.path.join(ROOT, "config/presets.json"))
+# Preset dei singoli slot: un file JSON per preset. Servono a scaricare/caricare
+# un preset fra due macchine (es. Mac -> Raspberry Pi).
+PRESET_DIR = os.path.join(ROOT, "config/presets")
 # Override solo per test: la config viva resta config/wifi.json.
 WIFI = os.environ.get("NAMZERO_WIFI_CONFIG") or os.path.join(ROOT, "config/wifi.json")
 WIFI_AP_DEFAULT = {"enabled": True, "ssid": "namzero-lite",
@@ -199,6 +209,75 @@ def presets_list():
         if name:
             out.append({"slot": slot, "name": name})
     return out
+
+
+# Slot del motore: std::array<std::string, 10> in presets_config.h. Il
+# motore legge questa tabella UNA VOLTA all'avvio, quindi assegnare un preset
+# a uno slot richiede un reload (re-exec) per renderlo selezionabile.
+MAX_SLOTS = 10
+
+
+def _write_slot_assignment(name, slot):
+    """Scrive `slots[slot] = presets/<name>.json` in config/presets.json.
+
+    Scrittura atomica con backup, stesso schema di _write_audio: il file e'
+    letto dal motore e dalla web UI, quindi non deve mai restare a meta'.
+    Restituisce il path precedente dello slot (o stringa vuota) per poterlo
+    riportare nella risposta.
+    """
+    raw = _read_presets()
+    slots = raw.get("slots")
+    if not isinstance(slots, list):
+        slots = []
+    # La lista puo' essere piu' corta di MAX_SLOTS: il motore riempie il resto
+    # con stringhe vuote, un file piu' corto va comunque bene.
+    while len(slots) < slot + 1:
+        slots.append("")
+    previous = slots[slot] if isinstance(slots[slot], str) else ""
+    slots[slot] = "presets/%s" % name
+    raw["slots"] = slots
+
+    tmp = PRESETS_CFG + ".tmp"
+    try:
+        parent = os.path.dirname(PRESETS_CFG)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        if os.path.exists(PRESETS_CFG):
+            shutil.copy2(PRESETS_CFG, PRESETS_CFG + ".bak")
+            mode = os.stat(PRESETS_CFG).st_mode & 0o777
+        else:
+            mode = 0o644
+        with open(tmp, "w") as f:
+            json.dump(raw, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, mode)
+        os.replace(tmp, PRESETS_CFG)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    return previous
+
+
+def _preset_filename(raw):
+    """Nome file di un preset validato, oppure None se non e' accettabile.
+
+    Solo basename semplici con estensione .json (case-insensitive): niente
+    separatori di path, niente "..", niente caratteri di controllo. Vale sia
+    per il download sia per l'upload, cosi' non si esce mai da PRESET_DIR.
+    """
+    name = (raw or "").strip()
+    if not name or name.startswith(".") or name != os.path.basename(name):
+        return None
+    if any(ch in name for ch in ("/", "\\", "\x00")) or ".." in name:
+        return None
+    if any(ord(ch) < 32 for ch in name):
+        return None
+    if len(name) <= len(".json") or not name.lower().endswith(".json"):
+        return None
+    return name
 
 
 # ── Interfaccia audio ──────────────────────────────────────────────────────
@@ -698,6 +777,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
             return
+        if path == "/api/presets/download":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            name = _preset_filename(q.get("name", [""])[0])
+            if not name:
+                self._json({"error": "nome preset non valido"}, 400)
+                return
+            base = os.path.realpath(PRESET_DIR)
+            fp = os.path.realpath(os.path.join(base, name))
+            if os.path.dirname(fp) != base or not os.path.isfile(fp):
+                self._json({"error": "preset '%s' non trovato" % name}, 404)
+                return
+            try:
+                with open(fp, "rb") as f:
+                    blob = f.read()
+            except OSError as exc:
+                self._json({"error": "lettura preset: %s" % exc}, 500)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(blob)))
+            self.send_header("Content-Disposition",
+                             'attachment; filename="%s"' % name)
+            self.end_headers()
+            self.wfile.write(blob)
+            return
+        if path == "/api/presets/slots":
+            # Elenco completo degli slot (anche vuoti): serve alla UI per
+            # scegliere dove mettere un preset caricato. /api/presets elenca
+            # solo quelli occupati, perche' e' la lista della combo.
+            try:
+                used = {p["slot"]: p["name"] for p in presets_list()}
+                slots = [{"slot": i, "name": used.get(i, "")}
+                         for i in range(MAX_SLOTS)]
+                self._json({"total": MAX_SLOTS, "slots": slots})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
         if self.path.startswith("/api/presets"):
             try:
                 self._json(presets_list())
@@ -896,6 +1012,69 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 cfg = {"networks": clean, "ap": ap}
                 _write_wifi(cfg)
                 self._json({"ok": True, "networks": clean, "ap": ap})
+                return
+            if self.path.split("?", 1)[0] == "/api/presets/upload":
+                name = _preset_filename(self.headers.get("X-Filename", ""))
+                if not name:
+                    self._json({"error": "serve un file .json con nome semplice"}, 400)
+                    return
+                try:
+                    data = json.loads(body)
+                except ValueError:
+                    self._json({"error": "JSON non valido"}, 400)
+                    return
+                if not isinstance(data, dict):
+                    self._json({"error": "il preset deve essere un oggetto JSON"}, 400)
+                    return
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                overwrite = q.get("overwrite", ["0"])[0] in ("1", "true", "yes")
+                # Slot di destinazione, facoltativo: senza, il preset resta un
+                # file in config/presets/ e non compare nella combo (che
+                # elenca gli slot). Con lo slot, il file diventa selezionabile.
+                slot_raw = q.get("slot", [""])[0]
+                slot = None
+                if slot_raw != "":
+                    try:
+                        slot = int(slot_raw)
+                    except ValueError:
+                        self._json({"error": "slot non numerico"}, 400)
+                        return
+                    if not 0 <= slot < MAX_SLOTS:
+                        self._json({"error": "slot fuori da 0..%d" % (MAX_SLOTS - 1)}, 400)
+                        return
+                os.makedirs(PRESET_DIR, exist_ok=True)
+                dest = os.path.join(PRESET_DIR, name)
+                if os.path.exists(dest) and not overwrite:
+                    self._json({"error": "preset '%s' esiste gia'" % name}, 409)
+                    return
+                tmp = "%s.%s.tmp" % (dest, secrets.token_hex(4))
+                try:
+                    with open(tmp, "w") as f:
+                        json.dump(data, f, indent=2)
+                        f.write("\n")
+                    os.replace(tmp, dest)
+                finally:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                result = {"ok": True, "name": name}
+                if slot is not None:
+                    previous = _write_slot_assignment(name, slot)
+                    result["slot"] = slot
+                    if previous:
+                        result["replaced"] = os.path.basename(previous)
+                    # Il motore ha la tabella degli slot in memoria: senza
+                    # reload il preset non sarebbe selezionabile fino al
+                    # prossimo avvio. Se il motore non c'e' (modalita' solo
+                    # UI) la config resta salvata e si applica al primo avvio.
+                    try:
+                        ctl({"cmd": "reload"})
+                        result["reloaded"] = True
+                    except Exception as exc:
+                        result["reloaded"] = False
+                        result["warning"] = (
+                            "motore non raggiungibile (%s): slot salvato, "
+                            "sara' attivo al prossimo avvio" % exc)
+                self._json(result)
                 return
             if self.path.startswith("/api/upload"):
                 name = os.path.basename(self.headers.get("X-Filename", ""))
