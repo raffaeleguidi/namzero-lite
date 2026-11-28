@@ -282,8 +282,8 @@ int main() {
         namzero::MidiConfig c;
         std::string err;
         CHECK(namzero::parse_midi_config(j, c, err));
-        CHECK(c.gboard_mod_led[0] == 4);
-        CHECK(c.gboard_boost_led == 3);
+        CHECK(c.gboard_mod_led[0] == 0);
+        CHECK(c.gboard_boost_led == 7);
         CHECK(c.gboard_mod_cc[0] == -1);
         CHECK(c.gboard_boost_cc == -1);
     }
@@ -307,12 +307,12 @@ int main() {
     // Se *_led c'e', vince su *_pc: PC e note LED sono indipendenti.
     {
         const auto j = nlohmann::json::parse(R"({
-            "gboard": { "mod_pc": [10, 11, 12, 13], "mod_led": [4, 5, 6, 7] }
+            "gboard": { "mod_pc": [10, 11, 12, 13], "mod_led": [20, 21, 22, 23] }
         })");
         namzero::MidiConfig c;
         std::string err;
         CHECK(namzero::parse_midi_config(j, c, err));
-        CHECK(c.gboard_mod_led[0] == 4);
+        CHECK(c.gboard_mod_led[0] == 20);
         CHECK(c.gboard_mod_pc[0] == 10);
     }
 
@@ -333,7 +333,7 @@ int main() {
     // -1 disattiva una singola voce di un array.
     {
         const auto j = nlohmann::json::parse(R"({
-            "gboard": { "mod_cc": [54, 55, 56, -1], "mod_led": [-1, 5, 6, 7] }
+            "gboard": { "mod_cc": [54, 55, 56, -1], "mod_led": [-1, 20, 21, 22] }
         })");
         namzero::MidiConfig c;
         std::string err;

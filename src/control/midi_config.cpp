@@ -359,7 +359,7 @@ bool parse_midi_config(const nlohmann::json& j, MidiConfig& cfg, std::string& er
         }
         // Retrocompatibilita': nei file vecchi lo stesso numero era sia PC sia
         // nota LED. Se manca il campo LED esplicito ma c'e' il PC, si continua
-        // a usare quello; se mancano entrambi restano i default 4-7/0-2/3.
+        // a usare quello; se mancano entrambi restano i default 0-3/4-6/7.
         if (!has_mod_led && gb.contains("mod_pc")) {
             cfg.gboard_mod_led = cfg.gboard_mod_pc;
         }
